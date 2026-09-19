@@ -129,6 +129,11 @@ def spawn_first_tab(cwd: Path, command: list[str]) -> SpawnResult:
     return SpawnResult(window_id=window_id, pane_id=pane_id)
 
 
+def start_first_window(cwd: Path, command: list[str]) -> None:
+    """Start a GUI and run Control when no GUI is available for ``cli``."""
+    _run(first_start_args(cwd, command))
+
+
 def spawn_additional_tab(
     window_id: WindowId, cwd: Path, command: list[str]
 ) -> PaneId:
@@ -333,6 +338,11 @@ def first_spawn_args(cwd: Path, command: list[str]) -> list[str]:
         "--",
         *command,
     ]
+
+
+def first_start_args(cwd: Path, command: list[str]) -> list[str]:
+    """Pure GUI-start argument builder for launcher recovery tests."""
+    return ["start", "--cwd", str(cwd), "--", *command]
 
 
 def additional_spawn_args(

@@ -16,6 +16,7 @@ from band_wezterm.setup_wezterm import (
 from band_wezterm.tui.control_app import is_control_process, run_control_app
 from band_wezterm.wezterm_cli import (
     PaneId,
+    WezTermCliError,
     WezTermNotFoundError,
     WindowId,
     find_control_pane,
@@ -24,6 +25,7 @@ from band_wezterm.wezterm_cli import (
     set_tab_title,
     set_window_title,
     spawn_first_tab,
+    start_first_window,
 )
 
 CONTROL_MODULE: Final = "band_wezterm.tui"
@@ -108,7 +110,12 @@ def _run_setup() -> int:
 
 def _run_control(*, restart: bool) -> int:
     cwd = Path.cwd()
-    existing = find_control_pane()
+    try:
+        existing = find_control_pane()
+    except WezTermCliError:
+        start_first_window(cwd, _control_command())
+        print("Control tab opened in a new WezTerm window.")
+        return 0
 
     if existing is not None and existing.workspace == BAND_WORKSPACE_NAME:
         # A tab title is not a safe ownership signal for closing a whole user window.
@@ -142,7 +149,11 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.command == SETUP_COMMAND:
         return _run_setup()
-    return _run_control(restart=args.restart)
+    try:
+        return _run_control(restart=args.restart)
+    except WezTermCliError as exc:
+        print(exc, file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

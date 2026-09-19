@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 
 from band_wezterm.__main__ import SETUP_COMMAND, _parse_args, _run_control, main
 from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
-from band_wezterm.wezterm_cli import PaneId, PaneInfo, WezTermNotFoundError, WindowId
+from band_wezterm.wezterm_cli import (
+    PaneId,
+    PaneInfo,
+    WezTermCliError,
+    WezTermNotFoundError,
+    WindowId,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -121,3 +128,33 @@ def test_run_control_preserves_user_control_tab_in_band_workspace(
     monkeypatch.setattr("band_wezterm.__main__.request_workspace_focus", lambda **_: None)
     assert _run_control(restart=False) == 0
     assert killed == []
+
+
+def test_run_control_starts_a_gui_when_cli_has_no_running_gui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def no_gui() -> None:
+        raise WezTermCliError("failed to connect")
+
+    started: list[tuple[Path, list[str]]] = []
+    monkeypatch.setattr("band_wezterm.__main__.find_control_pane", no_gui)
+    monkeypatch.setattr(
+        "band_wezterm.__main__.start_first_window",
+        lambda cwd, command: started.append((cwd, command)),
+    )
+
+    assert _run_control(restart=True) == 0
+    assert started == [
+        (
+            Path.cwd(),
+            [
+                "env",
+                "-u",
+                "NO_COLOR",
+                "COLORTERM=truecolor",
+                sys.executable,
+                "-m",
+                "band_wezterm.tui",
+            ],
+        )
+    ]

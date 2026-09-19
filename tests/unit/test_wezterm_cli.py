@@ -10,6 +10,7 @@ from band_wezterm.wezterm_cli import (
     WindowId,
     additional_spawn_args,
     first_spawn_args,
+    first_start_args,
     format_focus_sequence,
     is_control_pane,
     pane_command_env,
@@ -27,6 +28,18 @@ def test_first_spawn_uses_new_window_without_hidden_workspace() -> None:
     assert "--window-id" not in args
     assert args[args.index("--cwd") + 1] == str(cwd)
     assert args[args.index("--") + 1 :] == command
+
+
+def test_first_start_runs_control_when_no_gui_is_available() -> None:
+    command = ["python", "-m", "band_wezterm.tui"]
+    cwd = Path("/tmp/work")
+    assert first_start_args(cwd, command) == [
+        "start",
+        "--cwd",
+        str(cwd),
+        "--",
+        *command,
+    ]
 
 
 def test_additional_spawn_uses_window_id_only() -> None:
