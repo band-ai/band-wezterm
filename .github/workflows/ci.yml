@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: unit + pilot (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv lock --check
+      - run: uv sync --locked
+      - run: uv run pytest tests/unit -q
+
+  wezterm-cli:
+    name: wezterm mux CLI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.14"
+      - name: Install WezTerm (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://apt.fury.io/wez/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/wezterm-fury.gpg
+          echo 'deb [signed-by=/usr/share/keyrings/wezterm-fury.gpg] https://apt.fury.io/wez/ * *' | sudo tee /etc/apt/sources.list.d/wezterm.list
+          sudo apt-get update
+          sudo apt-get install -y wezterm
+        continue-on-error: true
+      - name: Install WezTerm (macOS)
+        if: runner.os == 'macOS'
+        run: brew install --cask wezterm
+        continue-on-error: true
+      - name: Install WezTerm (Windows)
+        if: runner.os == 'Windows'
+        run: winget install --id wez.wezterm -e --accept-source-agreements --accept-package-agreements
+        continue-on-error: true
+      - run: uv sync --locked
+      - run: uv run pytest tests/integration/test_wezterm_cli_live.py -q
+
+  pty:
+    name: control tab PTY (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --locked
+      - name: Live PTY whole-flow
+        env:
+          BAND_LIVE_PTY: ${{ secrets.BAND_LIVE_PTY || '0' }}
+          BAND_OAUTH_CLIENT_ID: ${{ vars.BAND_OAUTH_CLIENT_ID }}
+          BAND_OAUTH_ISSUER: ${{ vars.BAND_OAUTH_ISSUER }}
+          BAND_BASE_URL: ${{ vars.BAND_BASE_URL }}
+          BAND_WS_URL: ${{ vars.BAND_WS_URL }}
+        run: uv run pytest tests/integration/test_control_tab_pty.py -q

@@ -11,9 +11,16 @@
   clear concern and have a single reason to change.
 - **DRY (Don't Repeat Yourself)**: Eliminate duplicate logic, behavior, and
   structural redundancy across the codebase.
+- **Reuse Before Inventing**: Scan the existing codebase first. Prefer
+  reusing, improving, or extending what we already have over introducing
+  parallel implementations or reinventing local solutions.
 - **No Magic Numbers or Strings**: Replace raw inline literals and string
   values with descriptive, well-named constants, enums, or configuration
   parameters.
+- **Strong Types**: Prefer typed models and enums over bare `dict`/`str`
+  payloads. Use Pydantic for structured data (config, API shapes, persisted
+  state). Prefer `StrEnum` (or other enums) for closed string sets instead of
+  free-form string literals.
 - **Clean Code & Simple Flows**: Prioritize high readability and linear,
   straightforward execution paths. Keep control flow flat, minimize
   nesting, and favor simple, predictable logic over clever or overly
@@ -23,19 +30,20 @@
 - **Do Not Overcomplicate**: If product requirements overly complicate the
   implementation, pause and ask the user if the requirements can be
   simplified, letting them decide if it is an absolute must.
-- **Leverage Existing Solutions**: Consult official documentation and favor
-  well-maintained third-party libraries instead of reinventing the wheel,
-  as long as they have solid provenance.
+- **Leverage Existing Solutions**: Look online for current official docs and
+  API references rather than relying on memory or outdated assumptions.
+  Favor well-maintained third-party libraries with solid provenance instead
+  of reinventing the wheel.
 
-## Comments Style
+## Comments & Docs Style
 
-- **No Fluff, To the Point**: Keep comments concise, direct, and strictly
-  relevant.
+- **No Fluff, To the Point**: Keep comments and docs concise, direct, and
+  strictly relevant.
 - **No Narration, Keep Factual**: Do not narrate obvious step-by-step code
-  actions; state only factual rationale, constraints, or non-obvious
-  context.
+  actions in comments or docs; state only factual rationale, constraints, or
+  non-obvious context.
 - **Code Should Speak for Itself**: Prioritize self-explanatory code. Only
-  add comments when the intent, logic, or edge case is not immediately
+  add comments where intent, logic, or an edge case is not immediately
   obvious from the code itself.
 
 ## Testing Style
@@ -97,10 +105,3 @@
   test hypotheses actively, and validate all behaviors before drawing
   conclusions.
 
-## Source extension installation
-
-- Follow `.claude/skills/band-source-install/SKILL.md` when rebuilding or
-  reinstalling the extension from source.
-- Rebuild and install the production VSIX with `rtk npm run install:source`.
-  The script resolves the public OAuth build variables, verifies the package,
-  force-installs it, and prints the required **Developer: Reload Window** step.

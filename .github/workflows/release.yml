@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  BAND_OAUTH_CLIENT_ID: ${{ vars.BAND_OAUTH_CLIENT_ID }}
+  BAND_OAUTH_ISSUER: ${{ vars.BAND_OAUTH_ISSUER }}
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_os: linux
+          - os: macos-latest
+            artifact_os: macos
+          - os: windows-latest
+            artifact_os: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --locked
+      - name: PyInstaller
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          OUT="band-wezterm-${TAG}-${{ matrix.artifact_os }}"
+          # keyring backends are selected dynamically — force-include per OS.
+          HIDDEN=(--hidden-import=keyring.backends.null)
+          case "${{ matrix.artifact_os }}" in
+            macos) HIDDEN+=(--hidden-import=keyring.backends.macOS) ;;
+            windows) HIDDEN+=(--hidden-import=keyring.backends.Windows) ;;
+            linux) HIDDEN+=(--hidden-import=keyring.backends.SecretService --hidden-import=keyring.backends.chainer) ;;
+          esac
+          uv run pyinstaller \
+            --onefile \
+            --name "$OUT" \
+            --paths src \
+            "${HIDDEN[@]}" \
+            src/band_wezterm/__main__.py
+          mkdir -p artifacts
+          if [[ -f "dist/${OUT}.exe" ]]; then
+            mv "dist/${OUT}.exe" "artifacts/${OUT}.exe"
+          else
+            mv "dist/${OUT}" "artifacts/${OUT}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: band-wezterm-${{ matrix.artifact_os }}
+          path: artifacts/*
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: band-wezterm-*
+          merge-multiple: true
+      - name: Create / upload GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" artifacts/* --clobber --repo "${{ github.repository }}"
+          else
+            gh release create "$TAG" artifacts/* --repo "${{ github.repository }}" --title "$TAG" --generate-notes
+          fi
