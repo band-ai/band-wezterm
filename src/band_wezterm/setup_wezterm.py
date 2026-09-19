@@ -30,11 +30,18 @@ PLUGIN_REPO_DIRNAME: Final = "wezterm-plugin"
 PLUGIN_DIRNAME: Final = "plugin"
 PLUGIN_PACKAGE: Final = "band_wezterm.wezterm_plugin"
 PLUGIN_INIT_NAME: Final = "init.lua"
+PLUGIN_INIT_REPO_PATH: Final = f"{PLUGIN_DIRNAME}/{PLUGIN_INIT_NAME}"
 # Path(__file__).resolve().parents[N] → repo root (band_wezterm → src → repo).
 REPO_ROOT_FROM_PACKAGE: Final = 2
 GIT_COMMIT_USER_NAME: Final = "band-wezterm"
 GIT_COMMIT_USER_EMAIL: Final = "band-wezterm@localhost"
 GIT_COMMIT_MESSAGE: Final = "band-wezterm WezTerm plugin"
+GIT_COMMIT_GPGSIGN_FALSE: Final = "commit.gpgsign=false"
+GIT_COMMIT_GPG_SIGN_FALSE: Final = "commit.gpgSign=false"
+GIT_REQUIRED_ERROR: Final = (
+    "git is required to materialize the Band WezTerm plugin "
+    "(install git and ensure it is on PATH)"
+)
 
 _RETURN_LINE_RE: Final = re.compile(
     r"^([ \t]*)return\b.*$",
@@ -153,7 +160,7 @@ def materialize_plugin_repo(*, home: Path | None = None) -> Path:
     target = plugin_dir / PLUGIN_INIT_NAME
     source_text = _plugin_init_lua_text()
     if not target.is_file() or target.read_text(encoding="utf-8") != source_text:
-        target.write_text(source_text, encoding="utf-8")
+        _atomic_write(target, source_text)
     # Always recover git state — do not skip merely because file bytes match.
     if _plugin_repo_needs_commit(root):
         _git_commit_plugin_repo(root)
@@ -177,29 +184,37 @@ def _plugin_init_lua_text() -> str:
 
 
 def _plugin_repo_needs_commit(root: Path) -> bool:
-    """True when ``.git`` is missing, HEAD is unset, or tracked paths are dirty.
+    """True when ``.git``/HEAD is missing, plugin is not in HEAD, or plugin is dirty.
 
-    Untracked junk (e.g. ``.DS_Store``) is ignored — only tracked/staged
-    changes require a materialize commit.
+    Untracked junk (e.g. ``.DS_Store``) is ignored — only the plugin path is
+    considered once HEAD contains ``plugin/init.lua``.
     """
     if not (root / ".git").is_dir():
         return True
-    try:
-        head = _git(root, "rev-parse", "HEAD", check=False)
-        if head.returncode != 0:
-            return True
-        status = _git(
-            root,
-            "status",
-            "--porcelain",
-            "--untracked-files=no",
-            check=False,
-        )
-        if status.returncode != 0:
-            return True
-        return bool(status.stdout.strip())
-    except OSError:
+    head = _git(root, "rev-parse", "HEAD", check=False)
+    if head.returncode != 0:
         return True
+    in_tree = _git(
+        root,
+        "cat-file",
+        "-e",
+        f"HEAD:{PLUGIN_INIT_REPO_PATH}",
+        check=False,
+    )
+    if in_tree.returncode != 0:
+        return True
+    status = _git(
+        root,
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+        "--",
+        PLUGIN_INIT_REPO_PATH,
+        check=False,
+    )
+    if status.returncode != 0:
+        return True
+    return bool(status.stdout.strip())
 
 
 def _git(
@@ -207,33 +222,45 @@ def _git(
     *args: str,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args],
-        cwd=root,
-        check=check,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=root,
+            check=check,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        raise SetupConfigError(GIT_REQUIRED_ERROR) from exc
 
 
 def _git_commit_plugin_repo(root: Path) -> None:
     try:
         if not (root / ".git").is_dir():
             _git(root, "init")
-        _git(root, "add", f"{PLUGIN_DIRNAME}/{PLUGIN_INIT_NAME}")
+        # ``-f`` so local/global ignore rules cannot hide the plugin path.
+        _git(root, "add", "-f", PLUGIN_INIT_REPO_PATH)
         head = _git(root, "rev-parse", "HEAD", check=False)
         if head.returncode == 0:
             # Nothing staged for the plugin path — skip commit even if
-            # untracked files (e.g. .DS_Store) still dirty the tree.
-            cached = _git(root, "diff", "--cached", "--quiet", check=False)
+            # other staged paths (e.g. .DS_Store) remain.
+            cached = _git(
+                root,
+                "diff",
+                "--cached",
+                "--quiet",
+                "--",
+                PLUGIN_INIT_REPO_PATH,
+                check=False,
+            )
             if cached.returncode == 0:
                 return
         _git(
             root,
             "-c",
-            "commit.gpgsign=false",
+            GIT_COMMIT_GPGSIGN_FALSE,
             "-c",
-            "commit.gpgSign=false",
+            GIT_COMMIT_GPG_SIGN_FALSE,
             "-c",
             f"user.name={GIT_COMMIT_USER_NAME}",
             "-c",
@@ -241,6 +268,8 @@ def _git_commit_plugin_repo(root: Path) -> None:
             "commit",
             "-m",
             GIT_COMMIT_MESSAGE,
+            "--",
+            PLUGIN_INIT_REPO_PATH,
         )
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or str(exc)).strip()

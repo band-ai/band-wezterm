@@ -20,7 +20,7 @@ Install [WezTerm](https://wezterm.org/) and [uv](https://github.com/astral-sh/uv
 # Host CLI from Git (no PyPI required)
 uv tool install git+https://github.com/band-ai/band-wezterm
 
-# Wire Band tab chrome as a WezTerm plugin (idempotent)
+# Install/update Band plugin snippet in active WezTerm config (idempotent)
 band-wezterm setup
 
 # Open Control (or attach + raise if already running)

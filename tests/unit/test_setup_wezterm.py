@@ -15,11 +15,14 @@ from band_wezterm.setup_wezterm import (
     BAND_WEZTERM_PLUGIN_URL_ENV,
     DEFAULT_CONFIG_DIRNAME,
     EXAMPLE_HTTPS_PLUGIN_URL,
+    GIT_COMMIT_GPG_SIGN_FALSE,
+    GIT_COMMIT_GPGSIGN_FALSE,
     HOME_CONFIG_NAME,
     MANAGED_BEGIN,
     MANAGED_END,
     PLUGIN_DIRNAME,
     PLUGIN_INIT_NAME,
+    PLUGIN_INIT_REPO_PATH,
     PLUGIN_REPO_DIRNAME,
     WEZTERM_CONFIG_FILE_ENV,
     XDG_CONFIG_HOME_ENV,
@@ -701,6 +704,90 @@ def test_materialize_ignores_untracked_junk(tmp_path: Path) -> None:
     assert (root / ".DS_Store").is_file()
 
 
+def test_materialize_commits_when_plugin_missing_from_head(tmp_path: Path) -> None:
+    """Empty HEAD without tracked plugin/init.lua must rematerialize and commit."""
+    home = tmp_path / "home"
+    home.mkdir()
+    root = home / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME
+    root.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@localhost",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "empty",
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    missing = subprocess.run(
+        ["git", "cat-file", "-e", f"HEAD:{PLUGIN_INIT_REPO_PATH}"],
+        cwd=root,
+        check=False,
+        capture_output=True,
+    )
+    assert missing.returncode != 0
+
+    materialize_plugin_repo(home=home)
+    subprocess.run(
+        ["git", "cat-file", "-e", f"HEAD:{PLUGIN_INIT_REPO_PATH}"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    assert "apply_to_config" in (
+        root / PLUGIN_DIRNAME / PLUGIN_INIT_NAME
+    ).read_text(encoding="utf-8")
+
+
+def test_materialize_commit_excludes_staged_ds_store(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    root = materialize_plugin_repo(home=home)
+    (root / ".DS_Store").write_bytes(b"\0")
+    subprocess.run(
+        ["git", "add", "-f", ".DS_Store"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    init_lua = root / PLUGIN_DIRNAME / PLUGIN_INIT_NAME
+    init_lua.write_text("-- stale packaged lua\n", encoding="utf-8")
+
+    materialize_plugin_repo(home=home)
+    tracked = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    assert PLUGIN_INIT_REPO_PATH in tracked
+    assert ".DS_Store" not in tracked
+    assert "apply_to_config" in init_lua.read_text(encoding="utf-8")
+
+
+def test_materialize_missing_git_raises(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+
+    def _no_git(*_args: object, **_kwargs: object) -> object:
+        raise FileNotFoundError(2, "No such file or directory", "git")
+
+    with (
+        patch("band_wezterm.setup_wezterm.subprocess.run", side_effect=_no_git),
+        pytest.raises(SetupConfigError, match="git is required"),
+    ):
+        materialize_plugin_repo(home=home)
+
+
 def test_materialize_rewrites_when_content_changes(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
@@ -851,4 +938,6 @@ def test_materialize_commit_disables_gpgsign(tmp_path: Path) -> None:
         materialize_plugin_repo(home=home)
 
     commit_argv = next(argv for argv in seen if "commit" in argv)
-    assert "commit.gpgsign=false" in commit_argv
+    assert GIT_COMMIT_GPGSIGN_FALSE in commit_argv
+    assert GIT_COMMIT_GPG_SIGN_FALSE in commit_argv
+    assert PLUGIN_INIT_REPO_PATH in commit_argv

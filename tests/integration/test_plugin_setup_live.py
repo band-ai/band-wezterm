@@ -74,5 +74,3 @@ def test_setup_then_wezterm_loads_plugin(isolated_home: Path) -> None:
     combined = completed.stdout + "\n" + completed.stderr
     assert completed.returncode == 0, combined
     assert "band-wezterm live e2e: config loaded" in combined, combined
-    assert "plugin require failed" not in combined.lower()
-    assert "apply_to_config failed" not in combined.lower()

@@ -24,7 +24,7 @@ attach:
 restart:
     uv run band-wezterm --restart
 
-# Wire the Band WezTerm plugin into ~/.wezterm.lua (idempotent)
+# Install/update Band plugin snippet in active WezTerm config (idempotent)
 setup:
     uv run band-wezterm setup
 
