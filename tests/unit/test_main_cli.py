@@ -158,3 +158,30 @@ def test_run_control_starts_a_gui_when_cli_has_no_running_gui(
             ],
         )
     ]
+
+
+def test_restart_starts_a_gui_when_closing_the_window_drops_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing = PaneInfo(
+        window_id=734,
+        pane_id=81,
+        workspace="default",
+        tab_title="Control",
+        title="python",
+    )
+    started: list[tuple[Path, list[str]]] = []
+    monkeypatch.setattr("band_wezterm.__main__.find_control_pane", lambda: existing)
+    monkeypatch.setattr("band_wezterm.__main__.kill_window", lambda _window: None)
+
+    def spawn_without_gui(_cwd: Path) -> tuple[WindowId, PaneId]:
+        raise WezTermCliError("connection closed")
+
+    monkeypatch.setattr("band_wezterm.__main__._spawn_control", spawn_without_gui)
+    monkeypatch.setattr(
+        "band_wezterm.__main__.start_first_window",
+        lambda cwd, command: started.append((cwd, command)),
+    )
+
+    assert _run_control(restart=True) == 0
+    assert started

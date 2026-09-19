@@ -113,9 +113,7 @@ def _run_control(*, restart: bool) -> int:
     try:
         existing = find_control_pane()
     except WezTermCliError:
-        start_first_window(cwd, _control_command())
-        print("Control tab opened in a new WezTerm window.")
-        return 0
+        return _start_control_without_cli(cwd)
 
     if existing is not None and existing.workspace == BAND_WORKSPACE_NAME:
         # A tab title is not a safe ownership signal for closing a whole user window.
@@ -131,7 +129,10 @@ def _run_control(*, restart: bool) -> int:
         pane_id = PaneId(existing.pane_id)
         action = "attached"
     else:
-        window_id, pane_id = _spawn_control(cwd)
+        try:
+            window_id, pane_id = _spawn_control(cwd)
+        except WezTermCliError:
+            return _start_control_without_cli(cwd)
         action = "restarted" if restart else "opened"
 
     request_workspace_focus(control_pane=pane_id)
@@ -139,6 +140,13 @@ def _run_control(*, restart: bool) -> int:
         f"Control tab {action} in window {window_id.root} "
         f"(pane {pane_id.root})."
     )
+    return 0
+
+
+def _start_control_without_cli(cwd: Path) -> int:
+    """Recover when a GUI closes between a CLI lookup and spawn."""
+    start_first_window(cwd, _control_command())
+    print("Control tab opened in a new WezTerm window.")
     return 0
 
 
