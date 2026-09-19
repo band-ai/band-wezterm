@@ -73,3 +73,53 @@ def test_record_rolls_back_memory_when_save_fails(
     with pytest.raises(OSError, match=SAVE_FAILURE_MESSAGE):
         store.record(fresh)
     assert store.get("a2") is None
+
+
+def test_remove_rolls_back_memory_when_save_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = ManagedAgentStore(tmp_path / "profiles.json")
+    existing = profile_from_registration(
+        agent_id="a1",
+        name="Alpha",
+        harness=HarnessId.CODEX,
+        persona=None,
+        tuning=AgentTuning(),
+    )
+    store.record(existing)
+
+    def boom() -> None:
+        raise OSError(SAVE_FAILURE_MESSAGE)
+
+    monkeypatch.setattr(store, "_save", boom)
+    with pytest.raises(OSError, match=SAVE_FAILURE_MESSAGE):
+        store.remove("a1")
+    assert store.get("a1") == existing
+
+
+def test_save_is_atomic_replace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "profiles.json"
+    store = ManagedAgentStore(path)
+    profile = profile_from_registration(
+        agent_id="a1",
+        name="Alpha",
+        harness=HarnessId.CODEX,
+        persona=None,
+        tuning=AgentTuning(),
+    )
+    replaced: list[tuple[str, str]] = []
+    real_replace = __import__("os").replace
+
+    def tracking_replace(src: str, dst: str) -> None:
+        replaced.append((src, dst))
+        real_replace(src, dst)
+
+    monkeypatch.setattr("band_wezterm.managed_profiles.os.replace", tracking_replace)
+    store.record(profile)
+    assert len(replaced) == 1
+    src, dst = replaced[0]
+    assert Path(dst) == path
+    assert Path(src).parent == path.parent
+    assert store.get("a1") == profile
+    assert ManagedAgentStore(path).get("a1") == profile
+

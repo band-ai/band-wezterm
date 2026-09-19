@@ -502,6 +502,15 @@ class AgentsScreen(ControlScreen):
         profile = await self._preflight_launch_profile(agent.id, profile)
         if profile is None:
             return
+        # Re-get after preflight: another writer may have removed or retuned the profile.
+        fresh = self.control.managed_agents.get(agent.id)
+        if fresh is None:
+            self._set_status(NO_MANAGED_PROFILE_MESSAGE)
+            return
+        if fresh.harness is not profile.harness:
+            self._set_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
+            return
+        profile = fresh
         agent = self._sync_agent_to_profile(agent, profile)
         store = self.store
         if store.is_running(agent.id):

@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
+from contextlib import suppress
 from pathlib import Path
+from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from band_wezterm.backends import AgentTuning
 from band_wezterm.config import LOCAL_STATE_DIRNAME
 from band_wezterm.identity import HarnessId, parse_harness
+
+_PROFILE_SAVE_TMP_PREFIX: Final = ".managed_agents."
+_PROFILE_SAVE_TMP_SUFFIX: Final = ".tmp"
 
 
 class ManagedAgentProfile(BaseModel):
@@ -55,7 +62,22 @@ class ManagedAgentStore:
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         file = _ProfilesFile(profiles=sorted(self._profiles.values(), key=lambda p: p.agent_id))
-        self._path.write_text(file.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        content = file.model_dump_json(indent=2) + "\n"
+        fd, tmp_name = tempfile.mkstemp(
+            dir=self._path.parent,
+            prefix=_PROFILE_SAVE_TMP_PREFIX,
+            suffix=_PROFILE_SAVE_TMP_SUFFIX,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_name, self._path)
+        except Exception:
+            with suppress(OSError):
+                Path(tmp_name).unlink(missing_ok=True)
+            raise
 
     def record(self, profile: ManagedAgentProfile) -> None:
         previous = self._profiles.get(profile.agent_id)
@@ -73,10 +95,14 @@ class ManagedAgentStore:
         return self._profiles.get(agent_id)
 
     def remove(self, agent_id: str) -> None:
-        if agent_id not in self._profiles:
+        previous = self._profiles.pop(agent_id, None)
+        if previous is None:
             return
-        del self._profiles[agent_id]
-        self._save()
+        try:
+            self._save()
+        except Exception:
+            self._profiles[agent_id] = previous
+            raise
 
     def list(self) -> tuple[ManagedAgentProfile, ...]:
         return tuple(sorted(self._profiles.values(), key=lambda p: p.name.lower()))
