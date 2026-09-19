@@ -4,15 +4,13 @@ from __future__ import annotations
 
 from band_wezterm.auth.credentials import ManagedAgentKeyStore
 from band_wezterm.config import KEYRING_MANAGED_AGENT_KEY_PREFIX
-from band_wezterm.identity import HarnessId
 from tests.memory_agent_keys import MemoryAgentKeyStore
 
 
 def test_managed_key_round_trip() -> None:
     store = MemoryAgentKeyStore()
-    store.set("agent-1", "band_a_secret", harness=HarnessId.CODEX)
+    store.set("agent-1", "band_a_secret")
     assert store.get("agent-1") == "band_a_secret"
-    assert store.get_harness("agent-1") is HarnessId.CODEX
     store.delete("agent-1")
     assert store.get("agent-1") is None
 

@@ -11,7 +11,7 @@ from typing import ClassVar, Final
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
 
@@ -47,9 +47,6 @@ PANE_POLL_SECONDS: Final = 2.0
 SEARCH_DEBOUNCE_SECONDS: Final = 0.25
 
 SEARCH_PLACEHOLDER: Final = "Search agents by name"
-DRAFT_NAME_PLACEHOLDER: Final = "Agent name"
-DRAFT_DESCRIPTION_PLACEHOLDER: Final = "What this agent does"
-DRAFT_TITLE: Final = "Register agent — registration only, no tab is spawned"
 SOURCE_LABELS: Final[dict[AgentSource, str]] = {
     AgentSource.MINE: "My agents",
     AgentSource.DIRECTORY: "Discover · public directory",
@@ -61,7 +58,6 @@ NO_MANAGED_KEY_MESSAGE: Final = (
     "No managed API key for this agent — re-register it from Control "
     "(keys are one-time at registration)."
 )
-DRAFT_INCOMPLETE_MESSAGE: Final = "Name and description are both required."
 DELETE_CONFIRM_MESSAGE: Final = (
     "Press Delete again to permanently remove {name}."
 )
@@ -82,14 +78,9 @@ class Id(StrEnum):
     FILTERS = "agent-filters"
     SOURCE = "agent-source"
     LIST = "agent-list"
-    DRAFT = "agent-draft"
-    DRAFT_NAME = "agent-draft-name"
-    DRAFT_DESCRIPTION = "agent-draft-description"
     STATUS = "agent-status"
     TOOLBAR = "agent-toolbar"
 
-
-OPEN_CLASS: Final = "open"
 
 AGENT_CHIPS: Final[tuple[Chip, ...]] = tuple(
     Chip(key=chip.value, label=label) for chip, label in AGENT_FILTER_LABELS.items()
@@ -163,7 +154,6 @@ class AgentsScreen(ControlScreen):
         Binding("w", "new_role", "New role"),
         Binding("d", "toggle_discover", "Discover"),
         Binding("r", "reload", "Reload"),
-        Binding("escape", "cancel", "Cancel", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -173,15 +163,6 @@ class AgentsScreen(ControlScreen):
     AgentsScreen #agent-source {
         width: 28;
         content-align: right middle;
-    }
-    AgentsScreen #agent-draft {
-        display: none;
-        height: auto;
-        border: round $accent;
-        padding: 0 1;
-    }
-    AgentsScreen #agent-draft.open {
-        display: block;
     }
     AgentsScreen #agent-status {
         height: 1;
@@ -203,13 +184,6 @@ class AgentsScreen(ControlScreen):
             id=Id.FILTERS.value,
         )
         yield ListView(id=Id.LIST.value)
-        with Vertical(id=Id.DRAFT.value):
-            yield Static(DRAFT_TITLE)
-            yield Input(placeholder=DRAFT_NAME_PLACEHOLDER, id=Id.DRAFT_NAME.value)
-            yield Input(
-                placeholder=DRAFT_DESCRIPTION_PLACEHOLDER,
-                id=Id.DRAFT_DESCRIPTION.value,
-            )
         yield Static("", id=Id.STATUS.value)
         yield Footer()
 
@@ -221,18 +195,15 @@ class AgentsScreen(ControlScreen):
         self._load_agents()
 
     def on_screen_resume(self) -> None:
-        """A draft never survives leaving the screen — reopen it from scratch."""
+        """Return focus to the catalog after an overlay closes."""
         if not self.is_mounted:
             return
-        self._close_draft()
+        self.query_one(selector(Id.LIST), ListView).focus()
 
     async def watch_store(self, store: AgentsStore) -> None:
         if not self.is_mounted:
             return
         self.query_one(selector(Id.SOURCE), Static).update(SOURCE_LABELS[store.source])
-        self.query_one(selector(Id.DRAFT), Vertical).set_class(
-            store.draft_open, OPEN_CLASS
-        )
         await self._render_rows(store)
 
     async def _render_rows(self, store: AgentsStore) -> None:
@@ -296,7 +267,7 @@ class AgentsScreen(ControlScreen):
         try:
             agents = await self.control.client.list_my_agents(name=store.search or None)
         except Exception as error:
-            store.status = format_platform_error(error)
+            store.status = format_platform_error(error, operation="load agents")
         else:
             profiles = self.control.managed_agents
             projected: list[AgentRecord] = []
@@ -321,7 +292,7 @@ class AgentsScreen(ControlScreen):
         try:
             directory = await self.control.client.list_directory()
         except Exception as error:
-            store.status = format_platform_error(error)
+            store.status = format_platform_error(error, operation="load directory")
         else:
             store.replace_directory(directory)
             store.status = ""
@@ -347,7 +318,7 @@ class AgentsScreen(ControlScreen):
         if store.source is AgentSource.DIRECTORY:
             self._load_directory()
 
-    # --- registration draft (transient overlay) ----------------------------
+    # --- registration ------------------------------------------------------
 
     def action_new_agent(self) -> None:
         self._pending_delete_id = None
@@ -386,50 +357,9 @@ class AgentsScreen(ControlScreen):
         self._pending_delete_id = None
         self._delete_agent(agent)
 
-
-    def action_cancel(self) -> None:
-        if self.store.draft_open:
-            self._close_draft()
-            return
-        self.query_one(selector(Id.LIST), ListView).focus()
-
-    def _close_draft(self) -> None:
-        self.store.discard_draft()
-        self.query_one(selector(Id.DRAFT_NAME), Input).value = ""
-        self.query_one(selector(Id.DRAFT_DESCRIPTION), Input).value = ""
-        self.mutate_reactive(AgentsScreen.store)
-        self.query_one(selector(Id.LIST), ListView).focus()
-
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        match event.input.id:
-            case Id.DRAFT_NAME:
-                self.query_one(selector(Id.DRAFT_DESCRIPTION), Input).focus()
-            case Id.DRAFT_DESCRIPTION:
-                self._submit_draft()
-            case Id.SEARCH:
-                self.query_one(selector(Id.LIST), ListView).focus()
-
-    def _submit_draft(self) -> None:
-        name = self.query_one(selector(Id.DRAFT_NAME), Input).value.strip()
-        description = self.query_one(selector(Id.DRAFT_DESCRIPTION), Input).value.strip()
-        if not name or not description:
-            self._set_status(DRAFT_INCOMPLETE_MESSAGE)
-            return
-        self._register_agent(name, description)
-
-    @work(exclusive=True, group="agents-register")
-    async def _register_agent(self, name: str, description: str) -> None:
-        store = self.store
-        try:
-            agent = await self.control.client.create_agent(
-                name=name, description=description
-            )
-        except Exception as error:
-            self._set_status(format_platform_error(error))
-            return
-        store.add_agent(agent)
-        store.status = f"Registered {agent.name} — not started."
-        self._close_draft()
+        if event.input.id == Id.SEARCH:
+            self.query_one(selector(Id.LIST), ListView).focus()
 
     # --- start / stop ------------------------------------------------------
 
@@ -542,7 +472,7 @@ class AgentsScreen(ControlScreen):
             if pane_id is not None:
                 with suppress(WezTermCliError, OSError):
                     await asyncio.to_thread(kill_pane, pane_id)
-            self._set_status(format_platform_error(error))
+            self._set_status(format_platform_error(error, operation="start agent"))
             return
         store.mark_running(agent.id, pane_id)
         store.status = (
@@ -557,7 +487,7 @@ class AgentsScreen(ControlScreen):
         try:
             await asyncio.to_thread(kill_pane, pane_id)
         except (WezTermCliError, OSError) as error:
-            self._set_status(format_platform_error(error))
+            self._set_status(format_platform_error(error, operation="stop agent"))
             return
         self.store.mark_stopped(agent_id)
         self._set_status(f"Stopped {agent_name}.")
@@ -587,7 +517,7 @@ class AgentsScreen(ControlScreen):
         try:
             await self.control.client.delete_agent(agent.id)
         except Exception as error:
-            self._set_status(format_platform_error(error))
+            self._set_status(format_platform_error(error, operation="delete agent"))
             return
         self.control.managed_agents.remove(agent.id)
         self.store.remove_agent(agent.id)

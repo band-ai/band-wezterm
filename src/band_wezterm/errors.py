@@ -12,6 +12,8 @@ from typing import Any, Final
 
 from band_rest.core.api_error import ApiError
 
+from band_wezterm.diagnostics import log_failure
+
 PLAN_REQUIRED_STATUS: Final = 403
 PLAN_REQUIRED_ERROR_CODE: Final = "plan_required"
 PLAN_REQUIRED_MESSAGE: Final = (
@@ -21,6 +23,8 @@ PLAN_REQUIRED_MESSAGE: Final = (
 
 VALIDATION_STATUS: Final = 422
 VALIDATION_ERROR_CODE: Final = "validation_error"
+
+
 def _error_payload(body: Any) -> Mapping[str, Any] | None:
     if body is None:
         return None
@@ -62,26 +66,33 @@ def _validation_message(error: ApiError) -> str | None:
     return " ".join(sentences) if sentences else None
 
 
-def format_platform_error(error: BaseException) -> str:
+def format_platform_error(
+    error: BaseException, *, operation: str = "Band operation"
+) -> str:
     """Turn a caught exception into short Control-tab status text."""
-    if isinstance(error, ApiError):
-        payload = _error_payload(error.body)
-        if (
-            error.status_code == PLAN_REQUIRED_STATUS
-            and payload is not None
-            and payload.get("code") == PLAN_REQUIRED_ERROR_CODE
-        ):
-            return PLAN_REQUIRED_MESSAGE
-        validation = _validation_message(error)
-        if validation:
-            return validation
-        if payload is not None:
-            message = payload.get("message")
-            code = payload.get("code")
-            if message:
-                return str(message)
-            if code:
-                return f"HTTP {error.status_code}: {code}"
-        if error.status_code is not None:
-            return f"HTTP {error.status_code}"
-    return str(error)
+    message = _platform_error_message(error)
+    log_failure(operation, error, message)
+    return message
+
+
+def _platform_error_message(error: BaseException) -> str:
+    if not isinstance(error, ApiError):
+        return str(error)
+    payload = _error_payload(error.body)
+    if (
+        error.status_code == PLAN_REQUIRED_STATUS
+        and payload is not None
+        and payload.get("code") == PLAN_REQUIRED_ERROR_CODE
+    ):
+        return PLAN_REQUIRED_MESSAGE
+    validation = _validation_message(error)
+    if validation:
+        return validation
+    if payload is not None:
+        payload_message = payload.get("message")
+        if payload_message:
+            return str(payload_message)
+        code = payload.get("code")
+        if code:
+            return f"HTTP {error.status_code}: {code}"
+    return f"HTTP {error.status_code}" if error.status_code is not None else str(error)

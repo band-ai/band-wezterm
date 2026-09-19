@@ -44,7 +44,6 @@ async def test_live_harness_mention_gets_reply() -> None:
         record = await client.create_agent(
             name=f"wezterm-live-{int(time.time())}",
             description="band-wezterm live harness smoke",
-            harness=harness,
         )
         agent_id = record.id
         managed = client.managed_agent_api_key(agent_id)

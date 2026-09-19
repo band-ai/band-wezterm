@@ -38,9 +38,6 @@ from band_wezterm.tui.screens import ControlScreen
 NO_ROLE_ID: Final = ""
 KEEP_CURRENT_ROLE_ID: Final = "__keep_current_role__"
 CUSTOM_MODEL_SENTINEL: Final = "__custom__"
-PROFILE_ROLLBACK_FAILED_MESSAGE: Final = (
-    "{error}; profile rollback failed: {rollback}"
-)
 REGISTER_CLEANUP_FAILED_MESSAGE: Final = (
     "{error}; cleanup failed: {cleanup}"
 )
@@ -356,12 +353,10 @@ class RegisterAgentScreen(ControlScreen):
         name = draft_name(draft)
         try:
             agent = await self.control.client.create_agent(
-                name=name,
-                description=draft.description,
-                harness=draft.harness,
+                name=name, description=draft.description
             )
         except Exception as error:
-            self._set_status(format_platform_error(error))
+            self._set_status(format_platform_error(error, operation="register agent"))
             return
         persona = draft.role.content if draft.role is not None else None
         try:
@@ -381,14 +376,17 @@ class RegisterAgentScreen(ControlScreen):
             except Exception as cleanup_error:
                 self._set_status(
                     REGISTER_CLEANUP_FAILED_MESSAGE.format(
-                        error=format_platform_error(error),
-                        cleanup=format_platform_error(cleanup_error),
+                        error=format_platform_error(error, operation="save profile"),
+                        cleanup=format_platform_error(
+                            cleanup_error, operation="clean up registration"
+                        ),
                     )
                 )
                 return
-            self._set_status(format_platform_error(error))
+            self._set_status(format_platform_error(error, operation="save profile"))
             return
-        self.control.agents_store.add_agent(agent)
+        managed_agent = agent.model_copy(update={"harness": draft.harness})
+        self.control.agents_store.add_agent(managed_agent)
         self.control.agents_store.status = (
             f"Registered {agent.name} ({draft.harness.value}) — not started."
         )
@@ -413,30 +411,12 @@ class RegisterAgentScreen(ControlScreen):
             persona=persona,
             tuning=draft.tuning,
         )
-        # Profile first so Start's prefer-profile path cannot see keyring ahead
-        # of durable local state if the keyring write fails afterward.
         try:
             self.control.managed_agents.record(next_profile)
         except Exception as error:
-            self._set_status(format_platform_error(error))
-            return
-        try:
-            self.control.client.update_managed_harness(agent.id, draft.harness)
-        except Exception as error:
-            try:
-                if previous is None:
-                    self.control.managed_agents.remove(agent.id)
-                else:
-                    self.control.managed_agents.record(previous)
-            except Exception as rollback_error:
-                self._set_status(
-                    PROFILE_ROLLBACK_FAILED_MESSAGE.format(
-                        error=error,
-                        rollback=rollback_error,
-                    )
-                )
-                return
-            self._set_status(str(error))
+            self._set_status(
+                format_platform_error(error, operation="reconfigure agent")
+            )
             return
         updated = agent.model_copy(update={"harness": draft.harness})
         self.control.agents_store.update_agent(updated)

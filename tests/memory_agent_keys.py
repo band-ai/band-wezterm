@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from band_wezterm.auth.credentials import ManagedAgentCredentials, ManagedAgentKeyStore
-from band_wezterm.identity import HarnessId, parse_harness
 
 
 class MemoryAgentKeyStore(ManagedAgentKeyStore):
@@ -18,22 +17,10 @@ class MemoryAgentKeyStore(ManagedAgentKeyStore):
         record = self._records.get(agent_id)
         return None if record is None else record.api_key
 
-    def get_harness(self, agent_id: str) -> HarnessId | None:
-        record = self._records.get(agent_id)
-        return None if record is None else record.harness
-
-    def set(
-        self,
-        agent_id: str,
-        api_key: str,
-        *,
-        harness: HarnessId | str | None = None,
-    ) -> None:
+    def set(self, agent_id: str, api_key: str) -> None:
         if self.fail_on_set:
             raise RuntimeError("keyring unavailable")
-        self._records[agent_id] = ManagedAgentCredentials(
-            api_key=api_key, harness=parse_harness(harness)
-        )
+        self._records[agent_id] = ManagedAgentCredentials(api_key=api_key)
 
     def delete(self, agent_id: str) -> None:
         self._records.pop(agent_id, None)

@@ -51,7 +51,6 @@ async def test_live_full_chat_agent_and_human_round_trips() -> None:
         record = await client.create_agent(
             name=agent_name,
             description="band-wezterm full chat live flow",
-            harness=harness,
         )
         agent_id = record.id
         managed = client.managed_agent_api_key(agent_id)

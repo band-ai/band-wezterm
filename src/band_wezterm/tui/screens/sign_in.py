@@ -11,6 +11,7 @@ from textual.containers import Center, Middle
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, Static
 
+from band_wezterm.errors import format_platform_error
 from band_wezterm.tui.screens import ControlScreen
 
 SIGN_IN_TITLE: Final = "Band"
@@ -67,7 +68,8 @@ class SignInScreen(ControlScreen):
         try:
             await self.control.host_auth.sign_in()
         except Exception as error:  # surfaced in-screen; retry with Enter
-            self.status = f"{error}\n\n{SIGN_IN_PROMPT}"
+            message = format_platform_error(error, operation="sign in")
+            self.status = f"{message}\n\n{SIGN_IN_PROMPT}"
             self.busy = False
             return
         await self.control.enter_workspace()

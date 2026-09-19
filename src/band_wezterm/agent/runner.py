@@ -25,6 +25,8 @@ from band_wezterm.config import (
     AGENT_REASONING_ENV,
     load_settings,
 )
+from band_wezterm.diagnostics import configure_diagnostics, log_event
+from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import (
     AgentRuntime,
     AgentStatus,
@@ -158,6 +160,7 @@ async def run(args: argparse.Namespace) -> int:
         )
         async with agent:
             emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.RUNNING.value)
+            log_event("agent started", agent_id=agent_id, harness=harness or "unknown")
             print(
                 runtime_banner(
                     name=name,
@@ -170,16 +173,19 @@ async def run(args: argparse.Namespace) -> int:
             await agent.run_forever()
     except Exception as error:
         failed = True
+        message = format_platform_error(error, operation="agent runtime")
         emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.ERROR.value)
         emit_to_stdout(OscKey.AGENT_STATUS, AgentStatus.OFFLINE.value)
-        print(f"Agent runtime failed: {error}", file=sys.stderr)
+        print(f"Agent runtime failed: {message}", file=sys.stderr)
         return 1
     finally:
         if not failed:
+            log_event("agent stopping", agent_id=agent_id)
             emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.STOPPING.value)
             emit_to_stdout(OscKey.AGENT_STATUS, AgentStatus.OFFLINE.value)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_diagnostics()
     return asyncio.run(run(parse_args(argv)))

@@ -43,6 +43,17 @@ class RoomFilter(StrEnum):
     STARRED = "starred"
 
 
+class RoomStatusSource(StrEnum):
+    """Independent asynchronous operations that can report room feedback."""
+
+    ACTION = "action"
+    LIST = "list"
+    ROSTER = "roster"
+    MESSAGES = "messages"
+    PARTICIPANTS = "participants"
+    REALTIME = "realtime"
+
+
 AgentPredicate = Callable[[AgentRecord, frozenset[str]], bool]
 
 
@@ -92,7 +103,6 @@ class AgentsStore:
     filter: AgentFilter = AgentFilter.ALL
     running: dict[str, PaneId] = field(default_factory=dict)
     selected_id: str | None = None
-    draft_open: bool = False
     loading: bool = False
     status: str = ""
 
@@ -171,10 +181,6 @@ class AgentsStore:
             del self.running[agent_id]
         return stopped
 
-    def discard_draft(self) -> None:
-        self.draft_open = False
-
-
 @dataclass
 class RoomsStore:
     """Rooms list plus the detail (roster, picker, chat) of the selected room."""
@@ -190,7 +196,29 @@ class RoomsStore:
     picker_open: bool = False
     _messages: dict[str, MessageRecord] = field(default_factory=dict)
     loading: bool = False
-    status: str = ""
+    _status_by_source: dict[RoomStatusSource, str] = field(default_factory=dict)
+
+    @property
+    def status(self) -> str:
+        """Most recent live feedback; one operation cannot erase another's error."""
+        return next(reversed(self._status_by_source.values()), "")
+
+    @status.setter
+    def status(self, message: str) -> None:
+        self.set_status(RoomStatusSource.ACTION, message)
+
+    def set_status(self, source: RoomStatusSource, message: str) -> None:
+        self._status_by_source.pop(source, None)
+        if message:
+            self._status_by_source[source] = message
+
+    def clear_status(self, source: RoomStatusSource) -> None:
+        self._status_by_source.pop(source, None)
+
+    def clear_detail_statuses(self) -> None:
+        for source in RoomStatusSource:
+            if source is not RoomStatusSource.LIST:
+                self._status_by_source.pop(source, None)
 
     @property
     def messages(self) -> list[MessageRecord]:
@@ -248,6 +276,7 @@ class RoomsStore:
         self.candidates = []
         self._messages = {}
         self.picker_open = False
+        self.clear_detail_statuses()
 
     def replace_participants(
         self, participants: Sequence[ParticipantRecord]

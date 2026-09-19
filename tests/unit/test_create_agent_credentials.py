@@ -9,7 +9,6 @@ import pytest
 
 from band_wezterm.client import BandClient
 from band_wezterm.config import Settings
-from band_wezterm.identity import HarnessId
 from tests.memory_agent_keys import MemoryAgentKeyStore
 
 
@@ -33,14 +32,11 @@ async def test_create_agent_persists_managed_api_key() -> None:
         )
     )
 
-    record = await client.create_agent(
-        name="Alpha", description="test", harness=HarnessId.CODEX
-    )
+    record = await client.create_agent(name="Alpha", description="test")
 
     assert record.id == "a1"
-    assert record.harness is HarnessId.CODEX
+    assert record.harness is None
     assert keys.get("a1") == "band_a_once"
-    assert keys.get_harness("a1") is HarnessId.CODEX
     assert client.managed_agent_api_key("a1") == "band_a_once"
 
 
@@ -65,9 +61,9 @@ async def test_create_agent_rolls_back_when_keyring_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_my_agents_merges_stored_harness() -> None:
+async def test_list_my_agents_leaves_runtime_to_the_local_profile() -> None:
     keys = MemoryAgentKeyStore()
-    keys.set("a3", "band_a_key", harness=HarnessId.OPENCODE)
+    keys.set("a3", "band_a_key")
     client = BandClient.from_user_api_key("user-key", Settings(), agent_keys=keys)
     client._agents = MagicMock()
     client._agents.list_my_agents = AsyncMock(
@@ -77,4 +73,4 @@ async def test_list_my_agents_merges_stored_harness() -> None:
     )
 
     agents = await client.list_my_agents()
-    assert agents[0].harness is HarnessId.OPENCODE
+    assert agents[0].harness is None

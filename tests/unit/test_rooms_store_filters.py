@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from band_wezterm.client import RoomRecord
-from band_wezterm.tui.stores import RoomFilter, RoomsStore
+from band_wezterm.tui.stores import RoomFilter, RoomsStore, RoomStatusSource
 
 
 def _room(room_id: str, title: str) -> RoomRecord:
@@ -40,3 +40,21 @@ def test_remove_room_clears_selection_and_star() -> None:
     assert [room.id for room in store.rooms] == ["2"]
     assert store.selected_id is None
     assert store.starred_ids == frozenset({"2"})
+
+
+def test_successful_history_load_cannot_clear_realtime_failure() -> None:
+    store = RoomsStore()
+    store.set_status(RoomStatusSource.REALTIME, "Realtime connection failed")
+    store.clear_status(RoomStatusSource.MESSAGES)
+
+    assert store.status == "Realtime connection failed"
+
+
+def test_entering_another_room_clears_old_detail_failure() -> None:
+    store = RoomsStore()
+    store.set_status(RoomStatusSource.REALTIME, "Realtime connection failed")
+    store.set_status(RoomStatusSource.LIST, "Room list unavailable")
+
+    store.enter_room("room-2")
+
+    assert store.status == "Room list unavailable"

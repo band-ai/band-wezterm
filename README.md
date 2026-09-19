@@ -33,6 +33,7 @@ band-wezterm
 
 To install directly from Git instead of a checkout:
 
+```bash
 # Host CLI from Git (no PyPI required)
 uv tool install git+https://github.com/band-ai/band-wezterm
 
@@ -146,3 +147,6 @@ Tokens and managed agent API keys live only in the OS keyring via `HostAuth` /
 `TokenStore` / `ManagedAgentKeyStore`. OSC 1337 user-vars are allowlisted display
 fields only — never tokens or message bodies. Spawn passes the agent key via a
 short-lived `0600` key file (deleted after the pane reads it), never in argv/OSC.
+Host and agent lifecycle failures are recorded as redacted summaries in the
+rotating `~/.band-wezterm/diagnostics.log` (three 1 MB backups); tokens,
+request headers, and message bodies are never written there.

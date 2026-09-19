@@ -19,6 +19,7 @@ from textual.screen import Screen
 from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.client import BandClient, RoomRecord
 from band_wezterm.config import CONTROL_TAB_TITLE, Settings, load_settings
+from band_wezterm.diagnostics import configure_diagnostics, log_event
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentStatus, AvatarKind, agent_accent, initials
 from band_wezterm.local_state import StarredRooms
@@ -186,10 +187,14 @@ class ControlApp(App[None]):
         try:
             self.user_id = await self.client.whoami()
         except Exception as error:
-            self.notify(format_platform_error(error), severity="error")
+            self.notify(
+                format_platform_error(error, operation="open workspace"),
+                severity="error",
+            )
             return
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
         announce_human(self.user_id)
+        log_event("workspace entered", user_id=self.user_id)
         self._show(AGENTS_SCREEN)
 
     # --- navigation ---------------------------------------------------------
@@ -252,7 +257,6 @@ class ControlApp(App[None]):
 
     def _show(self, screen_name: str) -> None:
         """Switching top-level screens discards any in-progress draft."""
-        self.agents_store.discard_draft()
         self.rooms_store.discard_draft()
         while len(self.screen_stack) > BASE_STACK_DEPTH:
             self.pop_screen()
@@ -298,5 +302,6 @@ def run_control_app() -> int:
     """Run the Control tab in this process; returns the host exit code."""
     mark_control_process()
     ensure_terminal_color()
+    configure_diagnostics()
     ControlApp().run()
     return 0

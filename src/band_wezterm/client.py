@@ -35,12 +35,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from band_wezterm.auth.credentials import ManagedAgentKeyStore, NoApiKeyError
 from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.config import CHAT_MESSAGES_LIMIT, Settings, load_settings
+from band_wezterm.diagnostics import log_event
 from band_wezterm.identity import (
     AvatarKind,
     HarnessId,
     agent_accent,
     initials,
-    parse_harness,
 )
 from band_wezterm.room_color import room_accent
 
@@ -307,21 +307,13 @@ class BandClient:
         for agent in response.data or []:
             agent_id = str(agent.id)
             agent_name = getattr(agent, "name", None) or agent_id
-            harness_raw = getattr(agent, "harness", None) or getattr(
-                agent, "runtime", None
-            )
-            harness = parse_harness(
-                str(harness_raw) if harness_raw is not None else None
-            )
-            if harness is None:
-                harness = self._agent_keys.get_harness(agent_id)
             records.append(
                 AgentRecord(
                     id=agent_id,
                     name=agent_name,
                     kind=AvatarKind.AGENT,
                     color=agent_accent(agent_id),
-                    harness=harness,
+                    harness=None,
                 )
             )
         return records
@@ -331,7 +323,6 @@ class BandClient:
         *,
         name: str,
         description: str,
-        harness: HarnessId = HarnessId.CLAUDE_SDK,
     ) -> AgentRecord:
         """Registration-only — persists the one-time managed API key (INT-1484)."""
         response = await self._agents.register_my_agent(
@@ -343,7 +334,7 @@ class BandClient:
         agent_name = getattr(agent, "name", None) or name
         api_key = str(credentials.api_key)
         try:
-            self._agent_keys.set(agent_id, api_key, harness=harness)
+            self._agent_keys.set(agent_id, api_key)
         except Exception:
             await self._rollback_agent_registration(agent_id)
             raise
@@ -352,7 +343,7 @@ class BandClient:
             name=agent_name,
             kind=AvatarKind.AGENT,
             color=agent_accent(agent_id),
-            harness=harness,
+            harness=None,
         )
 
     async def _rollback_agent_registration(self, agent_id: str) -> None:
@@ -361,17 +352,6 @@ class BandClient:
 
     def managed_agent_api_key(self, agent_id: str) -> str | None:
         return self._agent_keys.get(agent_id)
-
-    def update_managed_harness(
-        self, agent_id: str, harness: HarnessId | str
-    ) -> None:
-        """Persist a reconfigured harness beside the existing managed API key."""
-        api_key = self._agent_keys.get(agent_id)
-        if not api_key:
-            raise RuntimeError(
-                "No managed API key for this agent — re-register it from Control."
-            )
-        self._agent_keys.set(agent_id, api_key, harness=harness)
 
     async def delete_agent(self, agent_id: str, *, force: bool = True) -> None:
         """Unregister a managed agent and drop its stored API key."""
@@ -543,6 +523,7 @@ class BandClient:
         await client.__aenter__()
         self._phx = client
         self._phx_generation = generation
+        log_event("realtime connected", credential_generation=generation)
 
     async def subscribe_room(self, room_id: str) -> None:
         await self._ensure_realtime()
@@ -573,6 +554,7 @@ class BandClient:
         client = self._phx
         self._phx = None
         self._phx_generation = None
+        log_event("realtime disconnected")
         # Teardown is best-effort; socket/supervisor may already be gone.
         with contextlib.suppress(Exception):
             await client.shutdown("credential change or client close")

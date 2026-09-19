@@ -10,7 +10,6 @@ from band_wezterm.config import (
     KEYRING_SERVICE,
     KEYRING_USER_TOKENS,
 )
-from band_wezterm.identity import HarnessId, parse_harness
 
 
 class UserTokens(BaseModel):
@@ -24,12 +23,11 @@ class UserTokens(BaseModel):
 
 
 class ManagedAgentCredentials(BaseModel):
-    """One-time agent API key plus local harness (platform register has no harness field)."""
+    """One-time agent API key; the launch profile owns all runtime settings."""
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
     api_key: str = Field(alias="apiKey")
-    harness: HarnessId | None = None
 
 
 class NoApiKeyError(Exception):
@@ -80,7 +78,7 @@ class TokenStore:
 
 
 class ManagedAgentKeyStore:
-    """Managed agent secrets — INT-1484 keyring namespace, plus local harness."""
+    """Managed agent secrets — the keyring never owns launch configuration."""
 
     def __init__(self, *, service: str = KEYRING_SERVICE) -> None:
         self._service = service
@@ -102,20 +100,8 @@ class ManagedAgentKeyStore:
         credentials = self.get_credentials(agent_id)
         return None if credentials is None else credentials.api_key
 
-    def get_harness(self, agent_id: str) -> HarnessId | None:
-        credentials = self.get_credentials(agent_id)
-        return None if credentials is None else credentials.harness
-
-    def set(
-        self,
-        agent_id: str,
-        api_key: str,
-        *,
-        harness: HarnessId | str | None = None,
-    ) -> None:
-        record = ManagedAgentCredentials(
-            api_key=api_key, harness=parse_harness(harness)
-        )
+    def set(self, agent_id: str, api_key: str) -> None:
+        record = ManagedAgentCredentials(api_key=api_key)
         keyring.set_password(
             self._service,
             self._username(agent_id),

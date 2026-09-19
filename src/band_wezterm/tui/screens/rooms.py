@@ -39,7 +39,12 @@ from band_wezterm.client import (
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, AvatarKind
 from band_wezterm.tui.screens import ControlScreen
-from band_wezterm.tui.stores import ROOM_FILTER_LABELS, RoomFilter, RoomsStore
+from band_wezterm.tui.stores import (
+    ROOM_FILTER_LABELS,
+    RoomFilter,
+    RoomsStore,
+    RoomStatusSource,
+)
 from band_wezterm.tui.widgets import (
     AvatarChip,
     Chip,
@@ -400,10 +405,13 @@ class RoomsScreen(ControlScreen):
         try:
             rooms = await self.control.client.list_my_chats()
         except Exception as error:
-            store.status = format_platform_error(error)
+            store.set_status(
+                RoomStatusSource.LIST,
+                format_platform_error(error, operation="load rooms"),
+            )
         else:
             store.replace_rooms(rooms)
-            store.status = ""
+            store.clear_status(RoomStatusSource.LIST)
         finally:
             store.loading = False
             self.mutate_reactive(RoomsScreen.store)
@@ -436,7 +444,7 @@ class RoomsScreen(ControlScreen):
         try:
             await self.control.client.delete_room(room.id)
         except Exception as error:
-            self._set_status(format_platform_error(error))
+            self._set_status(format_platform_error(error, operation="delete room"))
             return
         self.control.forget_room(room.id)
         self._set_status(f"Deleted {room.title}.")
@@ -476,10 +484,10 @@ class RoomsScreen(ControlScreen):
         try:
             room = await self.control.client.create_room(title=title)
         except Exception as error:
-            self._set_status(format_platform_error(error))
+            self._set_status(format_platform_error(error, operation="create room"))
             return
         self.store.add_room(room)
-        self.store.status = ""
+        self.store.clear_status(RoomStatusSource.ACTION)
         self._close_draft()
         self.control.open_room(room)
 
@@ -636,10 +644,13 @@ class RoomDetailScreen(ControlScreen):
         try:
             participants = await self.control.client.list_participants(self.room.id)
         except Exception as error:
-            store.status = format_platform_error(error)
+            store.set_status(
+                RoomStatusSource.ROSTER,
+                format_platform_error(error, operation="load room roster"),
+            )
         else:
             store.replace_participants(participants)
-            store.status = ""
+            store.clear_status(RoomStatusSource.ROSTER)
         self.mutate_reactive(RoomDetailScreen.store)
 
     def action_reload(self) -> None:
@@ -660,7 +671,7 @@ class RoomDetailScreen(ControlScreen):
         try:
             await self.control.client.delete_room(self.room.id)
         except Exception as error:
-            self._set_status(format_platform_error(error))
+            self._set_status(format_platform_error(error, operation="delete room"))
             return
         title = self.room.title
         self.control.forget_room(self.room.id)
@@ -676,10 +687,13 @@ class RoomDetailScreen(ControlScreen):
                 limit=self.control.preferences.current.chat_messages_limit,
             )
         except Exception as error:
-            store.status = format_platform_error(error)
+            store.set_status(
+                RoomStatusSource.MESSAGES,
+                format_platform_error(error, operation="load room messages"),
+            )
         else:
             store.replace_messages(messages)
-            store.status = ""
+            store.clear_status(RoomStatusSource.MESSAGES)
         self.mutate_reactive(RoomDetailScreen.store)
 
     def _highlighted_identity_id(self, list_view: ListView) -> str | None:
@@ -702,7 +716,9 @@ class RoomDetailScreen(ControlScreen):
         try:
             await self.control.client.remove_participant(self.room.id, participant_id)
         except Exception as error:
-            self._set_status(format_platform_error(error))
+            self._set_status(
+                format_platform_error(error, operation="remove participant")
+            )
             self._load_roster()
 
     # --- add participant (select-then-act, add-only) -----------------------
@@ -724,9 +740,13 @@ class RoomDetailScreen(ControlScreen):
         try:
             store.candidates = await self.control.client.list_my_agents()
         except Exception as error:
-            store.status = format_platform_error(error)
+            store.set_status(
+                RoomStatusSource.PARTICIPANTS,
+                format_platform_error(error, operation="load participants"),
+            )
         else:
-            store.status = (
+            store.set_status(
+                RoomStatusSource.PARTICIPANTS,
                 "" if store.addable_candidates() else EMPTY_CANDIDATES
             )
         self.mutate_reactive(RoomDetailScreen.store)
@@ -744,7 +764,7 @@ class RoomDetailScreen(ControlScreen):
         try:
             await self.control.client.add_participant(self.room.id, participant_id)
         except Exception as error:
-            self._set_status(format_platform_error(error))
+            self._set_status(format_platform_error(error, operation="add participant"))
             return
         self._set_picker_open(False)
         self._load_roster()
@@ -792,10 +812,10 @@ class RoomDetailScreen(ControlScreen):
                 mention_name=participant.name,
             )
         except Exception as error:
-            self._set_status(format_platform_error(error))
+            self._set_status(format_platform_error(error, operation="send message"))
             return
         self.store.append_message(message)
-        self.store.status = ""
+        self.store.clear_status(RoomStatusSource.ACTION)
         self.mutate_reactive(RoomDetailScreen.store)
 
     # --- realtime ----------------------------------------------------------
@@ -806,7 +826,14 @@ class RoomDetailScreen(ControlScreen):
             self._unsubscribe = self.control.client.subscribe_realtime(self._on_event)
             await self.control.client.subscribe_room(self.room.id)
         except Exception as error:
-            self._set_status(format_platform_error(error))
+            self.store.set_status(
+                RoomStatusSource.REALTIME,
+                format_platform_error(error, operation="connect realtime"),
+            )
+            self.mutate_reactive(RoomDetailScreen.store)
+        else:
+            self.store.clear_status(RoomStatusSource.REALTIME)
+            self.mutate_reactive(RoomDetailScreen.store)
 
     def _on_event(self, event: RealtimeEvent) -> None:
         self.post_message(self.Incoming(event))

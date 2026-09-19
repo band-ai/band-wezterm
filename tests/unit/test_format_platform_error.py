@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
+import pytest
 from band_rest.core.api_error import ApiError
 
 from band_wezterm.errors import (
@@ -59,3 +61,13 @@ def test_typed_error_body() -> None:
 
 def test_generic_exception_passthrough() -> None:
     assert format_platform_error(RuntimeError("boom")) == "boom"
+
+
+def test_error_is_logged_with_its_operation(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.ERROR, logger="band_wezterm"):
+        assert (
+            format_platform_error(RuntimeError("offline"), operation="load rooms")
+            == "offline"
+        )
+
+    assert "load rooms failed error_type=RuntimeError message=offline" in caplog.text
