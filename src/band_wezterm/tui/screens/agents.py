@@ -20,6 +20,7 @@ from band_wezterm.agent.spawn_cmd import agent_pane_command, write_api_key_file
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
+from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.role_library import open_role_library
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.screens.new_role import NewRoleScreen
@@ -66,6 +67,10 @@ DELETE_CONFIRM_MESSAGE: Final = (
 )
 NO_MANAGED_PROFILE_MESSAGE: Final = (
     "No local profile — register or reconfigure after upgrade."
+)
+PREFLIGHT_HARNESS_STABILITY_ATTEMPTS: Final = 5
+PROFILE_HARNESS_UNSTABLE_MESSAGE: Final = (
+    "Harness kept changing during preflight — try Start again."
 )
 NEW_ROLE_PROMPT: Final = "New role name"
 
@@ -291,7 +296,17 @@ class AgentsScreen(ControlScreen):
         except Exception as error:
             store.status = format_platform_error(error)
         else:
-            store.replace_agents(agents)
+            profiles = self.control.managed_agents
+            projected: list[AgentRecord] = []
+            for agent in agents:
+                harness = profiles.harness_for(agent.id)
+                row = (
+                    agent.model_copy(update={"harness": harness})
+                    if harness is not None and harness is not agent.harness
+                    else agent
+                )
+                projected.append(row)
+            store.replace_agents(projected)
             store.status = ""
         finally:
             store.loading = False
@@ -438,6 +453,44 @@ class AgentsScreen(ControlScreen):
             return
         self._stop_agent(agent.id, agent.name, pane_id)
 
+    def _sync_agent_to_profile(
+        self, agent: AgentRecord, profile: ManagedAgentProfile
+    ) -> AgentRecord:
+        if agent.harness is profile.harness:
+            return agent
+        updated = agent.model_copy(update={"harness": profile.harness})
+        self.store.update_agent(updated)
+        return updated
+
+    def _resync_store_to_durable_profile(self, agent: AgentRecord) -> None:
+        current = self.control.managed_agents.get(agent.id)
+        if current is None:
+            return
+        self._sync_agent_to_profile(agent, current)
+        self.mutate_reactive(AgentsScreen.store)
+
+    async def _preflight_launch_profile(
+        self, agent_id: str, profile: ManagedAgentProfile
+    ) -> ManagedAgentProfile | None:
+        """Mid-flight reconfigure can change harness between check and return."""
+        current = profile
+        for _ in range(PREFLIGHT_HARNESS_STABILITY_ATTEMPTS):
+            preflighted = current.harness
+            try:
+                await asyncio.to_thread(preflight_harness, preflighted)
+            except HarnessUnavailableError as error:
+                self._set_status(str(error))
+                return None
+            fresh = self.control.managed_agents.get(agent_id)
+            if fresh is None:
+                self._set_status(NO_MANAGED_PROFILE_MESSAGE)
+                return None
+            if fresh.harness is preflighted:
+                return fresh
+            current = fresh
+        self._set_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
+        return None
+
     @work(exclusive=True, group="agents-spawn")
     async def _start_agent(self, agent: AgentRecord) -> None:
         window_id = self.control.window_id
@@ -448,11 +501,26 @@ class AgentsScreen(ControlScreen):
         if not api_key:
             self._set_status(NO_MANAGED_KEY_MESSAGE)
             return
-        try:
-            await asyncio.to_thread(preflight_harness, agent.harness)
-        except HarnessUnavailableError as error:
-            self._set_status(str(error))
+        profile = self.control.managed_agents.get(agent.id)
+        if profile is None:
+            self._set_status(NO_MANAGED_PROFILE_MESSAGE)
             return
+        agent = self._sync_agent_to_profile(agent, profile)
+        profile = await self._preflight_launch_profile(agent.id, profile)
+        if profile is None:
+            self._resync_store_to_durable_profile(agent)
+            return
+        # Re-get after preflight: another writer may have removed or retuned the profile.
+        fresh = self.control.managed_agents.get(agent.id)
+        if fresh is None:
+            self._set_status(NO_MANAGED_PROFILE_MESSAGE)
+            return
+        if fresh.harness is not profile.harness:
+            self._sync_agent_to_profile(agent, fresh)
+            self._set_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
+            return
+        profile = fresh
+        agent = self._sync_agent_to_profile(agent, profile)
         store = self.store
         if store.is_running(agent.id):
             return
@@ -460,7 +528,6 @@ class AgentsScreen(ControlScreen):
         key_file = write_api_key_file(api_key)
         pane_id: PaneId | None = None
         try:
-            profile = self.control.managed_agents.get(agent.id)
             command = agent_pane_command(
                 agent, key_file=key_file, cwd=cwd, profile=profile
             )
@@ -476,9 +543,8 @@ class AgentsScreen(ControlScreen):
             self._set_status(format_platform_error(error))
             return
         store.mark_running(agent.id, pane_id)
-        harness = agent.harness.value if agent.harness is not None else "unknown"
         store.status = (
-            f"Started {agent.name} ({harness}) in pane {pane_id.root}."
+            f"Started {agent.name} ({profile.harness.value}) in pane {pane_id.root}."
         )
         self.mutate_reactive(AgentsScreen.store)
 

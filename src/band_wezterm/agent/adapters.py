@@ -106,6 +106,14 @@ def _claude(
     return ClaudeSDKAdapter(**kwargs)
 
 
+def _apply_reasoning_effort(
+    config_kwargs: dict[str, Any], tuning: AgentTuning
+) -> None:
+    effort = tuning.value_for(TuningDimensionId.REASONING)
+    if effort is not None:
+        config_kwargs["reasoning_effort"] = effort
+
+
 def _codex(*, persona: str | None, tuning: AgentTuning) -> Any:
     try:
         from band.adapters import CodexAdapter  # noqa: PLC0415
@@ -117,9 +125,7 @@ def _codex(*, persona: str | None, tuning: AgentTuning) -> Any:
     model = tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         config_kwargs["model"] = model
-    effort = tuning.value_for(TuningDimensionId.REASONING)
-    if effort is not None:
-        config_kwargs["reasoning_effort"] = effort
+    _apply_reasoning_effort(config_kwargs, tuning)
     if persona:
         config_kwargs["custom_section"] = persona
     return CodexAdapter(CodexAdapterConfig(**config_kwargs))
@@ -136,6 +142,7 @@ def _copilot(*, persona: str | None, tuning: AgentTuning) -> Any:
     model = tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         config_kwargs["model"] = model
+    _apply_reasoning_effort(config_kwargs, tuning)
     if persona:
         config_kwargs["custom_section"] = persona
     return CopilotSDKAdapter(CopilotSDKAdapterConfig(**config_kwargs))
