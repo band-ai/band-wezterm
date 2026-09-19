@@ -147,20 +147,32 @@ def _realtime_kind(raw: object) -> RealtimeEventKind:
 
 
 class BandClient:
-    """The only door to the platform. Screens never import band_rest."""
+    """The only door to the platform. Screens never import band_rest.
+
+    Product path: ``HostAuth`` (OAuth Bearer via ``async_token``).
+    Live-test path: static ``api_key`` (``X-API-Key``), matching
+    band-sdk-python's ``AsyncRestClient(api_key=BAND_API_KEY_USER)``.
+    """
 
     def __init__(
         self,
-        host_auth: HostAuth,
+        host_auth: HostAuth | None = None,
         settings: Settings | None = None,
+        *,
+        api_key: str | None = None,
     ) -> None:
+        if (host_auth is None) == (api_key is None):
+            raise ValueError("Provide exactly one of host_auth or api_key")
         self._host_auth = host_auth
+        self._api_key = api_key
         self._settings = settings or load_settings()
         self._http = httpx.AsyncClient(timeout=60.0)
         self._wrapper = AsyncClientWrapper(
-            api_key="",
+            api_key=api_key or "",
             base_url=self._settings.band_base_url.rstrip("/"),
-            async_token=self._host_auth.get_access_token,
+            async_token=(
+                None if api_key is not None else host_auth.get_access_token  # type: ignore[union-attr]
+            ),
             httpx_client=self._http,
         )
         self._agents = AsyncHumanApiAgentsClient(client_wrapper=self._wrapper)
@@ -173,6 +185,18 @@ class BandClient:
         self._phx: PHXChannelsClient | None = None
         self._phx_generation: int | None = None
         self._realtime_listeners: list[Callable[[RealtimeEvent], None]] = []
+
+    @property
+    def _token_generation(self) -> int:
+        if self._host_auth is None:
+            return 0
+        return self._host_auth.token_generation
+
+    async def _access_credential(self) -> str:
+        if self._api_key is not None:
+            return self._api_key
+        assert self._host_auth is not None
+        return await self._host_auth.get_access_token()
 
     async def aclose(self) -> None:
         await self._disconnect_realtime()
@@ -310,11 +334,14 @@ class BandClient:
 
     async def list_directory(self) -> list[AgentRecord]:
         """Public opt-in Discover directory — distinct from Agents search."""
-        token = await self._host_auth.get_access_token()
+        credential = await self._access_credential()
         url = f"{self._settings.band_base_url.rstrip('/')}/api/v1/me/directory"
-        response = await self._http.get(
-            url, headers={"Authorization": f"Bearer {token}"}
+        headers = (
+            {"X-API-Key": credential}
+            if self._api_key is not None
+            else {"Authorization": f"Bearer {credential}"}
         )
+        response = await self._http.get(url, headers=headers)
         if response.status_code == 404:
             return []
         response.raise_for_status()
@@ -349,11 +376,11 @@ class BandClient:
         await self._ensure_realtime()
 
     async def _ensure_realtime(self) -> None:
-        generation = self._host_auth.token_generation
+        generation = self._token_generation
         if self._phx is not None and self._phx_generation == generation:
             return
         await self._disconnect_realtime()
-        token = await self._host_auth.get_access_token()
+        token = await self._access_credential()
         ws_url = self._settings.band_ws_url
         separator = "&" if "?" in ws_url else "?"
         url = f"{ws_url}{separator}token={token}&vsn=2.0.0"

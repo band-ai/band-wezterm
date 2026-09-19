@@ -1,12 +1,20 @@
-"""Real-PTY whole-flow against live platform (correction #15 — skip on Windows)."""
+"""Real-PTY Control tab + live platform ops via ``.env.test``.
+
+Self-skips when ``BAND_API_KEY_USER`` is absent (CI never injects one) —
+same opt-in gate as band-plugin-vsc ``liveFlow.test.ts`` and
+band-sdk-python integration fixtures.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
-from pathlib import Path
 
 import pytest
+
+from tests.live_settings import live_settings, user_api_key
+from tests.paths import REPO_ROOT
 
 pytestmark = pytest.mark.live_platform
 
@@ -16,9 +24,7 @@ if sys.platform.startswith("win"):
 pexpect = pytest.importorskip("pexpect")
 pyte = pytest.importorskip("pyte")
 
-
-def _live_enabled() -> bool:
-    return os.environ.get("BAND_LIVE_PTY", "").strip() in {"1", "true", "TRUE", "yes"}
+_LIVE_KEY = user_api_key()
 
 
 @pytest.fixture
@@ -42,51 +48,59 @@ def _display_text(display: object) -> str:
     return "\n".join(line for line in display.display)  # type: ignore[attr-defined]
 
 
-@pytest.mark.skipif(not _live_enabled(), reason="BAND_LIVE_PTY not enabled")
-def test_signed_in_control_tab_renders_and_room_flow(screen: tuple[object, object]) -> None:
-    """Golden path through the real rendered Control tab + live BandClient.
-
-    Requires HostAuth keyring tokens from a prior interactive sign-in.
-    Mirrors UserOps: create_room → add_participant → @mention → remove_participant.
-    """
-    from band_wezterm.auth.credentials import TokenStore
-    from band_wezterm.auth.host_auth import HostAuth
+@pytest.mark.skipif(_LIVE_KEY is None, reason="BAND_API_KEY_USER not set (see .env.test)")
+def test_live_room_participant_flow_with_user_api_key() -> None:
+    """create_room → add_participant → @mention → remove_participant."""
     from band_wezterm.client import BandClient
-    import asyncio
+    from band_wezterm.config import Settings
 
-    display, stream = screen
-    store = TokenStore()
-    if store.get_user_tokens() is None:
-        pytest.skip("No stored OAuth tokens — sign in via Control tab first")
+    settings = live_settings()
+    cfg = Settings(
+        band_base_url=settings.band_base_url,
+        band_ws_url=settings.band_ws_url,
+    )
 
-    async def platform_ops() -> tuple[str, str, str]:
-        auth = HostAuth(store=store)
-        client = BandClient(auth)
+    async def run() -> None:
+        assert _LIVE_KEY is not None
+        client = BandClient(api_key=_LIVE_KEY, settings=cfg)
         try:
-            agents = await client.list_my_agents()
-            if not agents:
-                pytest.skip("No agents available on this account")
-            agent = agents[0]
-            room = await client.create_room(title="band-wezterm-pty-poc")
-            await client.add_participant(room.id, agent.id)
+            if settings.test_agent_id:
+                agent_id = settings.test_agent_id
+                agents = await client.list_my_agents()
+                match = next((a for a in agents if a.id == agent_id), None)
+                agent_name = match.name if match else agent_id
+            else:
+                agents = await client.list_my_agents()
+                if not agents:
+                    pytest.skip("No agents available on this account")
+                agent = agents[0]
+                agent_id, agent_name = agent.id, agent.name
+
+            room = await client.create_room(title="band-wezterm-live-poc")
+            await client.add_participant(room.id, agent_id)
             await client.send_message(
                 room.id,
-                "ping from pty harness",
-                mention_id=agent.id,
-                mention_name=agent.name,
+                "ping from .env.test harness",
+                mention_id=agent_id,
+                mention_name=agent_name,
             )
-            await client.remove_participant(room.id, agent.id)
-            return room.id, agent.id, agent.name
+            await client.remove_participant(room.id, agent_id)
+            assert room.id
         finally:
             await client.aclose()
 
-    room_id, agent_id, agent_name = asyncio.run(platform_ops())
+    asyncio.run(run())
 
+
+@pytest.mark.skipif(_LIVE_KEY is None, reason="BAND_API_KEY_USER not set (see .env.test)")
+def test_signed_in_control_tab_renders(screen: tuple[object, object]) -> None:
+    """Control tab chrome renders in a real PTY (sign-in UI when no OAuth)."""
+    display, stream = screen
     env = {**os.environ, "BAND_WEZTERM_CONTROL": "1"}
     child = pexpect.spawn(
         sys.executable,
         ["-m", "band_wezterm.tui"],
-        cwd=str(Path(__file__).resolve().parents[2]),
+        cwd=str(REPO_ROOT),
         dimensions=(40, 120),
         env=env,
         encoding=None,
@@ -102,7 +116,5 @@ def test_signed_in_control_tab_renders_and_room_flow(screen: tuple[object, objec
         assert any(
             token in visible for token in ("Agents", "Rooms", "Sign", "Control", "Band")
         ), f"Control tab did not render expected chrome:\n{visible}"
-        # Platform side of the flow already exercised above with live Bearer client.
-        assert room_id and agent_id and agent_name
     finally:
         child.terminate(force=True)

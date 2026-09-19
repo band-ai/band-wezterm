@@ -24,10 +24,13 @@ uv run band-wezterm
 ## Tests
 
 ```bash
+uv sync
 uv run pytest tests/unit -q
-uv run pytest tests/integration/test_wezterm_cli_live.py -q   # skips if no wezterm
-# Live platform PTY whole-flow (needs prior Control-tab sign-in / keyring tokens):
-BAND_LIVE_PTY=1 uv run pytest tests/integration/test_control_tab_pty.py -q
+uv run pytest tests/integration/test_wezterm_cli_live.py -q   # needs wezterm on PATH
+
+# Live platform (opt-in): copy .env.test.example → .env.test and set BAND_API_KEY_USER
+# Same pattern as band-sdk-python / band-plugin-vsc — self-skips when the key is absent.
+uv run pytest tests/integration/test_control_tab_pty.py -q
 ```
 
 ## Security
