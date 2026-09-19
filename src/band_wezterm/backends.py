@@ -98,12 +98,18 @@ _CODEX_MODELS: Final = (
     TuningOption(id="o4-mini", label="o4-mini"),
 )
 
-_CODEX_REASONING: Final = (
-    _DEFAULT,
-    *(
-        TuningOption(id=effort, label=effort.capitalize())
-        for effort in ("minimal", "low", "medium", "high", "xhigh")
-    ),
+def _reasoning_effort_options(*efforts: str) -> tuple[TuningOption, ...]:
+    return (
+        _DEFAULT,
+        *(
+            TuningOption(id=effort, label=effort.capitalize())
+            for effort in efforts
+        ),
+    )
+
+
+_CODEX_REASONING: Final = _reasoning_effort_options(
+    "minimal", "low", "medium", "high", "xhigh"
 )
 
 _COPILOT_MODELS: Final = (
@@ -113,13 +119,7 @@ _COPILOT_MODELS: Final = (
     TuningOption(id="gemini-2.5-pro", label="Gemini 2.5 Pro"),
 )
 
-_COPILOT_REASONING: Final = (
-    _DEFAULT,
-    *(
-        TuningOption(id=effort, label=effort.capitalize())
-        for effort in ("low", "medium", "high")
-    ),
-)
+_COPILOT_REASONING: Final = _reasoning_effort_options("low", "medium", "high")
 
 HARNESS_BACKENDS: Final[tuple[HarnessBackend, ...]] = (
     HarnessBackend(

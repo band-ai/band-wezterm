@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from enum import StrEnum
 from typing import ClassVar, Final
 
@@ -346,15 +347,22 @@ class RegisterAgentScreen(ControlScreen):
             self._set_status(format_platform_error(error))
             return
         persona = draft.role.content if draft.role is not None else None
-        self.control.managed_agents.record(
-            profile_from_registration(
-                agent_id=agent.id,
-                name=agent.name,
-                harness=draft.harness,
-                persona=persona,
-                tuning=draft.tuning,
+        try:
+            self.control.managed_agents.record(
+                profile_from_registration(
+                    agent_id=agent.id,
+                    name=agent.name,
+                    harness=draft.harness,
+                    persona=persona,
+                    tuning=draft.tuning,
+                )
             )
-        )
+        except Exception as error:
+            # create_agent already wrote the keyring key — delete both.
+            with suppress(Exception):
+                await self.control.client.delete_agent(agent.id)
+            self._set_status(format_platform_error(error))
+            return
         self.control.agents_store.add_agent(agent)
         self.control.agents_store.status = (
             f"Registered {agent.name} ({draft.harness.value}) — not started."

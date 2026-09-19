@@ -6,8 +6,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from textual.widgets import ListView
+from textual.widgets import ListView, Static
 
+from band_wezterm.agent_draft import AgentDraft, apply_draft_patch
 from band_wezterm.backends import AgentTuning
 from band_wezterm.client import MessageRecord
 from band_wezterm.identity import HarnessId
@@ -21,7 +22,9 @@ from band_wezterm.tui.screens.agents import (
 )
 from band_wezterm.tui.screens.agents import Id as AgentId
 from band_wezterm.tui.screens.agents import selector as agent_selector
+from band_wezterm.tui.screens.register_agent import Id as RegisterId
 from band_wezterm.tui.screens.register_agent import RegisterAgentScreen
+from band_wezterm.tui.screens.register_agent import selector as register_selector
 from band_wezterm.tui.screens.rooms import Id as RoomId
 from band_wezterm.tui.screens.rooms import (
     IdentityRow,
@@ -38,6 +41,8 @@ RUNNING_AGENT_ID = "0f5d0b7c-1a3e-4c5b-9d2f-6a7b8c9d0e1f"
 IDLE_AGENT_ID = "3c2b1a09-8f7e-4d6c-5b4a-3928176054f3"
 ROOM_ID = "9a8b7c6d-5e4f-4a3b-2c1d-0e9f8a7b6c5d"
 AGENT_PANE = PaneId(11)
+KEYRING_FAILURE_MESSAGE = "keyring write failed"
+PROFILE_RECORD_FAILURE_MESSAGE = "disk full"
 
 
 def listed_agents(app: ControlApp) -> list[str]:
@@ -219,6 +224,8 @@ async def test_start_agent_spawns_agent_module_pane(
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
+        # Load-path projection — before Start's own sync can mask a miss.
+        assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.CODEX
         await pilot.press("s")
         await settle(pilot)
         assert control_app.agents_store.is_running(IDLE_AGENT_ID)
@@ -307,6 +314,130 @@ async def test_reconfigure_opens_wizard(control_app: ControlApp, band_client: Ma
         await settle(pilot)
         assert isinstance(control_app.screen, RegisterAgentScreen)
         assert control_app.screen.reconfigure is True
+
+
+async def test_reconfigure_records_profile_then_updates_keyring(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+    control_app.managed_agents.record(
+        ManagedAgentProfile(
+            agent_id=IDLE_AGENT_ID,
+            name="Beta",
+            harness=HarnessId.CODEX,
+            tuning=AgentTuning(reasoning="high"),
+        )
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("c")
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RegisterAgentScreen)
+        screen.draft = apply_draft_patch(screen.draft, harness=HarnessId.COPILOT_SDK)
+        screen._submit_reconfigure()
+        await settle(pilot)
+        assert isinstance(control_app.screen, AgentsScreen)
+
+    band_client.update_managed_harness.assert_called_once_with(
+        IDLE_AGENT_ID, HarnessId.COPILOT_SDK
+    )
+    stored = control_app.managed_agents.get(IDLE_AGENT_ID)
+    assert stored is not None
+    assert stored.harness is HarnessId.COPILOT_SDK
+    assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.COPILOT_SDK
+    assert "Reconfigured Beta" in (control_app.agents_store.status or "")
+
+
+async def test_reconfigure_restores_previous_profile_when_keyring_fails(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+    previous = ManagedAgentProfile(
+        agent_id=IDLE_AGENT_ID,
+        name="Beta",
+        harness=HarnessId.CODEX,
+        tuning=AgentTuning(reasoning="high"),
+    )
+    control_app.managed_agents.record(previous)
+    band_client.update_managed_harness.side_effect = RuntimeError(KEYRING_FAILURE_MESSAGE)
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("c")
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RegisterAgentScreen)
+        screen.draft = apply_draft_patch(screen.draft, harness=HarnessId.COPILOT_SDK)
+        screen._submit_reconfigure()
+        await settle(pilot)
+        assert isinstance(control_app.screen, RegisterAgentScreen)
+        assert KEYRING_FAILURE_MESSAGE in str(
+            screen.query_one(register_selector(RegisterId.STATUS), Static).render()
+        )
+
+    assert control_app.managed_agents.get(IDLE_AGENT_ID) == previous
+    assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.CODEX
+
+
+async def test_reconfigure_removes_provisional_profile_when_keyring_fails(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+    band_client.update_managed_harness.side_effect = RuntimeError(KEYRING_FAILURE_MESSAGE)
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("c")
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RegisterAgentScreen)
+        screen.draft = apply_draft_patch(screen.draft, harness=HarnessId.COPILOT_SDK)
+        screen._submit_reconfigure()
+        await settle(pilot)
+        assert isinstance(control_app.screen, RegisterAgentScreen)
+
+    assert control_app.managed_agents.get(IDLE_AGENT_ID) is None
+
+
+async def test_register_deletes_agent_when_profile_record_fails(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.create_agent.return_value = created
+
+    def boom(_profile: ManagedAgentProfile) -> None:
+        raise OSError(PROFILE_RECORD_FAILURE_MESSAGE)
+
+    monkeypatch.setattr(control_app.managed_agents, "record", boom)
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("n")
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RegisterAgentScreen)
+        screen.draft = AgentDraft(
+            harness=HarnessId.CODEX,
+            name="Beta",
+            description="Registered for profile rollback coverage.",
+        )
+        screen._submit()
+        await settle(pilot)
+        assert isinstance(control_app.screen, RegisterAgentScreen)
+        assert PROFILE_RECORD_FAILURE_MESSAGE in str(
+            screen.query_one(register_selector(RegisterId.STATUS), Static).render()
+        )
+
+    band_client.create_agent.assert_awaited_once()
+    band_client.delete_agent.assert_awaited_once_with(IDLE_AGENT_ID)
+    assert control_app.agents_store.find(IDLE_AGENT_ID) is None
 
 
 async def test_delete_requires_confirmation(

@@ -20,6 +20,7 @@ from band_wezterm.agent.spawn_cmd import agent_pane_command, write_api_key_file
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
+from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.role_library import open_role_library
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.screens.new_role import NewRoleScreen
@@ -448,6 +449,42 @@ class AgentsScreen(ControlScreen):
             return
         self._stop_agent(agent.id, agent.name, pane_id)
 
+    def _sync_agent_to_profile(
+        self, agent: AgentRecord, profile: ManagedAgentProfile
+    ) -> AgentRecord:
+        if agent.harness is profile.harness:
+            return agent
+        updated = agent.model_copy(update={"harness": profile.harness})
+        self.store.update_agent(updated)
+        return updated
+
+    async def _preflight_launch_profile(
+        self, agent_id: str, profile: ManagedAgentProfile
+    ) -> ManagedAgentProfile | None:
+        """Preflight, then re-read so mid-flight reconfigure cannot stale-spawn."""
+        preflighted = profile.harness
+        try:
+            await asyncio.to_thread(preflight_harness, preflighted)
+        except HarnessUnavailableError as error:
+            self._set_status(str(error))
+            return None
+        fresh = self.control.managed_agents.get(agent_id)
+        if fresh is None:
+            self._set_status(NO_MANAGED_PROFILE_MESSAGE)
+            return None
+        if fresh.harness is preflighted:
+            return fresh
+        try:
+            await asyncio.to_thread(preflight_harness, fresh.harness)
+        except HarnessUnavailableError as error:
+            self._set_status(str(error))
+            return None
+        refreshed = self.control.managed_agents.get(agent_id)
+        if refreshed is None:
+            self._set_status(NO_MANAGED_PROFILE_MESSAGE)
+            return None
+        return refreshed
+
     @work(exclusive=True, group="agents-spawn")
     async def _start_agent(self, agent: AgentRecord) -> None:
         window_id = self.control.window_id
@@ -462,14 +499,11 @@ class AgentsScreen(ControlScreen):
         if profile is None:
             self._set_status(NO_MANAGED_PROFILE_MESSAGE)
             return
-        if agent.harness is not profile.harness:
-            agent = agent.model_copy(update={"harness": profile.harness})
-            self.store.update_agent(agent)
-        try:
-            await asyncio.to_thread(preflight_harness, profile.harness)
-        except HarnessUnavailableError as error:
-            self._set_status(str(error))
+        agent = self._sync_agent_to_profile(agent, profile)
+        profile = await self._preflight_launch_profile(agent.id, profile)
+        if profile is None:
             return
+        agent = self._sync_agent_to_profile(agent, profile)
         store = self.store
         if store.is_running(agent.id):
             return

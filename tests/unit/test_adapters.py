@@ -60,7 +60,6 @@ def test_preflight_surfaces_import_hint(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_copilot_passes_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Host maps tuning.reasoning → CopilotSDKAdapterConfig.reasoning_effort."""
     captured: dict[str, object] = {}
 
     class FakeConfig:
