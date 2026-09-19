@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -100,6 +101,64 @@ def test_remove_rolls_back_memory_when_save_fails(
 def test_save_is_atomic_replace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "profiles.json"
     store = ManagedAgentStore(path)
+    existing = profile_from_registration(
+        agent_id="a1",
+        name="Alpha",
+        harness=HarnessId.CODEX,
+        persona=None,
+        tuning=AgentTuning(),
+    )
+    store.record(existing)
+    prior_content = path.read_text(encoding="utf-8")
+
+    def fail_before_replace(_src: str, _dst: str) -> None:
+        raise OSError(SAVE_FAILURE_MESSAGE)
+
+    monkeypatch.setattr("band_wezterm.managed_profiles.os.replace", fail_before_replace)
+    replacement = profile_from_registration(
+        agent_id="a1",
+        name="Alpha",
+        harness=HarnessId.CLAUDE,
+        persona=None,
+        tuning=AgentTuning(),
+    )
+    with pytest.raises(OSError, match=SAVE_FAILURE_MESSAGE):
+        store.record(replacement)
+
+    assert path.read_text(encoding="utf-8") == prior_content
+    assert store.get("a1") == existing
+    assert list(tmp_path.glob(".managed_agents.*.tmp")) == []
+
+
+def test_set_persona_and_tuning_rolls_back_memory_when_save_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = ManagedAgentStore(tmp_path / "profiles.json")
+    existing = profile_from_registration(
+        agent_id="a1",
+        name="Alpha",
+        harness=HarnessId.CODEX,
+        persona="# Dev\n",
+        tuning=AgentTuning(model="opus"),
+    )
+    store.record(existing)
+
+    def boom() -> None:
+        raise OSError(SAVE_FAILURE_MESSAGE)
+
+    monkeypatch.setattr(store, "_save", boom)
+    with pytest.raises(OSError, match=SAVE_FAILURE_MESSAGE):
+        store.set_persona_and_tuning(
+            "a1", persona="# Architect\n", tuning=AgentTuning(model="sonnet")
+        )
+    assert store.get("a1") == existing
+
+
+def test_save_unlinks_temp_when_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "profiles.json"
+    store = ManagedAgentStore(path)
     profile = profile_from_registration(
         agent_id="a1",
         name="Alpha",
@@ -107,19 +166,14 @@ def test_save_is_atomic_replace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         persona=None,
         tuning=AgentTuning(),
     )
-    replaced: list[tuple[str, str]] = []
-    real_replace = __import__("os").replace
 
-    def tracking_replace(src: str, dst: str) -> None:
-        replaced.append((src, dst))
-        real_replace(src, dst)
+    def boom_fdopen(fd: int, *_args: object, **_kwargs: object) -> object:
+        os.close(fd)
+        raise OSError(SAVE_FAILURE_MESSAGE)
 
-    monkeypatch.setattr("band_wezterm.managed_profiles.os.replace", tracking_replace)
-    store.record(profile)
-    assert len(replaced) == 1
-    src, dst = replaced[0]
-    assert Path(dst) == path
-    assert Path(src).parent == path.parent
-    assert store.get("a1") == profile
-    assert ManagedAgentStore(path).get("a1") == profile
+    monkeypatch.setattr("band_wezterm.managed_profiles.os.fdopen", boom_fdopen)
+    with pytest.raises(OSError, match=SAVE_FAILURE_MESSAGE):
+        store.record(profile)
+    assert list(tmp_path.glob(".managed_agents.*.tmp")) == []
+    assert store.get("a1") is None
 

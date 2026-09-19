@@ -399,7 +399,11 @@ class RegisterAgentScreen(ControlScreen):
         )
         # Profile first so Start's prefer-profile path cannot see keyring ahead
         # of durable local state if the keyring write fails afterward.
-        self.control.managed_agents.record(next_profile)
+        try:
+            self.control.managed_agents.record(next_profile)
+        except Exception as error:
+            self._set_status(format_platform_error(error))
+            return
         try:
             self.control.client.update_managed_harness(agent.id, draft.harness)
         except Exception as error:

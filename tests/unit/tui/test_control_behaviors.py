@@ -442,7 +442,14 @@ async def test_reconfigure_restores_previous_profile_when_keyring_fails(
         tuning=AgentTuning(reasoning="high"),
     )
     control_app.managed_agents.record(previous)
-    band_client.update_managed_harness.side_effect = RuntimeError(KEYRING_FAILURE_MESSAGE)
+
+    def fail_after_provisional(_agent_id: object, _harness: object) -> None:
+        provisional = control_app.managed_agents.get(IDLE_AGENT_ID)
+        assert provisional is not None
+        assert provisional.harness is HarnessId.COPILOT_SDK
+        raise RuntimeError(KEYRING_FAILURE_MESSAGE)
+
+    band_client.update_managed_harness.side_effect = fail_after_provisional
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
@@ -467,7 +474,14 @@ async def test_reconfigure_removes_provisional_profile_when_keyring_fails(
 ) -> None:
     target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
     band_client.list_my_agents.return_value = [target]
-    band_client.update_managed_harness.side_effect = RuntimeError(KEYRING_FAILURE_MESSAGE)
+
+    def fail_after_provisional(_agent_id: object, _harness: object) -> None:
+        provisional = control_app.managed_agents.get(IDLE_AGENT_ID)
+        assert provisional is not None
+        assert provisional.harness is HarnessId.COPILOT_SDK
+        raise RuntimeError(KEYRING_FAILURE_MESSAGE)
+
+    band_client.update_managed_harness.side_effect = fail_after_provisional
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
@@ -484,6 +498,45 @@ async def test_reconfigure_removes_provisional_profile_when_keyring_fails(
         )
 
     assert control_app.managed_agents.get(IDLE_AGENT_ID) is None
+    assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.CODEX
+
+
+async def test_reconfigure_aborts_when_profile_record_fails(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+    previous = ManagedAgentProfile(
+        agent_id=IDLE_AGENT_ID,
+        name="Beta",
+        harness=HarnessId.CODEX,
+        tuning=AgentTuning(reasoning="high"),
+    )
+    control_app.managed_agents.record(previous)
+
+    def boom() -> None:
+        raise OSError(PROFILE_RECORD_FAILURE_MESSAGE)
+
+    monkeypatch.setattr(control_app.managed_agents, "_save", boom)
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("c")
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RegisterAgentScreen)
+        screen.draft = apply_draft_patch(screen.draft, harness=HarnessId.COPILOT_SDK)
+        screen._submit_reconfigure()
+        await settle(pilot)
+        assert isinstance(control_app.screen, RegisterAgentScreen)
+        assert PROFILE_RECORD_FAILURE_MESSAGE in str(
+            screen.query_one(register_selector(RegisterId.STATUS), Static).render()
+        )
+
+    band_client.update_managed_harness.assert_not_called()
+    assert control_app.managed_agents.get(IDLE_AGENT_ID) == previous
     assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.CODEX
 
 
@@ -649,8 +702,6 @@ async def test_reconfigure_surfaces_rollback_failure_when_restore_save_fails(
 
     def flaky_save() -> None:
         saves["count"] += 1
-        # First save: provisional next_profile succeeds.
-        # Second save: restore of previous fails.
         if saves["count"] >= 2:
             raise OSError(rollback_message)
         real_save()
@@ -673,7 +724,6 @@ async def test_reconfigure_surfaces_rollback_failure_when_restore_save_fails(
         assert rollback_message in status
         assert "profile rollback failed" in status
 
-    # Best-effort: provisional next_profile remains after failed restore.
     stored = control_app.managed_agents.get(IDLE_AGENT_ID)
     assert stored is not None
     assert stored.harness is HarnessId.COPILOT_SDK
@@ -790,6 +840,9 @@ async def test_start_agent_aborts_when_harness_never_settles(
 
     spawn.assert_not_called()
     assert control_app.agents_store.status == PROFILE_HARNESS_UNSTABLE_MESSAGE
+    durable = control_app.managed_agents.get(IDLE_AGENT_ID)
+    assert durable is not None
+    assert control_app.agents_store.find(IDLE_AGENT_ID).harness is durable.harness
 
 
 async def test_start_agent_aborts_when_harness_changes_after_preflight(
@@ -836,4 +889,47 @@ async def test_start_agent_aborts_when_harness_changes_after_preflight(
 
     spawn.assert_not_called()
     assert control_app.agents_store.status == PROFILE_HARNESS_UNSTABLE_MESSAGE
+    assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.COPILOT
+
+
+async def test_start_agent_aborts_when_profile_removed_after_preflight(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CLAUDE_SDK)
+    band_client.list_my_agents.return_value = [target]
+    band_client.managed_agent_api_key.return_value = "band_a_managed"
+    control_app.window_id = 42
+    control_app.managed_agents.record(
+        ManagedAgentProfile(
+            agent_id=IDLE_AGENT_ID,
+            name="Beta",
+            harness=HarnessId.CODEX,
+        )
+    )
+    spawn = MagicMock()
+    original = AgentsScreen._preflight_launch_profile
+
+    async def remove_after_preflight(self, agent_id, profile):
+        result = await original(self, agent_id, profile)
+        if result is not None:
+            self.control.managed_agents.remove(agent_id)
+        return result
+
+    monkeypatch.setattr(AgentsScreen, "_preflight_launch_profile", remove_after_preflight)
+    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawn)
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.preflight_harness",
+        lambda _h: None,
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await settle(pilot)
+
+    spawn.assert_not_called()
+    assert control_app.agents_store.status == NO_MANAGED_PROFILE_MESSAGE
+    assert control_app.managed_agents.get(IDLE_AGENT_ID) is None
 

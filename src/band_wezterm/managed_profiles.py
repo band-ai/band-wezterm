@@ -79,30 +79,31 @@ class ManagedAgentStore:
                 Path(tmp_name).unlink(missing_ok=True)
             raise
 
-    def record(self, profile: ManagedAgentProfile) -> None:
-        previous = self._profiles.get(profile.agent_id)
-        self._profiles[profile.agent_id] = profile
+    def _commit(self, agent_id: str, profile: ManagedAgentProfile | None) -> None:
+        previous = self._profiles.get(agent_id)
+        if profile is None:
+            self._profiles.pop(agent_id, None)
+        else:
+            self._profiles[agent_id] = profile
         try:
             self._save()
         except Exception:
             if previous is None:
-                self._profiles.pop(profile.agent_id, None)
+                self._profiles.pop(agent_id, None)
             else:
-                self._profiles[profile.agent_id] = previous
+                self._profiles[agent_id] = previous
             raise
+
+    def record(self, profile: ManagedAgentProfile) -> None:
+        self._commit(profile.agent_id, profile)
 
     def get(self, agent_id: str) -> ManagedAgentProfile | None:
         return self._profiles.get(agent_id)
 
     def remove(self, agent_id: str) -> None:
-        previous = self._profiles.pop(agent_id, None)
-        if previous is None:
+        if agent_id not in self._profiles:
             return
-        try:
-            self._save()
-        except Exception:
-            self._profiles[agent_id] = previous
-            raise
+        self._commit(agent_id, None)
 
     def list(self) -> tuple[ManagedAgentProfile, ...]:
         return tuple(sorted(self._profiles.values(), key=lambda p: p.name.lower()))
@@ -117,10 +118,10 @@ class ManagedAgentStore:
         existing = self._profiles.get(agent_id)
         if existing is None:
             return
-        self._profiles[agent_id] = existing.model_copy(
-            update={"persona": persona, "tuning": tuning}
+        self._commit(
+            agent_id,
+            existing.model_copy(update={"persona": persona, "tuning": tuning}),
         )
-        self._save()
 
     def harness_for(self, agent_id: str) -> HarnessId | None:
         profile = self._profiles.get(agent_id)

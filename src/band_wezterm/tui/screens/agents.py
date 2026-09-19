@@ -462,10 +462,17 @@ class AgentsScreen(ControlScreen):
         self.store.update_agent(updated)
         return updated
 
+    def _resync_store_to_durable_profile(self, agent: AgentRecord) -> None:
+        current = self.control.managed_agents.get(agent.id)
+        if current is None:
+            return
+        self._sync_agent_to_profile(agent, current)
+        self.mutate_reactive(AgentsScreen.store)
+
     async def _preflight_launch_profile(
         self, agent_id: str, profile: ManagedAgentProfile
     ) -> ManagedAgentProfile | None:
-        """Preflight until the stored harness matches the one just checked."""
+        """Mid-flight reconfigure can change harness between check and return."""
         current = profile
         for _ in range(PREFLIGHT_HARNESS_STABILITY_ATTEMPTS):
             preflighted = current.harness
@@ -501,6 +508,7 @@ class AgentsScreen(ControlScreen):
         agent = self._sync_agent_to_profile(agent, profile)
         profile = await self._preflight_launch_profile(agent.id, profile)
         if profile is None:
+            self._resync_store_to_durable_profile(agent)
             return
         # Re-get after preflight: another writer may have removed or retuned the profile.
         fresh = self.control.managed_agents.get(agent.id)
@@ -508,6 +516,7 @@ class AgentsScreen(ControlScreen):
             self._set_status(NO_MANAGED_PROFILE_MESSAGE)
             return
         if fresh.harness is not profile.harness:
+            self._sync_agent_to_profile(agent, fresh)
             self._set_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
             return
         profile = fresh
