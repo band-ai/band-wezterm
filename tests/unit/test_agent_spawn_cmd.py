@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from band_wezterm.agent.spawn_cmd import agent_pane_command, write_api_key_file
@@ -15,7 +16,9 @@ def test_write_api_key_file_is_private() -> None:
     path = write_api_key_file("band_a_secret")
     try:
         assert path.read_text(encoding="utf-8") == "band_a_secret"
-        assert path.stat().st_mode & 0o777 == 0o600
+        # Windows ACL model ignores POSIX mode bits from chmod.
+        if sys.platform != "win32":
+            assert path.stat().st_mode & 0o777 == 0o600
     finally:
         path.unlink(missing_ok=True)
 
