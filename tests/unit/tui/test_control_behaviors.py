@@ -566,6 +566,54 @@ async def test_reconfigure_restores_previous_profile_when_keyring_fails(
     assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.CODEX
 
 
+async def test_reconfigure_completes_through_the_keyboard_wizard(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+    control_app.managed_agents.record(
+        ManagedAgentProfile(
+            agent_id=IDLE_AGENT_ID,
+            name="Beta",
+            harness=HarnessId.CODEX,
+            persona="# Existing role\n",
+            tuning=AgentTuning(reasoning="low"),
+        )
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("c")
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RegisterAgentScreen)
+        assert screen.step.value == "harness"
+
+        await pilot.press("down", "enter")
+        await settle(pilot)
+        assert screen.step.value == "role"
+
+        await pilot.press("enter")
+        await settle(pilot)
+        assert screen.step.value == "model"
+
+        await pilot.press("enter")
+        await settle(pilot)
+        assert screen.step.value == "reasoning"
+
+        await pilot.press("enter")
+        await settle(pilot)
+        assert isinstance(control_app.screen, AgentsScreen)
+
+    band_client.update_managed_harness.assert_called_once_with(
+        IDLE_AGENT_ID, HarnessId.CODEX
+    )
+    stored = control_app.managed_agents.get(IDLE_AGENT_ID)
+    assert stored is not None
+    assert stored.harness is HarnessId.CODEX
+    assert stored.persona == "# Existing role\n"
+
+
 async def test_reconfigure_removes_provisional_profile_when_keyring_fails(
     control_app: ControlApp, band_client: MagicMock
 ) -> None:

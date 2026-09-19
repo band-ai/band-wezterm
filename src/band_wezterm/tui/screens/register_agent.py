@@ -36,6 +36,7 @@ from band_wezterm.roles import Role, list_roles
 from band_wezterm.tui.screens import ControlScreen
 
 NO_ROLE_ID: Final = ""
+KEEP_CURRENT_ROLE_ID: Final = "__keep_current_role__"
 CUSTOM_MODEL_SENTINEL: Final = "__custom__"
 PROFILE_ROLLBACK_FAILED_MESSAGE: Final = (
     "{error}; profile rollback failed: {rollback}"
@@ -127,6 +128,7 @@ class RegisterAgentScreen(ControlScreen):
         self.draft: AgentDraft = create_default_draft()
         self.step: WizardStep = WizardStep.HARNESS
         self._roles: list[Role] = []
+        self._keep_current_persona = reconfigure
 
     def compose(self) -> ComposeResult:
         heading = "Reconfigure agent" if self.reconfigure else "Register agent"
@@ -199,9 +201,13 @@ class RegisterAgentScreen(ControlScreen):
             case WizardStep.HARNESS:
                 self.draft = apply_draft_patch(self.draft, harness=HarnessId(option_id))
             case WizardStep.ROLE:
-                if option_id == NO_ROLE_ID:
+                if option_id == KEEP_CURRENT_ROLE_ID:
+                    self._keep_current_persona = True
+                elif option_id == NO_ROLE_ID:
+                    self._keep_current_persona = False
                     self.draft = apply_draft_patch(self.draft, role=None)
                 else:
+                    self._keep_current_persona = False
                     role = next(role for role in self._roles if role.id == option_id)
                     self.draft = apply_draft_patch(self.draft, role=role)
             case WizardStep.MODEL:
@@ -284,6 +290,10 @@ class RegisterAgentScreen(ControlScreen):
             case WizardStep.ROLE:
                 title.update(f"{verb} agent — role")
                 hint.update("Give the agent a role? (from ~/.band/roles)")
+                if self.reconfigure:
+                    options.add_option(
+                        Option("Keep current role", id=KEEP_CURRENT_ROLE_ID)
+                    )
                 options.add_option(Option("No specific role", id=NO_ROLE_ID))
                 for role in self._roles:
                     detail = f" — {role.description}" if role.description else ""
@@ -334,6 +344,8 @@ class RegisterAgentScreen(ControlScreen):
                 for option in reasoning_dim.options:
                     options.add_option(Option(option.label, id=option.id or "default"))
                 options.focus()
+        if options.option_count:
+            options.highlighted = 0
 
     @work(exclusive=True, group="agents-register")
     async def _submit(self) -> None:
@@ -388,8 +400,12 @@ class RegisterAgentScreen(ControlScreen):
             self._set_status("No agent to reconfigure.")
             return
         draft = self.draft
-        persona = draft.role.content if draft.role is not None else None
         previous = self.control.managed_agents.get(agent.id)
+        persona = (
+            previous.persona
+            if self._keep_current_persona and previous is not None
+            else (draft.role.content if draft.role is not None else None)
+        )
         next_profile = profile_from_registration(
             agent_id=agent.id,
             name=agent.name,
