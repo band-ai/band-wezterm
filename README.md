@@ -16,20 +16,28 @@ permanent Control tab, with agent PTYs as visible Band-styled tabs.
 Install [WezTerm](https://wezterm.org/) and [uv](https://github.com/astral-sh/uv), then:
 
 ```bash
-# From a local checkout: install or reinstall the current source and configure WezTerm
+# macOS / Linux — from a local checkout
 ./install.sh
 
-# Windows Command Prompt or PowerShell (from the checkout)
+# Windows Command Prompt or PowerShell — from a local checkout
 .\install.bat
+```
+
+Both installers force-reinstall the checkout with `uv tool`, refresh the
+managed WezTerm plugin configuration, and are safe to re-run after pulling an
+update. Then open Control:
+
+```bash
+band-wezterm
+```
+
+To install directly from Git instead of a checkout:
 
 # Host CLI from Git (no PyPI required)
 uv tool install git+https://github.com/band-ai/band-wezterm
 
 # Install/update Band plugin snippet in active WezTerm config (idempotent)
 band-wezterm setup
-
-# Open Control (or attach + raise if already running)
-band-wezterm
 ```
 
 `setup` materializes the packaged `plugin/init.lua` into a tiny local git repo

@@ -69,9 +69,17 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install --cask wezterm
       - name: Install WezTerm (Windows)
+        id: wezterm_windows
         if: runner.os == 'Windows'
         run: winget install --id wez.wezterm -e --accept-source-agreements --accept-package-agreements
         continue-on-error: true
+      - name: Install Band WezTerm (macOS / Linux)
+        if: runner.os != 'Windows'
+        run: ./install.sh
+      - name: Install Band WezTerm (Windows)
+        if: runner.os == 'Windows' && steps.wezterm_windows.outcome == 'success'
+        shell: cmd
+        run: install.bat
       - run: uv sync --locked
       - run: uv run pytest tests/integration/test_wezterm_cli_live.py -q
 
