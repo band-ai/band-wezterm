@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from textual.widgets import ListView, Static
+from textual.widgets import Label, ListView, Static
 
 from band_wezterm.agent.adapters import HarnessUnavailableError
 from band_wezterm.agent_draft import AgentDraft, apply_draft_patch
@@ -173,6 +173,25 @@ async def test_opening_a_room_loads_message_history(
     band_client.list_messages.assert_awaited_once_with(
         ROOM_ID, limit=control_app.preferences.current.chat_messages_limit
     )
+
+
+async def test_room_roster_shows_local_agent_runtime(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    member = agent(RUNNING_AGENT_ID, "Alpha")
+    band_client.list_participants.return_value = [participant(member)]
+    control_app.agents_store.mark_running(RUNNING_AGENT_ID, AGENT_PANE)
+    target = room(ROOM_ID, "Core")
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target)
+        await settle(pilot)
+
+        row = control_app.screen.query_one(IdentityRow)
+        assert [str(label.render()) for label in row.query(Label)] == ["Alpha"]
+        indicator = row.query_one(".row-runtime", Static)
+        assert str(indicator.render()) == "●"
 
 
 async def test_start_agent_spawns_agent_module_pane(
@@ -932,4 +951,3 @@ async def test_start_agent_aborts_when_profile_removed_after_preflight(
     spawn.assert_not_called()
     assert control_app.agents_store.status == NO_MANAGED_PROFILE_MESSAGE
     assert control_app.managed_agents.get(IDLE_AGENT_ID) is None
-

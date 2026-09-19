@@ -27,6 +27,7 @@ from textual.widgets import (
 )
 
 from band_wezterm.client import (
+    AgentRecord,
     MessageRecord,
     ParticipantRecord,
     RealtimeEvent,
@@ -36,6 +37,7 @@ from band_wezterm.client import (
     display_message_content,
 )
 from band_wezterm.errors import format_platform_error
+from band_wezterm.identity import AgentRuntime, AvatarKind
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.stores import ROOM_FILTER_LABELS, RoomFilter, RoomsStore
 from band_wezterm.tui.widgets import (
@@ -47,6 +49,9 @@ from band_wezterm.tui.widgets import (
 )
 
 ROOM_DOT: Final = "●"
+RUNTIME_DOT: Final = "●"
+RUNNING_DOT_COLOR: Final = "#7ee787"
+STOPPED_DOT_COLOR: Final = "#6e7681"
 STAR_ON: Final = "★"
 STAR_OFF: Final = "☆"
 OPEN_CLASS: Final = "open"
@@ -67,8 +72,6 @@ EMPTY_TITLE_MESSAGE: Final = "A room title is required."
 DELETE_CONFIRM_MESSAGE: Final = (
     "Press Delete again to permanently remove {title}."
 )
-
-MENTION_PATTERN: Final = re.compile(r"@(?:\[([^\]\n]+)\]|([^\s@]+))")
 
 ROOM_CHIPS: Final[tuple[Chip, ...]] = tuple(
     Chip(key=chip.value, label=label) for chip, label in ROOM_FILTER_LABELS.items()
@@ -108,16 +111,14 @@ def resolve_mention(
     body: str, participants: Iterable[ParticipantRecord]
 ) -> tuple[ParticipantRecord, str] | None:
     """First canonical `@handle` that names a participant, plus the remaining body."""
-    roster = list(participants)
-    for match in MENTION_PATTERN.finditer(body):
-        token = next(value for value in match.groups() if value is not None).casefold()
-        participant = next(
-            (person for person in roster if token == mention_handle(person).casefold()),
-            None,
-        )
-        if participant is not None:
-            remainder = f"{body[: match.start()]} {body[match.end() :]}".strip()
-            return participant, remainder
+    roster = sorted(participants, key=lambda person: len(mention_handle(person)), reverse=True)
+    for participant in roster:
+        token = re.escape(mention_handle(participant))
+        match = re.search(rf"(?<!\S)@{token}(?=\s|$)", body, flags=re.IGNORECASE)
+        if match is None:
+            continue
+        remainder = f"{body[: match.start()]} {body[match.end() :]}".strip()
+        return participant, remainder
     return None
 
 
@@ -198,7 +199,7 @@ class RoomRow(ListItem):
 
 
 class IdentityRow(ListItem):
-    """Roster/picker entry: avatar plus display name."""
+    """Roster/picker entry: avatar, display name and local agent runtime."""
 
     DEFAULT_CSS = """
     IdentityRow {
@@ -209,16 +210,44 @@ class IdentityRow(ListItem):
     IdentityRow .row-name {
         width: 1fr;
     }
+    IdentityRow .row-runtime {
+        width: 2;
+    }
     """
 
-    def __init__(self, identity: Identity, identity_id: str) -> None:
+    def __init__(
+        self,
+        identity: Identity,
+        identity_id: str,
+        *,
+        runtime: AgentRuntime | None = None,
+    ) -> None:
         super().__init__()
         self.identity = identity
         self.identity_id = identity_id
+        self.runtime = runtime
 
     def compose(self) -> ComposeResult:
         yield AvatarChip(self.identity)
         yield Label(self.identity.name, classes="row-name")
+        dot_color = (
+            RUNNING_DOT_COLOR
+            if self.runtime is AgentRuntime.RUNNING
+            else STOPPED_DOT_COLOR
+        )
+        yield Static(
+            Text(RUNTIME_DOT, Style(color=dot_color)) if self.runtime is not None else "",
+            classes="row-runtime",
+        )
+
+
+def local_runtime(
+    identity: AgentRecord | ParticipantRecord, running_ids: frozenset[str]
+) -> AgentRuntime | None:
+    """The local WezTerm-pane state for an agent; humans have no process state."""
+    if identity.kind is AvatarKind.HUMAN:
+        return None
+    return AgentRuntime.RUNNING if identity.id in running_ids else AgentRuntime.IDLE
 
 
 class RoomsScreen(ControlScreen):
@@ -558,22 +587,32 @@ class RoomDetailScreen(ControlScreen):
         self.query_one(selector(Id.DETAIL_STATUS), Static).update(store.status)
 
     async def _render_roster(self, store: RoomsStore) -> None:
+        running_ids = self.control.agents_store.running_ids
         self.query_one(selector(Id.COMPOSER), MarkdownComposer).set_mention_handles(
             mention_handle(participant) for participant in store.participants
         )
         await refill(
             self._roster_view(),
             [
-                IdentityRow(participant, participant.id)
+                IdentityRow(
+                    participant,
+                    participant.id,
+                    runtime=local_runtime(participant, running_ids),
+                )
                 for participant in store.participants
             ],
         )
 
     async def _render_picker(self, store: RoomsStore) -> None:
+        running_ids = self.control.agents_store.running_ids
         await refill(
             self.query_one(selector(Id.PICKER_LIST), ListView),
             [
-                IdentityRow(candidate, candidate.id)
+                IdentityRow(
+                    candidate,
+                    candidate.id,
+                    runtime=local_runtime(candidate, running_ids),
+                )
                 for candidate in store.addable_candidates()
             ],
         )

@@ -32,13 +32,23 @@ def participant() -> ParticipantRecord:
 def test_resolve_mention_keeps_handle_with_spaces_together() -> None:
     recipient = participant()
 
-    resolved = resolve_mention("@[Developer 6753] hello", [recipient])
+    resolved = resolve_mention("@Developer 6753 hello", [recipient])
 
     assert resolved == (recipient, "hello")
 
 
-def test_resolve_mention_rejects_a_partial_multiword_handle() -> None:
-    assert resolve_mention("@Developer 6753 hello", [participant()]) is None
+def test_resolve_mention_prefers_the_longest_matching_handle() -> None:
+    short_handle = ParticipantRecord(
+        id="short",
+        name="Developer",
+        handle="Developer",
+        kind=AvatarKind.AGENT,
+        color="#7ee787",
+    )
+
+    resolved = resolve_mention("@Developer 6753 hello", [short_handle, participant()])
+
+    assert resolved == (participant(), "hello")
 
 
 @pytest.mark.asyncio
@@ -47,7 +57,7 @@ async def test_mention_suggester_completes_a_multiword_handle() -> None:
         "hello @dev"
     )
 
-    assert suggestion == "hello @[Developer 6753] "
+    assert suggestion == "hello @Developer 6753 "
 
 
 @pytest.mark.asyncio
@@ -61,4 +71,4 @@ async def test_tab_accepts_the_inline_handle_completion() -> None:
 
         await pilot.press("tab")
 
-        assert composer.value == "@[Developer 6753] "
+        assert composer.value == "@Developer 6753 "

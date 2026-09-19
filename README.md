@@ -16,6 +16,9 @@ permanent Control tab, with agent PTYs as visible Band-styled tabs.
 Install [WezTerm](https://wezterm.org/) and [uv](https://github.com/astral-sh/uv), then:
 
 ```bash
+# From a local checkout: install or reinstall the current source and configure WezTerm
+./install.sh
+
 # Host CLI from Git (no PyPI required)
 uv tool install git+https://github.com/band-ai/band-wezterm
 
@@ -84,7 +87,7 @@ in a local managed profile and applied when the agent pane starts.
 
 In a room, type `@` and the beginning of a participant handle. The composer
 offers an inline completion; press Tab (or Right Arrow) to accept it. Completed
-mentions use `@[handle]`, keeping handles with spaces as one recipient.
+handles, including ones with spaces, remain one recipient.
 
 ### Agent harnesses (Start agent)
 

@@ -31,10 +31,8 @@ LIGHT_INK: Final = "#ffffff"
 
 BOLD_SPAN: Final = re.compile(r"\*\*(?=\S)(?:[^*]|\*(?!\*))+\*\*")
 CODE_SPAN: Final = re.compile(r"`[^`\n]+`")
-MENTION_SPAN: Final = re.compile(r"(?:(?<=\s)|\A)@(?:\[[^\]\n]*\]|[^\s@]+)")
+MENTION_SPAN: Final = re.compile(r"(?:(?<=\s)|\A)@[^\s@]+")
 MENTION_QUERY: Final = re.compile(r"(?:(?<=\s)|\A)@(?P<query>[^\s@\[\]]*)$")
-MENTION_OPEN: Final = "@["
-MENTION_CLOSE: Final = "]"
 
 COMPOSER_SPANS: Final[tuple[tuple[re.Pattern[str], Style], ...]] = (
     (BOLD_SPAN, Style(bold=True)),
@@ -118,8 +116,8 @@ class MarkdownSpanHighlighter(Highlighter):
 
 
 def mention_token(handle: str) -> str:
-    """Render a handle in the unambiguous composer mention syntax."""
-    return f"{MENTION_OPEN}{handle}{MENTION_CLOSE}"
+    """Render a handle as it appears in the composer."""
+    return f"@{handle}"
 
 
 class MentionSuggester(Suggester):
