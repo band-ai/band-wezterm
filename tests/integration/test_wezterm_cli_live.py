@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -28,11 +30,10 @@ DEFAULT_MUX_DIR = Path.home() / ".local" / "share" / "wezterm"
 DEFAULT_MUX_SOCK = DEFAULT_MUX_DIR / "sock"
 
 
-def test_first_spawn_args_use_workspace_new_window() -> None:
+def test_first_spawn_args_use_new_window_without_workspace() -> None:
     args = first_spawn_args(Path("/tmp"), ["python", "-m", "band_wezterm.tui"])
     assert "--new-window" in args
-    assert "--workspace" in args
-    assert "band" in args
+    assert "--workspace" not in args
     assert "--window-id" not in args
 
 

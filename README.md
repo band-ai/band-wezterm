@@ -16,10 +16,19 @@ permanent Control tab, with agent PTYs as visible Band-styled tabs.
 
 ```bash
 uv sync          # installs default-groups.dev from uv.lock
-# Point WezTerm at the Band Lua config (tab colors/status):
+# Point WezTerm at the Band Lua config (tab colors/status + focus):
 #   echo 'dofile("/absolute/path/to/band-wezterm/wezterm/band.wezterm.lua")' >> ~/.wezterm.lua
-uv run band-wezterm
+uv run band-wezterm            # open Control, or attach + raise if already running
+uv run band-wezterm --restart  # replace the Control window
 ```
+
+Or with [just](https://github.com/casey/just): `just sync`, `just start` / `just attach`,
+`just restart`, `just test` (`just --list` for all).
+
+Re-running `band-wezterm` finds the existing Control tab, activates it, and
+raises WezTerm — it does not spawn a second Control. `--restart` kills that
+window first. Control opens in a normal (visible) WezTerm window; a separate
+`band` workspace is avoided because WezTerm has no CLI to switch workspaces.
 
 ## Tests
 

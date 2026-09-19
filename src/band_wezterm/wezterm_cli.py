@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
-from typing import Mapping
+from typing import Final, Mapping
 
 from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
 
-from band_wezterm.config import BAND_WORKSPACE_NAME
+from band_wezterm.config import BAND_WORKSPACE_NAME, CONTROL_TAB_TITLE
+
+# Short-lived pane that emits ``band.focus`` so Lua can SwitchToWorkspace.
+_FOCUS_RELAY_SLEEP_SECONDS = "0.05"
+# Inline OSC framing (same bytes as ``band_wezterm.osc``) — avoids a circular
+# import with osc.py, which depends on this module for PaneId/send_text.
+_OSC_PREFIX: Final = "\033]1337;SetUserVar="
+_OSC_SUFFIX: Final = "\007"
+_FOCUS_USER_VAR: Final = "band.focus"
+_FOCUS_PAYLOAD: Final = "1"
 
 
 class WindowId(RootModel[int]):
@@ -37,7 +49,9 @@ class PaneInfo(BaseModel):
     pane_id: int
     workspace: str | None = None
     title: str | None = None
+    tab_title: str | None = None
     cwd: str | None = None
+    size: dict[str, object] | None = None
 
 
 class WezTermCliError(RuntimeError):
@@ -46,6 +60,24 @@ class WezTermCliError(RuntimeError):
 
 class WezTermNotFoundError(WezTermCliError):
     pass
+
+
+def pane_command_env(
+    base: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Environment for programs we spawn into WezTerm panes.
+
+    Strips ``NO_COLOR`` / ``FORCE_COLOR=0`` so Textual does not go monochrome
+    when the launcher shell exported them (common in agent/CI environments).
+    """
+    env = dict(os.environ if base is None else base)
+    env.pop("NO_COLOR", None)
+    if env.get("FORCE_COLOR") == "0":
+        env.pop("FORCE_COLOR", None)
+    env.setdefault("COLORTERM", "truecolor")
+    if env.get("TERM") in (None, "", "dumb"):
+        env["TERM"] = "xterm-256color"
+    return env
 
 
 def _wezterm_bin() -> str:
@@ -72,19 +104,18 @@ def _run(args: list[str], *, env: Mapping[str, str] | None = None) -> str:
 
 
 def spawn_first_tab(cwd: Path, command: list[str]) -> SpawnResult:
-    """Open the `band` workspace with the Control tab as the first pane.
+    """Open a new visible window with the Control tab as the first pane.
 
-    Correction #1: `--workspace` only works with `--new-window`, and is mutually
-    exclusive with `--window-id`. Capture the returned pane id, then resolve
-    its window id via `list`.
+    Correction #1: first Control uses ``--new-window`` (not ``--window-id``).
+    We intentionally omit ``--workspace``: WezTerm has no CLI to switch the GUI
+    to a differently named workspace, so a ``band`` workspace stays hidden
+    (wezterm#3542). Window title is set by the host instead.
     """
     stdout = _run(
         [
             "cli",
             "spawn",
             "--new-window",
-            "--workspace",
-            BAND_WORKSPACE_NAME,
             "--cwd",
             str(cwd),
             "--",
@@ -99,7 +130,7 @@ def spawn_first_tab(cwd: Path, command: list[str]) -> SpawnResult:
 def spawn_additional_tab(
     window_id: WindowId, cwd: Path, command: list[str]
 ) -> PaneId:
-    """Spawn a subsequent tab into an existing `band` window (correction #1)."""
+    """Spawn a subsequent tab into an existing Control window (correction #1)."""
     stdout = _run(
         [
             "cli",
@@ -119,12 +150,28 @@ def kill_pane(pane_id: PaneId) -> None:
     _run(["cli", "kill-pane", "--pane-id", str(pane_id.root)])
 
 
+def activate_pane(pane_id: PaneId) -> None:
+    _run(["cli", "activate-pane", "--pane-id", str(pane_id.root)])
+
+
 def set_tab_title(pane_id: PaneId, title: str) -> None:
     """Name the tab that owns ``pane_id`` (visible in the tab bar)."""
     _run(
         [
             "cli",
             "set-tab-title",
+            "--pane-id",
+            str(pane_id.root),
+            title,
+        ]
+    )
+
+
+def set_window_title(pane_id: PaneId, title: str) -> None:
+    _run(
+        [
+            "cli",
+            "set-window-title",
             "--pane-id",
             str(pane_id.root),
             title,
@@ -170,14 +217,119 @@ def _window_id_for_pane(pane_id: PaneId) -> WindowId:
     raise WezTermCliError(f"pane {pane_id.root} not found in wezterm cli list")
 
 
+def is_control_pane(entry: PaneInfo) -> bool:
+    if entry.tab_title == CONTROL_TAB_TITLE:
+        return True
+    title = entry.title or ""
+    return "band_wezterm.tui" in title or title.endswith("band_wezterm")
+
+
+def find_control_pane() -> PaneInfo | None:
+    """Return the running Control pane, if any."""
+    controls = [entry for entry in list_panes() if is_control_pane(entry)]
+    if not controls:
+        return None
+    # Prefer a visible (non-legacy-workspace) Control when both exist.
+    for entry in controls:
+        if entry.workspace != BAND_WORKSPACE_NAME:
+            return entry
+    return controls[0]
+
+
+def panes_in_window(window_id: WindowId) -> list[PaneInfo]:
+    return [entry for entry in list_panes() if entry.window_id == window_id.root]
+
+
+def kill_window(window_id: WindowId) -> None:
+    """Kill every pane in ``window_id`` (best-effort)."""
+    for entry in panes_in_window(window_id):
+        try:
+            kill_pane(PaneId(entry.pane_id))
+        except WezTermCliError:
+            continue
+
+
+def _pane_dpi(entry: PaneInfo) -> int:
+    if not entry.size:
+        return 0
+    dpi = entry.size.get("dpi", 0)
+    return int(dpi) if isinstance(dpi, (int, float)) else 0
+
+
+def find_focus_relay_pane() -> PaneInfo | None:
+    """A rendered pane outside the legacy ``band`` workspace, for OSC focus."""
+    candidates = [
+        entry
+        for entry in list_panes()
+        if entry.workspace != BAND_WORKSPACE_NAME and _pane_dpi(entry) > 0
+    ]
+    return candidates[0] if candidates else None
+
+
+def format_focus_sequence() -> str:
+    """OSC 1337 that ``band.wezterm.lua`` handles as SwitchToWorkspace + focus."""
+    encoded = base64.b64encode(_FOCUS_PAYLOAD.encode("utf-8")).decode("ascii")
+    return f"{_OSC_PREFIX}{_FOCUS_USER_VAR}={encoded}{_OSC_SUFFIX}"
+
+
+def request_workspace_focus(*, control_pane: PaneId) -> None:
+    """Ask the GUI to show Control — workspace switch (Lua) + activate + raise.
+
+    Legacy Control panes in the ``band`` workspace are invisible until the GUI
+    switches workspaces. Emit ``band.focus`` from a short-lived pane in a
+    *visible* window (OSC must come from pane output, not ``send-text`` input).
+    """
+    control = next(
+        (entry for entry in list_panes() if entry.pane_id == control_pane.root),
+        None,
+    )
+    needs_workspace_switch = (
+        control is not None and control.workspace == BAND_WORKSPACE_NAME
+    )
+    if needs_workspace_switch:
+        relay = find_focus_relay_pane()
+        if relay is not None:
+            # Pass OSC via env so shell quoting cannot corrupt the escape bytes.
+            try:
+                _run(
+                    [
+                        "cli",
+                        "spawn",
+                        "--window-id",
+                        str(relay.window_id),
+                        "--",
+                        "bash",
+                        "-lc",
+                        f'printf %s "$BAND_FOCUS_OSC"; sleep {_FOCUS_RELAY_SLEEP_SECONDS}',
+                    ],
+                    env={**os.environ, "BAND_FOCUS_OSC": format_focus_sequence()},
+                )
+            except WezTermCliError:
+                pass
+    try:
+        activate_pane(control_pane)
+    except WezTermCliError:
+        pass
+    raise_gui()
+
+
+def raise_gui() -> None:
+    """Bring the WezTerm application to the foreground (best-effort)."""
+    if sys.platform == "darwin":
+        subprocess.run(
+            ["osascript", "-e", 'tell application "WezTerm" to activate'],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+
 def first_spawn_args(cwd: Path, command: list[str]) -> list[str]:
     """Pure argument builder for unit tests (no subprocess)."""
     return [
         "cli",
         "spawn",
         "--new-window",
-        "--workspace",
-        BAND_WORKSPACE_NAME,
         "--cwd",
         str(cwd),
         "--",
