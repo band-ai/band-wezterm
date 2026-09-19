@@ -375,6 +375,21 @@ class BandClient:
             id=room_id, title=room_title, color=room_accent(room_id)
         )
 
+    async def delete_room(self, room_id: UUID | str) -> None:
+        """Permanently delete a chat room (not in the Fern chats client yet)."""
+        credential = await self._bearer_token()
+        url = (
+            f"{self._settings.band_base_url.rstrip('/')}"
+            f"/api/v1/me/chats/{room_id}"
+        )
+        headers = (
+            {"X-API-Key": credential}
+            if self._api_key is not None
+            else {"Authorization": f"Bearer {credential}"}
+        )
+        response = await self._http.delete(url, headers=headers)
+        response.raise_for_status()
+
     async def list_participants(self, room_id: UUID | str) -> list[ParticipantRecord]:
         response = await self._participants.list_my_chat_participants(str(room_id))
         participants: list[ParticipantRecord] = []

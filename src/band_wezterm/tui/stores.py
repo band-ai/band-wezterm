@@ -223,6 +223,18 @@ class RoomsStore:
         self.rooms = [room, *self.rooms]
         self.selected_id = room.id
 
+    def remove_room(self, room_id: str) -> None:
+        self.rooms = [room for room in self.rooms if room.id != room_id]
+        if self.selected_id == room_id:
+            self.selected_id = None
+            self.participants = []
+            self.candidates = []
+            self._messages = {}
+            self.picker_open = False
+        self.starred_ids = frozenset(
+            sid for sid in self.starred_ids if sid != room_id
+        )
+
     def select_filter(self, chip: RoomFilter) -> None:
         self.filter = chip
 

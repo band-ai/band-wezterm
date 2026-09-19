@@ -64,6 +64,9 @@ NO_SELECTION_MESSAGE: Final = "Select a room first."
 NO_PARTICIPANT_MESSAGE: Final = "Select a participant first."
 MENTION_REQUIRED_MESSAGE: Final = "Messages must @mention a room participant."
 EMPTY_TITLE_MESSAGE: Final = "A room title is required."
+DELETE_CONFIRM_MESSAGE: Final = (
+    "Press Delete again to permanently remove {title}."
+)
 
 MENTION_PATTERN: Final = re.compile(r"@([^\s@]+)")
 
@@ -231,6 +234,8 @@ class RoomsScreen(ControlScreen):
         Binding("slash", "focus_search", "Search"),
         Binding("f", "focus_filters", "Filters"),
         Binding("n", "new_room", "New room"),
+        Binding("delete", "delete_room", "Delete"),
+        Binding("backspace", "delete_room", "Delete", show=False),
         Binding("s", "toggle_star", "Star"),
         Binding("r", "reload", "Reload"),
         Binding("escape", "cancel", "Cancel", show=False),
@@ -276,12 +281,15 @@ class RoomsScreen(ControlScreen):
 
     def on_mount(self) -> None:
         self.store = self.control.rooms_store
+        self._pending_delete_id: str | None = None
         self.query_one(selector(Id.LIST), ListView).focus()
         self._load_rooms()
 
     def on_screen_resume(self) -> None:
         """A draft never survives leaving the screen — reopen it from scratch."""
+        self._pending_delete_id = None
         self._close_draft()
+        self.mutate_reactive(RoomsScreen.store)
 
     async def watch_store(self, store: RoomsStore) -> None:
         if not self.is_mounted:
@@ -341,6 +349,7 @@ class RoomsScreen(ControlScreen):
             self.control.open_room(event.item.room)
 
     def action_toggle_star(self) -> None:
+        self._pending_delete_id = None
         room = self._highlighted_room()
         if room is None:
             self._set_status(NO_SELECTION_MESSAGE)
@@ -369,11 +378,38 @@ class RoomsScreen(ControlScreen):
     # --- create room (transient overlay) -----------------------------------
 
     def action_new_room(self) -> None:
+        self._pending_delete_id = None
         self.store.draft_open = True
         self.mutate_reactive(RoomsScreen.store)
         self.query_one(selector(Id.DRAFT_TITLE), Input).focus()
 
+    def action_delete_room(self) -> None:
+        room = self._highlighted_room()
+        if room is None:
+            self._set_status(NO_SELECTION_MESSAGE)
+            return
+        if self._pending_delete_id != room.id:
+            self._pending_delete_id = room.id
+            self._set_status(DELETE_CONFIRM_MESSAGE.format(title=room.title))
+            return
+        self._pending_delete_id = None
+        self._delete_room(room)
+
+    @work(exclusive=True, group="rooms-delete")
+    async def _delete_room(self, room: RoomRecord) -> None:
+        try:
+            await self.control.client.delete_room(room.id)
+        except Exception as error:
+            self._set_status(format_platform_error(error))
+            return
+        self.control.forget_room(room.id)
+        self._set_status(f"Deleted {room.title}.")
+
     def action_cancel(self) -> None:
+        if self._pending_delete_id is not None:
+            self._pending_delete_id = None
+            self._set_status("")
+            return
         if self.store.draft_open:
             self._close_draft()
             return
@@ -424,6 +460,8 @@ class RoomDetailScreen(ControlScreen):
         Binding("ctrl+o", "app.show_rooms", "Rooms", show=False),
         Binding("a", "add_participant", "Add participant"),
         Binding("x", "remove_participant", "Remove"),
+        Binding("delete", "delete_room", "Delete"),
+        Binding("backspace", "delete_room", "Delete", show=False),
         Binding("m", "focus_composer", "Compose"),
         Binding("r", "reload", "Reload"),
         Binding("escape", "back", "Back"),
@@ -472,6 +510,7 @@ class RoomDetailScreen(ControlScreen):
         super().__init__()
         self.room = room
         self._unsubscribe: Unsubscribe | None = None
+        self._pending_delete: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -555,8 +594,29 @@ class RoomDetailScreen(ControlScreen):
         self.mutate_reactive(RoomDetailScreen.store)
 
     def action_reload(self) -> None:
+        self._pending_delete = False
         self._load_roster()
         self._load_messages()
+
+    def action_delete_room(self) -> None:
+        if not self._pending_delete:
+            self._pending_delete = True
+            self._set_status(DELETE_CONFIRM_MESSAGE.format(title=self.room.title))
+            return
+        self._pending_delete = False
+        self._delete_room()
+
+    @work(exclusive=True, group="room-delete")
+    async def _delete_room(self) -> None:
+        try:
+            await self.control.client.delete_room(self.room.id)
+        except Exception as error:
+            self._set_status(format_platform_error(error))
+            return
+        title = self.room.title
+        self.control.forget_room(self.room.id)
+        self.control.rooms_store.status = f"Deleted {title}."
+        self.app.pop_screen()
 
     @work(exclusive=True, group="room-messages")
     async def _load_messages(self) -> None:
@@ -579,6 +639,7 @@ class RoomDetailScreen(ControlScreen):
 
     def action_remove_participant(self) -> None:
         """Instant removal — no confirmation step by design."""
+        self._pending_delete = False
         participant_id = self._highlighted_identity_id(self._roster_view())
         if participant_id is None:
             self._set_status(NO_PARTICIPANT_MESSAGE)
@@ -598,6 +659,7 @@ class RoomDetailScreen(ControlScreen):
     # --- add participant (select-then-act, add-only) -----------------------
 
     def action_add_participant(self) -> None:
+        self._pending_delete = False
         self._set_picker_open(True)
         self._load_candidates()
 
@@ -643,6 +705,10 @@ class RoomDetailScreen(ControlScreen):
 
     def action_back(self) -> None:
         """Escape unwinds one level: picker, then composer, then the room."""
+        if self._pending_delete:
+            self._pending_delete = False
+            self._set_status("")
+            return
         if self.store.picker_open:
             self._set_picker_open(False)
             return

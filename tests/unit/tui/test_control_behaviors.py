@@ -20,7 +20,11 @@ from band_wezterm.tui.screens.agents import Id as AgentId
 from band_wezterm.tui.screens.agents import selector as agent_selector
 from band_wezterm.tui.screens.register_agent import RegisterAgentScreen
 from band_wezterm.tui.screens.rooms import Id as RoomId
-from band_wezterm.tui.screens.rooms import IdentityRow, RoomDetailScreen
+from band_wezterm.tui.screens.rooms import (
+    IdentityRow,
+    RoomDetailScreen,
+    RoomsScreen,
+)
 from band_wezterm.tui.screens.rooms import selector as room_selector
 from band_wezterm.tui.screens.sign_in import SignInScreen
 from band_wezterm.wezterm_cli import PaneId
@@ -280,3 +284,52 @@ async def test_delete_requires_confirmation(
         await settle(pilot)
         band_client.delete_agent.assert_awaited()
         assert band_client.delete_agent.await_args.args[0] == IDLE_AGENT_ID
+
+
+
+async def test_delete_room_requires_confirmation(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    """Delete on the rooms list is two-press, matching agents."""
+    target = room(ROOM_ID, "Core")
+    band_client.list_my_chats.return_value = [target]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("ctrl+o")
+        await settle(pilot)
+        assert isinstance(control_app.screen, RoomsScreen)
+        await pilot.press("delete")
+        await settle(pilot)
+        assert "Press Delete again" in (control_app.rooms_store.status or "")
+        band_client.delete_room.assert_not_called()
+        await pilot.press("delete")
+        await settle(pilot)
+        band_client.delete_room.assert_awaited()
+        assert band_client.delete_room.await_args.args[0] == ROOM_ID
+        assert control_app.rooms_store.find(ROOM_ID) is None
+
+
+async def test_delete_room_from_detail_returns_to_list(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target = room(ROOM_ID, "Core")
+    band_client.list_my_chats.return_value = [target]
+    band_client.list_participants.return_value = []
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("ctrl+o")
+        await settle(pilot)
+        assert isinstance(control_app.screen, RoomsScreen)
+        await pilot.press("enter")
+        await settle(pilot)
+        assert isinstance(control_app.screen, RoomDetailScreen)
+        await pilot.press("delete")
+        await settle(pilot)
+        band_client.delete_room.assert_not_called()
+        await pilot.press("delete")
+        await settle(pilot)
+        band_client.delete_room.assert_awaited()
+        assert isinstance(control_app.screen, RoomsScreen)
+        assert control_app.rooms_store.find(ROOM_ID) is None

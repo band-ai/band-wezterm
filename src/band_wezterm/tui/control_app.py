@@ -233,6 +233,13 @@ class ControlApp(App[None]):
         self.starred.toggle(self.user_id, room_id)
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
 
+    def forget_room(self, room_id: str) -> None:
+        """Drop a deleted room from the list and local star state."""
+        if self.user_id is not None:
+            self.starred.unstar(self.user_id, room_id)
+            self.rooms_store.starred_ids = self.starred.list(self.user_id)
+        self.rooms_store.remove_room(room_id)
+
 
 def announce_human(user_id: str) -> None:
     """The signed-in human stays online for as long as the host runs."""
