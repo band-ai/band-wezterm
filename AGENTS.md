@@ -14,6 +14,10 @@
 - **No Magic Numbers or Strings**: Replace raw inline literals and string
   values with descriptive, well-named constants, enums, or configuration
   parameters.
+- **Strong Types**: Prefer typed models and enums over bare `dict`/`str`
+  payloads. Use Pydantic for structured data (config, API shapes, persisted
+  state). Prefer `StrEnum` (or other enums) for closed string sets instead of
+  free-form string literals.
 - **Clean Code & Simple Flows**: Prioritize high readability and linear,
   straightforward execution paths. Keep control flow flat, minimize
   nesting, and favor simple, predictable logic over clever or overly
