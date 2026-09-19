@@ -31,7 +31,7 @@ WINDOW_TITLE: Final = "Band"
 SETUP_COMMAND: Final = "setup"
 SETUP_HELP: Final = (
     "Install/update the Band WezTerm plugin snippet in the active "
-    "WezTerm config (default ~/.wezterm.lua)"
+    "WezTerm config (WEZTERM_CONFIG_FILE, ~/.wezterm.lua, or XDG wezterm.lua)"
 )
 
 

@@ -45,7 +45,9 @@ def test_setup_help_mentions_active_config(
     assert exited.value.code == 0
     help_text = capsys.readouterr().out
     assert "active WezTerm config" in help_text
-    assert "default ~/.wezterm.lua" in help_text
+    assert "WEZTERM_CONFIG_FILE" in help_text
+    assert "~/.wezterm.lua" in help_text
+    assert "XDG" in help_text
 
 
 def test_main_setup_success(

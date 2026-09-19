@@ -9,7 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from band_wezterm.setup_wezterm import ensure_band_plugin_config
+from band_wezterm.setup_wezterm import (
+    BAND_WEZTERM_PLUGIN_URL_ENV,
+    WEZTERM_CONFIG_FILE_ENV,
+    XDG_CONFIG_HOME_ENV,
+    ensure_band_plugin_config,
+    materialize_plugin_repo,
+)
 
 pytestmark = pytest.mark.live_wezterm
 
@@ -21,12 +27,10 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.delenv("WEZTERM_CONFIG_FILE", raising=False)
-    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    monkeypatch.delenv("BAND_WEZTERM_PLUGIN_URL", raising=False)
+    monkeypatch.delenv(WEZTERM_CONFIG_FILE_ENV, raising=False)
+    monkeypatch.delenv(XDG_CONFIG_HOME_ENV, raising=False)
+    monkeypatch.delenv(BAND_WEZTERM_PLUGIN_URL_ENV, raising=False)
     # Keep WezTerm plugin clones out of the real user tree.
-    support = tmp_path / "wezterm-support"
-    support.mkdir()
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
     # macOS WezTerm uses Application Support; point HOME so relative lookups stay
     # under tmp when possible. Plugin cache path is still under real Library on
@@ -41,13 +45,12 @@ def test_setup_then_wezterm_loads_plugin(isolated_home: Path) -> None:
     result = ensure_band_plugin_config(home=isolated_home)
     assert result.path.is_file()
     config_text = result.path.read_text(encoding="utf-8")
-    assert "wezterm.plugin.require 'file://" in config_text
+    plugin_uri = materialize_plugin_repo(home=isolated_home).as_uri()
+    assert f"wezterm.plugin.require '{plugin_uri}'" in config_text
     assert "apply_to_config" in config_text
 
     # Append a log line so we can prove config evaluation finished.
-    probe = (
-        "\nwezterm.log_info('band-wezterm live e2e: config loaded')\n"
-    )
+    probe = "\nwezterm.log_info('band-wezterm live e2e: config loaded')\n"
     # Insert before final return config
     if "return config" in config_text:
         config_text = config_text.replace(
@@ -69,8 +72,7 @@ def test_setup_then_wezterm_loads_plugin(isolated_home: Path) -> None:
         timeout=60,
     )
     combined = completed.stdout + "\n" + completed.stderr
+    assert completed.returncode == 0, combined
     assert "band-wezterm live e2e: config loaded" in combined, combined
     assert "plugin require failed" not in combined.lower()
     assert "apply_to_config failed" not in combined.lower()
-    # Soft: lua errors mentioning our plugin
-    assert "band_wezterm" not in combined.lower() or "live e2e" in combined

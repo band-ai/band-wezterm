@@ -34,7 +34,7 @@ test:
 
 # WezTerm CLI live checks (needs wezterm on PATH)
 test-wezterm:
-    uv run pytest tests/integration/test_wezterm_cli_live.py -q
+    uv run pytest tests/integration/test_wezterm_cli_live.py tests/integration/test_plugin_setup_live.py -q
 
 # Live platform Control PTY (needs BAND_API_KEY_USER in .env.test)
 test-live:

@@ -15,8 +15,8 @@ from typing import Final
 from band_wezterm.config import LOCAL_STATE_DIRNAME
 from band_wezterm.wezterm_cli import wezterm_bin
 
-# Default public/clone URL — overridden by materialize or BAND_WEZTERM_PLUGIN_URL.
-WEZTERM_PLUGIN_URL: Final = "https://github.com/band-ai/band-wezterm"
+# Sample HTTPS override for tests / docs — production defaults to materialize().
+EXAMPLE_HTTPS_PLUGIN_URL: Final = "https://github.com/band-ai/band-wezterm"
 BAND_WEZTERM_PLUGIN_URL_ENV: Final = "BAND_WEZTERM_PLUGIN_URL"
 MANAGED_BEGIN: Final = "-- BEGIN BAND-WEZTERM MANAGED"
 MANAGED_END: Final = "-- END BAND-WEZTERM MANAGED"
@@ -27,8 +27,14 @@ WEZTERM_CONFIG_FILE_ENV: Final = "WEZTERM_CONFIG_FILE"
 XDG_CONFIG_HOME_ENV: Final = "XDG_CONFIG_HOME"
 LEGACY_PLUGIN_BASENAME: Final = "band.wezterm.lua"
 PLUGIN_REPO_DIRNAME: Final = "wezterm-plugin"
+PLUGIN_DIRNAME: Final = "plugin"
 PLUGIN_PACKAGE: Final = "band_wezterm.wezterm_plugin"
 PLUGIN_INIT_NAME: Final = "init.lua"
+# Path(__file__).resolve().parents[N] → repo root (band_wezterm → src → repo).
+REPO_ROOT_FROM_PACKAGE: Final = 2
+GIT_COMMIT_USER_NAME: Final = "band-wezterm"
+GIT_COMMIT_USER_EMAIL: Final = "band-wezterm@localhost"
+GIT_COMMIT_MESSAGE: Final = "band-wezterm WezTerm plugin"
 
 _RETURN_LINE_RE: Final = re.compile(
     r"^([ \t]*)return\b.*$",
@@ -142,14 +148,14 @@ def materialize_plugin_repo(*, home: Path | None = None) -> Path:
     """Write packaged ``plugin/init.lua`` into a tiny git repo under local state."""
     home_dir = home if home is not None else Path.home()
     root = (home_dir / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME).resolve()
-    plugin_dir = root / "plugin"
+    plugin_dir = root / PLUGIN_DIRNAME
     plugin_dir.mkdir(parents=True, exist_ok=True)
     target = plugin_dir / PLUGIN_INIT_NAME
     source_text = _plugin_init_lua_text()
     if not target.is_file() or target.read_text(encoding="utf-8") != source_text:
         target.write_text(source_text, encoding="utf-8")
-        _git_commit_plugin_repo(root)
-    elif not (root / ".git").is_dir():
+    # Always recover git state — do not skip merely because file bytes match.
+    if _plugin_repo_needs_commit(root):
         _git_commit_plugin_repo(root)
     return root
 
@@ -158,47 +164,76 @@ def _plugin_init_lua_text() -> str:
     packaged = resources.files(PLUGIN_PACKAGE).joinpath(PLUGIN_INIT_NAME)
     if packaged.is_file():
         return packaged.read_text(encoding="utf-8")
-    # Editable checkout: repo-root plugin/init.lua (parents: band_wezterm → src → repo).
-    repo_plugin = Path(__file__).resolve().parents[2] / "plugin" / PLUGIN_INIT_NAME
+    # Editable checkout: repo-root plugin/init.lua.
+    repo_root = Path(__file__).resolve().parents[REPO_ROOT_FROM_PACKAGE]
+    repo_plugin = repo_root / PLUGIN_DIRNAME / PLUGIN_INIT_NAME
     if repo_plugin.is_file():
         return repo_plugin.read_text(encoding="utf-8")
     raise SetupConfigError(
         "Band WezTerm plugin Lua is missing from the install "
-        f"(expected {PLUGIN_PACKAGE}/{PLUGIN_INIT_NAME} or repo plugin/{PLUGIN_INIT_NAME})"
+        f"(expected {PLUGIN_PACKAGE}/{PLUGIN_INIT_NAME} or repo "
+        f"{PLUGIN_DIRNAME}/{PLUGIN_INIT_NAME})"
+    )
+
+
+def _plugin_repo_needs_commit(root: Path) -> bool:
+    """True when ``.git`` is missing, HEAD is unset, or the working tree is dirty."""
+    if not (root / ".git").is_dir():
+        return True
+    try:
+        head = _git(root, "rev-parse", "HEAD", check=False)
+        if head.returncode != 0:
+            return True
+        status = _git(root, "status", "--porcelain", check=False)
+        if status.returncode != 0:
+            return True
+        return bool(status.stdout.strip())
+    except OSError:
+        return True
+
+
+def _git(
+    root: Path,
+    *args: str,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=root,
+        check=check,
+        capture_output=True,
+        text=True,
     )
 
 
 def _git_commit_plugin_repo(root: Path) -> None:
-    def _git(*args: str) -> None:
-        subprocess.run(
-            ["git", *args],
-            cwd=root,
-            check=True,
-            capture_output=True,
-            text=True,
+    try:
+        if not (root / ".git").is_dir():
+            _git(root, "init")
+        _git(root, "add", f"{PLUGIN_DIRNAME}/{PLUGIN_INIT_NAME}")
+        status = _git(root, "status", "--porcelain")
+        head = _git(root, "rev-parse", "HEAD", check=False)
+        if not status.stdout.strip() and head.returncode == 0:
+            return
+        _git(
+            root,
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "commit.gpgSign=false",
+            "-c",
+            f"user.name={GIT_COMMIT_USER_NAME}",
+            "-c",
+            f"user.email={GIT_COMMIT_USER_EMAIL}",
+            "commit",
+            "-m",
+            GIT_COMMIT_MESSAGE,
         )
-
-    if not (root / ".git").is_dir():
-        _git("init")
-    _git("add", f"plugin/{PLUGIN_INIT_NAME}")
-    status = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    if not status.stdout.strip():
-        return
-    _git(
-        "-c",
-        "user.name=band-wezterm",
-        "-c",
-        "user.email=band-wezterm@localhost",
-        "commit",
-        "-m",
-        "band-wezterm WezTerm plugin",
-    )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise SetupConfigError(
+            f"Failed to materialize Band WezTerm plugin git repo at {root}: {detail}"
+        ) from exc
 
 
 def _managed_block(plugin_url: str) -> str:

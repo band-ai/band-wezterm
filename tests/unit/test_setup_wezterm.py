@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from band_wezterm.config import LOCAL_STATE_DIRNAME
 from band_wezterm.setup_wezterm import (
     BAND_WEZTERM_PLUGIN_URL_ENV,
+    DEFAULT_CONFIG_DIRNAME,
+    EXAMPLE_HTTPS_PLUGIN_URL,
     HOME_CONFIG_NAME,
     MANAGED_BEGIN,
     MANAGED_END,
+    PLUGIN_DIRNAME,
     PLUGIN_INIT_NAME,
     PLUGIN_REPO_DIRNAME,
     WEZTERM_CONFIG_FILE_ENV,
-    WEZTERM_PLUGIN_URL,
     XDG_CONFIG_HOME_ENV,
     XDG_WEZTERM_RELATIVE,
     SetupAction,
@@ -39,11 +44,6 @@ def _stub_wezterm_bin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(WEZTERM_CONFIG_FILE_ENV, raising=False)
 
 
-@pytest.fixture(autouse=True)
-def _clear_wezterm_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(WEZTERM_CONFIG_FILE_ENV, raising=False)
-
-
 def test_resolve_prefers_existing_home_dotfile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -51,7 +51,7 @@ def test_resolve_prefers_existing_home_dotfile(
     home = tmp_path / "home"
     home.mkdir()
     dot = home / HOME_CONFIG_NAME
-    xdg = home / ".config" / XDG_WEZTERM_RELATIVE
+    xdg = home / DEFAULT_CONFIG_DIRNAME / XDG_WEZTERM_RELATIVE
     xdg.parent.mkdir(parents=True)
     dot.write_text("-- home\n", encoding="utf-8")
     xdg.write_text("-- xdg\n", encoding="utf-8")
@@ -63,7 +63,7 @@ def test_resolve_falls_back_to_xdg(
 ) -> None:
     monkeypatch.delenv(XDG_CONFIG_HOME_ENV, raising=False)
     home = tmp_path / "home"
-    xdg = home / ".config" / XDG_WEZTERM_RELATIVE
+    xdg = home / DEFAULT_CONFIG_DIRNAME / XDG_WEZTERM_RELATIVE
     xdg.parent.mkdir(parents=True)
     xdg.write_text("-- xdg\n", encoding="utf-8")
     assert resolve_wezterm_config_path(home=home) == xdg
@@ -78,7 +78,7 @@ def test_resolve_home_ignores_ambient_xdg(
     ambient_target = ambient / XDG_WEZTERM_RELATIVE
     ambient_target.parent.mkdir(parents=True)
     ambient_target.write_text("-- ambient\n", encoding="utf-8")
-    home_xdg = home / ".config" / XDG_WEZTERM_RELATIVE
+    home_xdg = home / DEFAULT_CONFIG_DIRNAME / XDG_WEZTERM_RELATIVE
     home_xdg.parent.mkdir(parents=True)
     home_xdg.write_text("-- home xdg\n", encoding="utf-8")
     monkeypatch.setenv(XDG_CONFIG_HOME_ENV, str(ambient))
@@ -143,8 +143,11 @@ def test_ensure_creates_fresh_config(tmp_path: Path) -> None:
     assert "wezterm.plugin.require 'file://" in text
     assert "wezterm.config_builder()" in text
     plugin_repo = home / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME
-    assert (plugin_repo / "plugin" / PLUGIN_INIT_NAME).is_file()
+    assert (plugin_repo / PLUGIN_DIRNAME / PLUGIN_INIT_NAME).is_file()
     assert (plugin_repo / ".git").is_dir()
+    require_url = resolve_plugin_require_url(home=home)
+    assert require_url == plugin_repo.as_uri()
+    assert f"wezterm.plugin.require '{require_url}'" in text
     block = text[text.index(MANAGED_BEGIN) : text.index(MANAGED_END)]
     assert "local wezterm = require 'wezterm'" in block
     assert "wezterm.plugin.require" in block
@@ -648,8 +651,10 @@ def test_ensure_rejects_broken_symlink(tmp_path: Path) -> None:
 def test_resolve_plugin_url_honors_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv(BAND_WEZTERM_PLUGIN_URL_ENV, WEZTERM_PLUGIN_URL)
-    assert resolve_plugin_require_url(home=tmp_path / "home") == WEZTERM_PLUGIN_URL
+    monkeypatch.setenv(BAND_WEZTERM_PLUGIN_URL_ENV, EXAMPLE_HTTPS_PLUGIN_URL)
+    assert (
+        resolve_plugin_require_url(home=tmp_path / "home") == EXAMPLE_HTTPS_PLUGIN_URL
+    )
 
 
 def test_materialize_plugin_repo_is_idempotent(tmp_path: Path) -> None:
@@ -658,7 +663,166 @@ def test_materialize_plugin_repo_is_idempotent(tmp_path: Path) -> None:
     first = materialize_plugin_repo(home=home)
     second = materialize_plugin_repo(home=home)
     assert first == second
-    assert (first / "plugin" / PLUGIN_INIT_NAME).read_text(encoding="utf-8")
-    assert "apply_to_config" in (first / "plugin" / PLUGIN_INIT_NAME).read_text(
+    init_lua = first / PLUGIN_DIRNAME / PLUGIN_INIT_NAME
+    assert "apply_to_config" in init_lua.read_text(encoding="utf-8")
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=first,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert head.stdout.strip()
+
+
+def test_materialize_rewrites_when_content_changes(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    root = materialize_plugin_repo(home=home)
+    init_lua = root / PLUGIN_DIRNAME / PLUGIN_INIT_NAME
+    init_lua.write_text("-- stale packaged lua\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", f"{PLUGIN_DIRNAME}/{PLUGIN_INIT_NAME}"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@localhost",
+            "commit",
+            "-m",
+            "stale",
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    before = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    materialize_plugin_repo(home=home)
+    text = init_lua.read_text(encoding="utf-8")
+    assert "apply_to_config" in text
+    assert "-- stale packaged lua" not in text
+    after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert after != before
+
+
+def test_materialize_recreates_git_when_missing(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    root = materialize_plugin_repo(home=home)
+    init_text = (root / PLUGIN_DIRNAME / PLUGIN_INIT_NAME).read_text(encoding="utf-8")
+    shutil.rmtree(root / ".git")
+    assert not (root / ".git").exists()
+
+    materialize_plugin_repo(home=home)
+    assert (root / ".git").is_dir()
+    assert (root / PLUGIN_DIRNAME / PLUGIN_INIT_NAME).read_text(
+        encoding="utf-8"
+    ) == init_text
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert head.stdout.strip()
+
+
+def test_materialize_retries_commit_after_failed_commit(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    root = home / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME
+    plugin_dir = root / PLUGIN_DIRNAME
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / PLUGIN_INIT_NAME).write_text("-- placeholder\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", f"{PLUGIN_DIRNAME}/{PLUGIN_INIT_NAME}"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    hooks = root / ".git" / "hooks"
+    hooks.mkdir(exist_ok=True)
+    pre_commit = hooks / "pre-commit"
+    pre_commit.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    pre_commit.chmod(0o755)
+    failed = subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@localhost",
+            "commit",
+            "-m",
+            "should fail",
+        ],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert failed.returncode != 0
+    pre_commit.unlink()
+    head_probe = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert head_probe.returncode != 0
+
+    materialize_plugin_repo(home=home)
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert head.stdout.strip()
+    assert "apply_to_config" in (plugin_dir / PLUGIN_INIT_NAME).read_text(
         encoding="utf-8"
     )
+
+
+def test_materialize_commit_disables_gpgsign(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    seen: list[tuple[str, ...]] = []
+    real_run = subprocess.run
+
+    def _spy_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        argv = args[0]
+        if isinstance(argv, (list, tuple)) and argv and argv[0] == "git":
+            seen.append(tuple(str(part) for part in argv))
+        return real_run(*args, **kwargs)  # type: ignore[arg-type]
+
+    with patch("band_wezterm.setup_wezterm.subprocess.run", side_effect=_spy_run):
+        materialize_plugin_repo(home=home)
+
+    commit_argv = next(argv for argv in seen if "commit" in argv)
+    assert "commit.gpgsign=false" in commit_argv
