@@ -17,6 +17,15 @@ from band_wezterm.setup_wezterm import (
 from band_wezterm.wezterm_cli import WezTermNotFoundError
 
 
+@pytest.fixture(autouse=True)
+def _stub_wezterm_bin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.setup_wezterm.wezterm_bin",
+        lambda: "/usr/bin/wezterm",
+    )
+
+
+
 def test_resolve_prefers_existing_home_dotfile(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
@@ -45,7 +54,7 @@ def test_resolve_defaults_to_home_dotfile_when_missing(tmp_path: Path) -> None:
 def test_ensure_creates_fresh_config(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
-    result = ensure_band_plugin_config(home=home, check_wezterm=False)
+    result = ensure_band_plugin_config(home=home)
     assert result.action is SetupAction.CREATED
     assert result.path == home / ".wezterm.lua"
     text = result.path.read_text(encoding="utf-8")
@@ -67,7 +76,7 @@ def test_ensure_injects_before_return_config(tmp_path: Path) -> None:
         "return config\n",
         encoding="utf-8",
     )
-    result = ensure_band_plugin_config(home=home, check_wezterm=False)
+    result = ensure_band_plugin_config(home=home)
     assert result.action is SetupAction.UPDATED
     text = path.read_text(encoding="utf-8")
     assert "config.font_size = 14" in text
@@ -78,8 +87,8 @@ def test_ensure_injects_before_return_config(tmp_path: Path) -> None:
 def test_ensure_is_idempotent(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
-    first = ensure_band_plugin_config(home=home, check_wezterm=False)
-    second = ensure_band_plugin_config(home=home, check_wezterm=False)
+    first = ensure_band_plugin_config(home=home)
+    second = ensure_band_plugin_config(home=home)
     assert first.action is SetupAction.CREATED
     assert second.action is SetupAction.UNCHANGED
     text = first.path.read_text(encoding="utf-8")
@@ -99,7 +108,7 @@ def test_ensure_updates_stale_managed_block(tmp_path: Path) -> None:
         "return config\n",
         encoding="utf-8",
     )
-    result = ensure_band_plugin_config(home=home, check_wezterm=False)
+    result = ensure_band_plugin_config(home=home)
     assert result.action is SetupAction.UPDATED
     text = path.read_text(encoding="utf-8")
     assert WEZTERM_PLUGIN_URL in text
@@ -112,9 +121,10 @@ def test_ensure_requires_wezterm_on_path(
 ) -> None:
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setattr(
-        "band_wezterm.setup_wezterm.shutil.which",
-        lambda _name: None,
-    )
+
+    def _missing() -> str:
+        raise WezTermNotFoundError("wezterm not found on PATH")
+
+    monkeypatch.setattr("band_wezterm.setup_wezterm.wezterm_bin", _missing)
     with pytest.raises(WezTermNotFoundError, match="not found on PATH"):
-        ensure_band_plugin_config(home=home, check_wezterm=True)
+        ensure_band_plugin_config(home=home)

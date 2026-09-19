@@ -8,13 +8,6 @@ local M = {}
 
 local pane_state = {}
 
-local function ensure(pane_id)
-  if pane_state[pane_id] == nil then
-    pane_state[pane_id] = {}
-  end
-  return pane_state[pane_id]
-end
-
 local function forget_closed_panes()
   for pane_id in pairs(pane_state) do
     if wezterm.mux.get_pane(pane_id) == nil then
@@ -43,13 +36,14 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
     return
   end
   forget_closed_panes()
-  ensure(pane:pane_id())[name] = value
+  local pane_id = pane:pane_id()
+  if pane_state[pane_id] == nil then
+    pane_state[pane_id] = {}
+  end
+  pane_state[pane_id][name] = value
 end)
 
--- Multi-segment room underline: stacked background-colored cells from
--- band.agent.room_colors. If a host build can't render zero-width stacks
--- cleanly, fall back to "most recently active room wins the whole underline"
--- (first color in the list).
+-- Multi-segment room underline from band.agent.room_colors CSV.
 local function room_underline_segments(room_colors_csv)
   local segments = {}
   if room_colors_csv == nil or room_colors_csv == "" then
@@ -68,7 +62,7 @@ wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_wid
   local state = pane_state[pane.pane_id] or {}
   local tab_title = tab.tab_title
   -- Explicit mux title wins for the Control host (Textual's process title is useless).
-  if tab_title ~= nil and tab_title ~= "" and tab_title == "Control" then
+  if tab_title == "Control" then
     return { { Text = " ◆ Control " } }
   end
 
@@ -132,11 +126,8 @@ wezterm.on("update-status", function(window, pane)
   end
 end)
 
----Apply Band chrome to a WezTerm config builder (plugin API).
----@param config table
----@param _opts table|nil
+-- WezTerm plugin API entry (handlers register at require-time above).
 function M.apply_to_config(config, _opts)
-  -- Event handlers register at require-time above; no config knobs required today.
   return config
 end
 

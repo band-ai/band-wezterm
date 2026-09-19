@@ -79,7 +79,10 @@ def _run_setup() -> int:
     try:
         result = ensure_band_plugin_config()
     except WezTermNotFoundError as exc:
-        print(str(exc), file=sys.stderr)
+        print(
+            f"{exc} — install WezTerm first (e.g. `brew install --cask wezterm`)",
+            file=sys.stderr,
+        )
         return 1
 
     match result.action:
