@@ -1,0 +1,85 @@
+name: Release Please
+
+# Opens/updates a release PR from Conventional Commits on every push to main,
+# then tags and creates the GitHub Release when that PR is merged. The v*
+# tag it pushes is picked up by release.yml, which builds and attaches the
+# PyInstaller binaries to the release release-please just created.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      # The repo's GITHUB_TOKEN can't create pull requests here (org policy:
+      # "Allow GitHub Actions to create and approve pull requests" is off and
+      # not repo-overridable) — a GitHub App token isn't subject to that
+      # restriction. `PRIVATE_APP_*` (not `APP_*`) because this org-level
+      # secret pair is the one granted to this private repo — same as
+      # band-plugin-vsc.
+      - name: Generate GitHub App Token
+        id: app_token_generator
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ secrets.PRIVATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PRIVATE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Release Please
+        # Commit-pinned to prevent mutable release tags from changing the
+        # release workflow; Dependabot updates this SHA with each v5 release.
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          token: ${{ steps.app_token_generator.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: main
+
+      # release-please bumps the version in pyproject.toml but not uv.lock's own
+      # band-wezterm entry, so `uv sync --locked` / `uv lock --check` fail on the
+      # release PR. Re-lock so the version bump and the lock always land together.
+      # Runs only when a release PR was opened/updated (not on the
+      # release-creating merge, where the lock is already consistent).
+      - name: Install uv
+        if: ${{ steps.release.outputs.pr }}
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+
+      - name: Sync uv.lock into the release PR
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ steps.app_token_generator.outputs.token }}
+          # A step's env templates are evaluated even when its `if` is false,
+          # so this must stay total on release-creating merges, where the `pr`
+          # output is empty and a bare fromJSON('') fails the whole job.
+          PR_BRANCH: ${{ fromJSON(steps.release.outputs.pr || '{}').headBranchName }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$PR_BRANCH"
+          git checkout -B "$PR_BRANCH" FETCH_HEAD
+          uv lock
+          if git diff --quiet -- uv.lock; then
+            echo "uv.lock already matches the release version."
+            exit 0
+          fi
+          git config user.name "band-release-bot"
+          git config user.email "release-bot@band.ai"
+          git add uv.lock
+          git commit -m "chore: sync uv.lock to the release version"
+          # Push with the App token (not the default GITHUB_TOKEN) so the PR's CI
+          # re-runs and the `uv lock --check` gate sees the now-consistent lock.
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "HEAD:${PR_BRANCH}"
