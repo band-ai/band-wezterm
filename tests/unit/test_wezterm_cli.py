@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 from band_wezterm.wezterm_cli import (
     PaneId,
@@ -15,6 +18,7 @@ from band_wezterm.wezterm_cli import (
     is_control_pane,
     pane_command_env,
     set_tab_title_args,
+    start_first_window,
 )
 
 
@@ -40,6 +44,19 @@ def test_first_start_runs_control_when_no_gui_is_available() -> None:
         "--",
         *command,
     ]
+
+
+def test_start_first_window_detaches_from_the_launcher(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launched = MagicMock()
+    monkeypatch.setattr("band_wezterm.wezterm_cli.wezterm_bin", lambda: "wezterm")
+    monkeypatch.setattr("band_wezterm.wezterm_cli.subprocess.Popen", launched)
+
+    start_first_window(Path("/tmp/work"), ["python", "-m", "band_wezterm.tui"])
+
+    assert launched.call_args.args[0][:3] == ["wezterm", "start", "--cwd"]
+    assert launched.call_args.kwargs["start_new_session"] is True
 
 
 def test_additional_spawn_uses_window_id_only() -> None:

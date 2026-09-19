@@ -131,7 +131,12 @@ def spawn_first_tab(cwd: Path, command: list[str]) -> SpawnResult:
 
 def start_first_window(cwd: Path, command: list[str]) -> None:
     """Start a GUI and run Control when no GUI is available for ``cli``."""
-    _run(first_start_args(cwd, command))
+    subprocess.Popen(
+        [wezterm_bin(), *first_start_args(cwd, command)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 def spawn_additional_tab(
