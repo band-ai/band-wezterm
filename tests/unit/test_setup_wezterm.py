@@ -178,6 +178,21 @@ def test_ensure_creates_fresh_config(tmp_path: Path) -> None:
     assert text.strip().endswith("return config")
 
 
+def test_ensure_repairs_a_comment_only_config(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text("-- Personal WezTerm styling\n", encoding="utf-8")
+
+    result = ensure_band_plugin_config(home=home)
+
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert "local config = wezterm.config_builder()" in text
+    assert "-- Personal WezTerm styling" in text
+    assert text.strip().endswith("return config")
+
+
 def test_ensure_managed_block_self_contains_wezterm(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()

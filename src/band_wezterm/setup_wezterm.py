@@ -321,12 +321,15 @@ def _lua_string(value: str) -> str:
     return f"{_LUA_SINGLE_QUOTE}{escaped}{_LUA_SINGLE_QUOTE}"
 
 
-def _fresh_config(plugin_url: str) -> str:
+def _fresh_config(plugin_url: str, *, trailing_comments: str = "") -> str:
+    comments = trailing_comments.strip()
+    comment_section = f"{comments}\n" if comments else ""
     return (
         "local wezterm = require 'wezterm'\n"
         "local config = wezterm.config_builder()\n"
         "\n"
         f"{_managed_block(plugin_url)}\n"
+        f"{comment_section}"
         "return config\n"
     )
 
@@ -501,6 +504,12 @@ def _insert_managed_block(source: str, *, plugin_url: str) -> str:
             return f"{block}\n{source.lstrip('\n')}"
         prefix = source[: last_return.start()].rstrip("\n")
         return f"{prefix}\n{block}\n{source[last_return.start() :]}"
+
+    if all(
+        not line.strip() or line.lstrip().startswith("--")
+        for line in source.splitlines()
+    ):
+        return _fresh_config(plugin_url, trailing_comments=source)
 
     # _upsert_managed_block never passes blank source here.
     return f"{block}\n{source.lstrip('\n')}"
