@@ -6,6 +6,8 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_OAUTH_ISSUER = "https://auth.band.ai"
+# Public PKCE client shared with band-plugin-vsc (repo var BAND_OAUTH_CLIENT_ID).
+DEFAULT_OAUTH_CLIENT_ID = "8b331314-a09c-485e-99dd-f4d26c7b39c7"
 DEFAULT_BAND_BASE_URL = "https://api.dev.band.ai"
 DEFAULT_BAND_WS_URL = "wss://api.dev.band.ai/api/v1/socket/websocket"
 BAND_WORKSPACE_NAME = "band"
@@ -32,7 +34,7 @@ BAND_ROLES_DIRNAME = ".band/roles"
 
 
 class Settings(BaseSettings):
-    """Dev path: env vars. Release: packaged public client pair (dedicated client_id).
+    """Public OAuth defaults match Band for VS Code / Jam; env vars override.
 
     Product ``.env`` only — live tests load ``.env.test`` into ``os.environ``
     via dotenv (see ``tests/conftest.py``), matching band-sdk-python.
@@ -44,7 +46,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    band_oauth_client_id: str = Field(default="", validation_alias="BAND_OAUTH_CLIENT_ID")
+    band_oauth_client_id: str = Field(
+        default=DEFAULT_OAUTH_CLIENT_ID, validation_alias="BAND_OAUTH_CLIENT_ID"
+    )
     band_oauth_issuer: str = Field(
         default=DEFAULT_OAUTH_ISSUER, validation_alias="BAND_OAUTH_ISSUER"
     )

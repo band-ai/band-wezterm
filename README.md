@@ -7,10 +7,9 @@ permanent Control tab, with agent PTYs as visible Band-styled tabs.
 
 - Python ≥ 3.12, [uv](https://github.com/astral-sh/uv)
 - [WezTerm](https://wezterm.org/) on `PATH`
-- Dev OAuth: set `BAND_OAUTH_CLIENT_ID` to the **jam** public client id (spike-only;
-  request a dedicated `band-wezterm` client before dogfooding). Optional:
-  `BAND_OAUTH_ISSUER` (default `https://auth.band.ai`), `BAND_BASE_URL`,
-  `BAND_WS_URL`.
+- OAuth: bundled public PKCE client (same as Band for VS Code / Jam). Override
+  with `BAND_OAUTH_CLIENT_ID` for another tenant. Optional: `BAND_OAUTH_ISSUER`
+  (default `https://auth.band.ai`), `BAND_BASE_URL`, `BAND_WS_URL`.
 
 ## Setup
 

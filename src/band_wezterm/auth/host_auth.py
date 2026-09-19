@@ -96,8 +96,7 @@ class HostAuth:
     async def sign_in(self) -> None:
         if not self._settings.band_oauth_client_id:
             raise RuntimeError(
-                "Band sign-in is unavailable because BAND_OAUTH_CLIENT_ID is unset. "
-                "Set it to the jam public client id for this PoC spike."
+                "Band sign-in is unavailable because the OAuth client id is empty."
             )
         generation = self._bump_generation()
         metadata = await self._discover()
