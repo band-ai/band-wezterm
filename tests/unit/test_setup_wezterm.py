@@ -675,6 +675,32 @@ def test_materialize_plugin_repo_is_idempotent(tmp_path: Path) -> None:
     assert head.stdout.strip()
 
 
+def test_materialize_ignores_untracked_junk(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    root = materialize_plugin_repo(home=home)
+    before = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (root / ".DS_Store").write_bytes(b"\0")
+
+    second = materialize_plugin_repo(home=home)
+    assert second == root
+    after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert after == before
+    assert (root / ".DS_Store").is_file()
+
+
 def test_materialize_rewrites_when_content_changes(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()

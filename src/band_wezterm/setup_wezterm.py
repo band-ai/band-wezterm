@@ -177,14 +177,24 @@ def _plugin_init_lua_text() -> str:
 
 
 def _plugin_repo_needs_commit(root: Path) -> bool:
-    """True when ``.git`` is missing, HEAD is unset, or the working tree is dirty."""
+    """True when ``.git`` is missing, HEAD is unset, or tracked paths are dirty.
+
+    Untracked junk (e.g. ``.DS_Store``) is ignored — only tracked/staged
+    changes require a materialize commit.
+    """
     if not (root / ".git").is_dir():
         return True
     try:
         head = _git(root, "rev-parse", "HEAD", check=False)
         if head.returncode != 0:
             return True
-        status = _git(root, "status", "--porcelain", check=False)
+        status = _git(
+            root,
+            "status",
+            "--porcelain",
+            "--untracked-files=no",
+            check=False,
+        )
         if status.returncode != 0:
             return True
         return bool(status.stdout.strip())
@@ -211,10 +221,13 @@ def _git_commit_plugin_repo(root: Path) -> None:
         if not (root / ".git").is_dir():
             _git(root, "init")
         _git(root, "add", f"{PLUGIN_DIRNAME}/{PLUGIN_INIT_NAME}")
-        status = _git(root, "status", "--porcelain")
         head = _git(root, "rev-parse", "HEAD", check=False)
-        if not status.stdout.strip() and head.returncode == 0:
-            return
+        if head.returncode == 0:
+            # Nothing staged for the plugin path — skip commit even if
+            # untracked files (e.g. .DS_Store) still dirty the tree.
+            cached = _git(root, "diff", "--cached", "--quiet", check=False)
+            if cached.returncode == 0:
+                return
         _git(
             root,
             "-c",
