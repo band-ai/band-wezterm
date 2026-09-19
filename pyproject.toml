@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "band-wezterm"
 version = "0.1.0"
-description = "Band terminal host for WezTerm — discovery PoC (INT-1496)"
+description = "Band terminal host for WezTerm"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "band.ai" }]
