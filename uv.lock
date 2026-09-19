@@ -132,6 +132,7 @@ source = { editable = "." }
 dependencies = [
     { name = "band-client-rest" },
     { name = "band-sdk" },
+    { name = "filelock" },
     { name = "httpx" },
     { name = "keyring" },
     { name = "phoenix-channels-python-client" },
@@ -180,6 +181,7 @@ requires-dist = [
     { name = "band-sdk", extras = ["copilot-sdk"], marker = "extra == 'copilot-sdk'", specifier = ">=3.1.1" },
     { name = "band-sdk", extras = ["opencode"], marker = "extra == 'agents'", specifier = ">=3.1.1" },
     { name = "band-sdk", extras = ["opencode"], marker = "extra == 'opencode'", specifier = ">=3.1.1" },
+    { name = "filelock", specifier = ">=4.0.1" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "keyring", specifier = ">=25.0.0" },
     { name = "phoenix-channels-python-client", specifier = ">=0.2.4" },

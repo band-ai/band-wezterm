@@ -6,7 +6,6 @@ import os
 import re
 import subprocess
 import tempfile
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -14,6 +13,8 @@ from enum import StrEnum
 from importlib import resources
 from pathlib import Path
 from typing import Final
+
+from filelock import FileLock, Timeout
 
 from band_wezterm.config import LOCAL_STATE_DIRNAME
 from band_wezterm.wezterm_cli import wezterm_bin
@@ -36,7 +37,6 @@ PLUGIN_INIT_NAME: Final = "init.lua"
 PLUGIN_INIT_REPO_PATH: Final = f"{PLUGIN_DIRNAME}/{PLUGIN_INIT_NAME}"
 PLUGIN_LOCK_SUFFIX: Final = ".lock"
 PLUGIN_LOCK_TIMEOUT_SECONDS: Final = 10
-PLUGIN_LOCK_POLL_SECONDS: Final = 0.05
 # Path(__file__).resolve().parents[N] → repo root (band_wezterm → src → repo).
 REPO_ROOT_FROM_PACKAGE: Final = 2
 GIT_COMMIT_USER_NAME: Final = "band-wezterm"
@@ -181,22 +181,13 @@ def _plugin_repo_lock(root: Path) -> Iterator[None]:
     """Serialize setup calls that share a materialized plugin repository."""
     lock_path = root.with_name(f".{root.name}{PLUGIN_LOCK_SUFFIX}")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + PLUGIN_LOCK_TIMEOUT_SECONDS
-    while True:
-        try:
-            lock_path.mkdir()
-        except FileExistsError as error:
-            if time.monotonic() >= deadline:
-                raise SetupConfigError(
-                    f"Timed out waiting for the Band WezTerm plugin lock: {lock_path}"
-                ) from error
-            time.sleep(PLUGIN_LOCK_POLL_SECONDS)
-        else:
-            break
     try:
-        yield
-    finally:
-        lock_path.rmdir()
+        with FileLock(lock_path, timeout=PLUGIN_LOCK_TIMEOUT_SECONDS):
+            yield
+    except Timeout as error:
+        raise SetupConfigError(
+            f"Timed out waiting for the Band WezTerm plugin lock: {lock_path}"
+        ) from error
 
 
 def _plugin_init_lua_text() -> str:

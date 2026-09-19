@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
 from pathlib import Path
@@ -24,6 +25,7 @@ from band_wezterm.setup_wezterm import (
     PLUGIN_DIRNAME,
     PLUGIN_INIT_NAME,
     PLUGIN_INIT_REPO_PATH,
+    PLUGIN_LOCK_SUFFIX,
     PLUGIN_REPO_DIRNAME,
     WEZTERM_CONFIG_FILE_ENV,
     XDG_CONFIG_HOME_ENV,
@@ -38,6 +40,9 @@ from band_wezterm.setup_wezterm import (
 from band_wezterm.wezterm_cli import WezTermNotFoundError
 
 CONCURRENT_MATERIALIZATION_CALLS = 8
+LOCK_HOLDER_POLL_ATTEMPTS = 20
+LOCK_HOLDER_POLL_SECONDS = 0.05
+LOCK_HOLDER_SLEEP_SECONDS = 60
 
 
 def _materialize_plugin_repo(home: Path) -> Path:
@@ -919,6 +924,44 @@ def test_materialize_serializes_concurrent_setup(tmp_path: Path) -> None:
         text=True,
     )
     assert head.stdout.strip()
+
+
+def test_materialize_recovers_after_lock_holder_crashes(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    root = home / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME
+    lock_path = root.with_name(f".{root.name}{PLUGIN_LOCK_SUFFIX}")
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from filelock import FileLock\n"
+                "from pathlib import Path\n"
+                "import sys\n"
+                "import time\n"
+                "with FileLock(Path(sys.argv[1])):\n"
+                "    time.sleep(int(sys.argv[2]))\n"
+            ),
+            str(lock_path),
+            str(LOCK_HOLDER_SLEEP_SECONDS),
+        ]
+    )
+    try:
+        for _ in range(LOCK_HOLDER_POLL_ATTEMPTS):
+            if lock_path.exists():
+                break
+            time.sleep(LOCK_HOLDER_POLL_SECONDS)
+        else:
+            pytest.fail("lock holder did not acquire the plugin lock")
+        holder.kill()
+        holder.wait()
+        assert lock_path.exists()
+        assert materialize_plugin_repo(home=home) == root
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+            holder.wait()
 
 
 def test_materialize_retries_commit_after_failed_commit(tmp_path: Path) -> None:
