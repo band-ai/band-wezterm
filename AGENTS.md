@@ -1,5 +1,20 @@
 # AGENTS.md
 
+## Local Commands (`just`)
+
+Prefer the root [`justfile`](justfile) over ad-hoc `uv` / `pytest` one-liners.
+[`just --list`](https://github.com/casey/just) shows every recipe; common ones:
+
+| Recipe | What it does |
+| -- | -- |
+| `just sync` | `uv sync` (core + default-groups.dev) |
+| `just sync-agents` | `uv sync --extra agents` (all harness extras) |
+| `just start` / `just attach` | Open or raise the Control window |
+| `just restart` | Kill Control and open a fresh window |
+| `just test` | Unit tests |
+| `just test-wezterm` | WezTerm CLI live checks (needs `wezterm` on `PATH`) |
+| `just test-live` | Live platform Control PTY (needs `BAND_API_KEY_USER` in `.env.test`) |
+
 ## Coding Style
 
 - **Declarative Code**: Emphasize intent over implementation mechanics. Code
