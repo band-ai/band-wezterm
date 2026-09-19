@@ -244,3 +244,90 @@ def test_ensure_requires_wezterm_on_path(
     monkeypatch.setattr("band_wezterm.setup_wezterm.wezterm_bin", _missing)
     with pytest.raises(WezTermNotFoundError, match="not found on PATH"):
         ensure_band_plugin_config(home=home)
+
+
+def test_ensure_strips_orphan_after_complete_block(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "local wezterm = require 'wezterm'\n"
+        "local config = wezterm.config_builder()\n"
+        f"{MANAGED_BEGIN}\n"
+        "do end\n"
+        f"{MANAGED_END}\n"
+        f"{MANAGED_BEGIN}\n"
+        "-- orphan junk\n"
+        "return config\n",
+        encoding="utf-8",
+    )
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert text.count(MANAGED_BEGIN) == 1
+    assert "-- orphan junk" not in text
+
+
+def test_ensure_injects_after_crlf_config_builder(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_bytes(
+        b"local wezterm = require 'wezterm'\r\n"
+        b"local config = wezterm.config_builder()\r\n"
+        b"wezterm.on('format-tab-title', function() end)\r\n"
+        b"return config\r\n"
+    )
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert text.index(MANAGED_BEGIN) < text.index("format-tab-title")
+
+
+def test_ensure_injects_after_non_local_config_builder(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "local wezterm = require 'wezterm'\n"
+        "config = wezterm.config_builder()\n"
+        "wezterm.on('format-tab-title', function() end)\n"
+        "return config\n",
+        encoding="utf-8",
+    )
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert text.index(MANAGED_BEGIN) < text.index("format-tab-title")
+
+
+def test_ensure_preserves_file_mode(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "local wezterm = require 'wezterm'\n"
+        "local config = wezterm.config_builder()\n"
+        "return config\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o644)
+    ensure_band_plugin_config(home=home)
+    assert (path.stat().st_mode & 0o777) == 0o644
+
+
+def test_ensure_appends_when_only_nested_return(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "local wezterm = require 'wezterm'\n"
+        "local function f()\n"
+        "  return 1\n"
+        "end\n",
+        encoding="utf-8",
+    )
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert text.index("end") < text.index(MANAGED_BEGIN)

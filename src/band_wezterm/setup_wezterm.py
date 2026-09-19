@@ -44,7 +44,7 @@ _MANAGED_BLOCK_RE: Final = re.compile(
     + re.escape(MANAGED_BEGIN)
     + r".*?"
     + re.escape(MANAGED_END)
-    + r"[ \t]*\n?",
+    + r"[ \t]*\r?\n?",
     re.DOTALL | re.MULTILINE,
 )
 _ORPHAN_BEGIN_RE: Final = re.compile(
@@ -52,11 +52,11 @@ _ORPHAN_BEGIN_RE: Final = re.compile(
     re.MULTILINE,
 )
 _LEGACY_DOFILE_RE: Final = re.compile(
-    r"^[ \t]*dofile\s*\([^\n]*band\.wezterm\.lua[^\n]*\)[ \t]*\n?",
+    r"^[ \t]*dofile\s*\([^\n]*band\.wezterm\.lua[^\n]*\)[ \t]*\r?\n?",
     re.MULTILINE,
 )
 _CONFIG_BUILDER_RE: Final = re.compile(
-    r"^([ \t]*local[ \t]+config[ \t]*=[ \t]*wezterm\.config_builder\s*\(\s*\)[ \t]*\n)",
+    r"^([ \t]*(?:local[ \t]+)?config[ \t]*=[ \t]*wezterm\.config_builder\s*\(\s*\)[^\n]*\r?\n)",
     re.MULTILINE,
 )
 
@@ -130,11 +130,14 @@ def _create_fresh_config(path: Path) -> SetupResult:
 def _atomic_write(path: Path, content: str) -> None:
     directory = path.parent
     directory.mkdir(parents=True, exist_ok=True)
+    prior_mode = path.stat().st_mode if path.is_file() else None
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=directory)
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(content)
+        if prior_mode is not None:
+            os.chmod(tmp_path, prior_mode)
         os.replace(tmp_path, path)
     except Exception:
         tmp_path.unlink(missing_ok=True)
@@ -148,24 +151,28 @@ def _upsert_managed_block(source: str) -> str:
 
 
 def _strip_managed_regions(source: str) -> str:
-    stripped, count = _MANAGED_BLOCK_RE.subn("", source, count=0)
-    if count:
-        return stripped
-    orphan = _ORPHAN_BEGIN_RE.search(source)
-    if orphan is None:
-        return source
-    # Drop from orphan BEGIN through the next END, return, or EOF.
-    start = orphan.start()
-    end_match = re.search(re.escape(MANAGED_END), source[orphan.end() :])
-    if end_match is not None:
-        stop = orphan.end() + end_match.end()
-        if stop < len(source) and source[stop] == "\n":
-            stop += 1
-        return source[:start] + source[stop:]
-    return_match = _RETURN_LINE_RE.search(source, orphan.end())
-    if return_match is not None:
-        return source[:start] + source[return_match.start() :]
-    return source[:start]
+    stripped, _count = _MANAGED_BLOCK_RE.subn("", source, count=0)
+    return _strip_orphan_begins(stripped)
+
+
+def _strip_orphan_begins(source: str) -> str:
+    while True:
+        orphan = _ORPHAN_BEGIN_RE.search(source)
+        if orphan is None:
+            return source
+        start = orphan.start()
+        end_match = re.search(re.escape(MANAGED_END), source[orphan.end() :])
+        if end_match is not None:
+            stop = orphan.end() + end_match.end()
+            if stop < len(source) and source[stop] == "\n":
+                stop += 1
+            source = source[:start] + source[stop:]
+            continue
+        return_match = _RETURN_LINE_RE.search(source, orphan.end())
+        if return_match is not None:
+            source = source[:start] + source[return_match.start() :]
+            continue
+        return source[:start]
 
 
 def _insert_managed_block(source: str) -> str:
@@ -175,12 +182,11 @@ def _insert_managed_block(source: str) -> str:
         return f"{source[: builder.end()]}\n{_MANAGED_BLOCK}\n{rest}"
 
     returns = list(_RETURN_LINE_RE.finditer(source))
-    if returns:
-        match = returns[-1]
+    top_level = [match for match in returns if not match.group(1)]
+    if top_level:
+        match = top_level[-1]
         prefix = source[: match.start()].rstrip("\n")
         return f"{prefix}\n{_MANAGED_BLOCK}\n{source[match.start() :]}"
 
     separator = "" if source.endswith("\n") or source == "" else "\n"
     return f"{source}{separator}\n{_MANAGED_BLOCK}"
-
-
