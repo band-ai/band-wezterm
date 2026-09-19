@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from band_wezterm.backends import AgentTuning, TuningDimensionId
+from band_wezterm.backends import AgentTuning, TuningDimensionId, normalize_tuning
 from band_wezterm.client import AgentRecord
 from band_wezterm.managed_profiles import ManagedAgentProfile
 
@@ -71,7 +71,7 @@ def agent_pane_command(
     if profile.persona:
         persona_file = write_persona_file(profile.persona)
         command.extend(["--persona-file", str(persona_file)])
-    tuning = profile.tuning
+    tuning = normalize_tuning(harness, profile.tuning)
     model = tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         command.extend(["--model", model])

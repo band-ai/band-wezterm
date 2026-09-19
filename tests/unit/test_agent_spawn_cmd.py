@@ -111,3 +111,27 @@ def test_agent_pane_command_prefers_profile_harness(tmp_path: Path) -> None:
     )
     argv = agent_pane_command(agent, key_file=key_file, cwd=tmp_path, profile=profile)
     assert argv[argv.index("--harness") + 1] == HarnessId.CODEX.value
+
+
+def test_agent_pane_command_migrates_the_rejected_codex_model_alias(
+    tmp_path: Path,
+) -> None:
+    agent = AgentRecord(
+        id="agent-9",
+        name="Omega",
+        kind=AvatarKind.AGENT,
+        color=agent_accent("agent-9"),
+        harness=HarnessId.CODEX,
+    )
+    key_file = tmp_path / "key"
+    key_file.write_text("band_a_secret", encoding="utf-8")
+    profile = ManagedAgentProfile(
+        agent_id=agent.id,
+        name=agent.name,
+        harness=HarnessId.CODEX,
+        tuning=AgentTuning(model="gpt-5.6"),
+    )
+
+    argv = agent_pane_command(agent, key_file=key_file, cwd=tmp_path, profile=profile)
+
+    assert argv[argv.index("--model") + 1] == "gpt-5.6-sol"

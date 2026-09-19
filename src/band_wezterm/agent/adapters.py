@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from band_wezterm.backends import AgentTuning, TuningDimensionId
+from band_wezterm.backends import AgentTuning, TuningDimensionId, normalize_tuning
 from band_wezterm.identity import HarnessId
 
 _MISSING_EXTRA: dict[HarnessId, str] = {
@@ -52,7 +52,7 @@ def build_adapter(
     """Construct the band-sdk adapter for a harness. Fail loud on missing extras."""
     key = _normalize(harness)
     workdir = str(cwd) if cwd is not None else None
-    resolved = tuning or AgentTuning()
+    resolved = normalize_tuning(key, tuning or AgentTuning())
     match key:
         case HarnessId.CLAUDE | HarnessId.CLAUDE_SDK:
             return _claude(workdir, persona=persona, tuning=resolved)

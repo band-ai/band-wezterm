@@ -35,6 +35,30 @@ def test_record_get_and_persona_update(tmp_path: Path) -> None:
     assert updated.tuning.model == "sonnet"
 
 
+def test_load_migrates_the_rejected_codex_model_alias(tmp_path: Path) -> None:
+    path = tmp_path / "profiles.json"
+    path.write_text(
+        """{
+  "profiles": [
+    {
+      "agent_id": "a1",
+      "name": "Alpha",
+      "harness": "codex",
+      "tuning": {"model": "gpt-5.6", "reasoning": "low"}
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    profile = ManagedAgentStore(path).get("a1")
+
+    assert profile is not None
+    assert profile.tuning.model == "gpt-5.6-sol"
+    assert '"model": "gpt-5.6-sol"' in path.read_text(encoding="utf-8")
+
+
 def test_record_rolls_back_memory_when_save_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -176,4 +200,3 @@ def test_save_unlinks_temp_when_write_fails(
         store.record(profile)
     assert list(tmp_path.glob(".managed_agents.*.tmp")) == []
     assert store.get("a1") is None
-

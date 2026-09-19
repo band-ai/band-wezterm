@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict
 from band_wezterm.identity import HarnessId
 
 TUNING_DEFAULT_OPTION_ID: Final = ""
+CODEX_DEFAULT_MODEL: Final = "gpt-5.6-sol"
+_LEGACY_CODEX_MODELS: Final = {"gpt-5.6": CODEX_DEFAULT_MODEL}
 
 
 class TuningDimensionId(StrEnum):
@@ -61,6 +63,17 @@ class AgentTuning(BaseModel):
                 return self.model_copy(update={"reasoning": value})
 
 
+def normalize_tuning(harness: HarnessId, tuning: AgentTuning) -> AgentTuning:
+    """Upgrade known Codex aliases before they reach the runtime."""
+    if harness is not HarnessId.CODEX:
+        return tuning
+    model = tuning.value_for(TuningDimensionId.MODEL)
+    replacement = _LEGACY_CODEX_MODELS.get(model or "")
+    return tuning if replacement is None else tuning.with_dimension(
+        TuningDimensionId.MODEL, replacement
+    )
+
+
 class HarnessBackend(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -92,7 +105,7 @@ _CLAUDE_REASONING: Final = (
 
 _CODEX_MODELS: Final = (
     _DEFAULT,
-    TuningOption(id="gpt-5.6", label="GPT-5.6"),
+    TuningOption(id=CODEX_DEFAULT_MODEL, label="GPT-5.6 Sol"),
 )
 
 def _reasoning_effort_options(*efforts: str) -> tuple[TuningOption, ...]:

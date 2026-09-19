@@ -62,5 +62,5 @@ def test_codex_exposes_the_current_recommended_model() -> None:
 
     assert [option.id for option in model.options] == [
         TUNING_DEFAULT_OPTION_ID,
-        "gpt-5.6",
+        "gpt-5.6-sol",
     ]

@@ -10,7 +10,7 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from band_wezterm.backends import AgentTuning
+from band_wezterm.backends import AgentTuning, normalize_tuning
 from band_wezterm.config import LOCAL_STATE_DIRNAME
 from band_wezterm.identity import HarnessId, parse_harness
 
@@ -57,7 +57,18 @@ class ManagedAgentStore:
         except (OSError, ValidationError):
             self._profiles = {}
             return
-        self._profiles = {profile.agent_id: profile for profile in file.profiles}
+        profiles = [self._normalized_profile(profile) for profile in file.profiles]
+        self._profiles = {profile.agent_id: profile for profile in profiles}
+        if profiles != file.profiles:
+            with suppress(OSError):
+                self._save()
+
+    @staticmethod
+    def _normalized_profile(profile: ManagedAgentProfile) -> ManagedAgentProfile:
+        tuning = normalize_tuning(profile.harness, profile.tuning)
+        return profile if tuning is profile.tuning else profile.model_copy(
+            update={"tuning": tuning}
+        )
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -95,7 +106,8 @@ class ManagedAgentStore:
             raise
 
     def record(self, profile: ManagedAgentProfile) -> None:
-        self._commit(profile.agent_id, profile)
+        normalized = self._normalized_profile(profile)
+        self._commit(normalized.agent_id, normalized)
 
     def get(self, agent_id: str) -> ManagedAgentProfile | None:
         return self._profiles.get(agent_id)
@@ -120,7 +132,12 @@ class ManagedAgentStore:
             return
         self._commit(
             agent_id,
-            existing.model_copy(update={"persona": persona, "tuning": tuning}),
+            existing.model_copy(
+                update={
+                    "persona": persona,
+                    "tuning": normalize_tuning(existing.harness, tuning),
+                }
+            ),
         )
 
     def harness_for(self, agent_id: str) -> HarnessId | None:
@@ -139,10 +156,11 @@ def profile_from_registration(
     parsed = parse_harness(harness)
     if parsed is None:
         raise ValueError(f"Unknown harness {harness!r}")
-    return ManagedAgentProfile(
+    profile = ManagedAgentProfile(
         agent_id=agent_id,
         name=name,
         harness=parsed,
         persona=persona,
         tuning=tuning,
     )
+    return ManagedAgentStore._normalized_profile(profile)
