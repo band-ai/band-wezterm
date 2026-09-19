@@ -22,10 +22,22 @@ local function forget_closed_panes()
   end
 end
 
--- No repaint is requested here: the Window object has no invalidate method, and
--- the tab bar plus update-status are re-evaluated on the next redraw anyway
--- (at most status_update_interval later).
+-- Raise + switch to the Band workspace when the host emits `band.focus`.
+-- WezTerm has no CLI for workspace switch (#3542); OSC from a live pane is the
+-- supported workaround. Host prefers a default-workspace window so this is a
+-- no-op when Control already shares the active workspace.
 wezterm.on("user-var-changed", function(window, pane, name, value)
+  if name == "band.focus" then
+    window:perform_action(
+      wezterm.action.SwitchToWorkspace { name = "band" },
+      pane
+    )
+    window:focus()
+    return
+  end
+  -- No repaint is requested here: the Window object has no invalidate method, and
+  -- the tab bar plus update-status are re-evaluated on the next redraw anyway
+  -- (at most status_update_interval later).
   if string.sub(name, 1, 5) ~= "band." then
     return
   end
