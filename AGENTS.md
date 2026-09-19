@@ -11,6 +11,9 @@
   clear concern and have a single reason to change.
 - **DRY (Don't Repeat Yourself)**: Eliminate duplicate logic, behavior, and
   structural redundancy across the codebase.
+- **Reuse Before Inventing**: Scan the existing codebase first. Prefer
+  reusing, improving, or extending what we already have over introducing
+  parallel implementations or reinventing local solutions.
 - **No Magic Numbers or Strings**: Replace raw inline literals and string
   values with descriptive, well-named constants, enums, or configuration
   parameters.
@@ -27,9 +30,10 @@
 - **Do Not Overcomplicate**: If product requirements overly complicate the
   implementation, pause and ask the user if the requirements can be
   simplified, letting them decide if it is an absolute must.
-- **Leverage Existing Solutions**: Consult official documentation and favor
-  well-maintained third-party libraries instead of reinventing the wheel,
-  as long as they have solid provenance.
+- **Leverage Existing Solutions**: Look online for current official docs and
+  API references rather than relying on memory or outdated assumptions.
+  Favor well-maintained third-party libraries with solid provenance instead
+  of reinventing the wheel.
 
 ## Comments Style
 
