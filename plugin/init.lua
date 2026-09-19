@@ -1,9 +1,10 @@
--- Band WezTerm tab bar / status (INT-1496).
--- From ~/.wezterm.lua:
---   dofile("/absolute/path/to/band-wezterm/wezterm/band.wezterm.lua")
+-- Band WezTerm tab bar / status plugin.
+-- Install via wezterm.plugin.require + apply_to_config (see band-wezterm setup).
 -- Lua only renders hex/values received over OSC — never recomputes identity hashes.
 
 local wezterm = require("wezterm")
+
+local M = {}
 
 local pane_state = {}
 
@@ -131,4 +132,12 @@ wezterm.on("update-status", function(window, pane)
   end
 end)
 
-return {}
+---Apply Band chrome to a WezTerm config builder (plugin API).
+---@param config table
+---@param _opts table|nil
+function M.apply_to_config(config, _opts)
+  -- Event handlers register at require-time above; no config knobs required today.
+  return config
+end
+
+return M

@@ -24,6 +24,10 @@ attach:
 restart:
     uv run band-wezterm --restart
 
+# Wire the Band WezTerm plugin into ~/.wezterm.lua (idempotent)
+setup:
+    uv run band-wezterm setup
+
 # Unit tests
 test:
     uv run pytest tests/unit -q

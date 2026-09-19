@@ -14,16 +14,43 @@ permanent Control tab, with agent PTYs as visible Band-styled tabs.
 
 ## Setup
 
+Install [WezTerm](https://wezterm.org/) and [uv](https://github.com/astral-sh/uv), then:
+
 ```bash
-uv sync          # installs default-groups.dev from uv.lock
-# Point WezTerm at the Band Lua config (tab colors/status + focus):
-#   echo 'dofile("/absolute/path/to/band-wezterm/wezterm/band.wezterm.lua")' >> ~/.wezterm.lua
+# Host CLI from Git (no PyPI required)
+uv tool install git+https://github.com/band-ai/band-wezterm
+
+# Wire Band tab chrome as a WezTerm plugin (idempotent)
+band-wezterm setup
+
+# Open Control (or attach + raise if already running)
+band-wezterm
+```
+
+`setup` writes a managed block into `~/.wezterm.lua` (or your existing XDG
+`wezterm.lua`) that loads:
+
+```lua
+local band = wezterm.plugin.require 'https://github.com/band-ai/band-wezterm'
+band.apply_to_config(config)
+```
+
+Reload WezTerm config after setup (`Ctrl+Shift+R`). To refresh the Lua plugin
+later: run `wezterm.plugin.update_all()` from the Debug Overlay, then reload.
+
+Upgrade the host: `uv tool upgrade band-wezterm` (or reinstall from git).
+
+### Contributors (repo checkout)
+
+```bash
+uv sync                       # installs default-groups.dev from uv.lock
+uv run band-wezterm setup      # or: just setup
 uv run band-wezterm            # open Control, or attach + raise if already running
 uv run band-wezterm --restart  # replace the Control window
 ```
 
-Or with [just](https://github.com/casey/just): `just sync`, `just start` / `just attach`,
-`just restart`, `just test` (`just --list` for all).
+Or with [just](https://github.com/casey/just): `just sync`, `just setup`,
+`just start` / `just attach`, `just restart`, `just test` (`just --list` for all).
 
 Re-running `band-wezterm` finds the existing Control tab, activates it, and
 raises WezTerm — it does not spawn a second Control. `--restart` kills that
