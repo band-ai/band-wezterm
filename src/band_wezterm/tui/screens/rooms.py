@@ -68,7 +68,7 @@ DELETE_CONFIRM_MESSAGE: Final = (
     "Press Delete again to permanently remove {title}."
 )
 
-MENTION_PATTERN: Final = re.compile(r"@([^\s@]+)")
+MENTION_PATTERN: Final = re.compile(r"@(?:\[([^\]\n]+)\]|([^\s@]+))")
 
 ROOM_CHIPS: Final[tuple[Chip, ...]] = tuple(
     Chip(key=chip.value, label=label) for chip, label in ROOM_FILTER_LABELS.items()
@@ -99,24 +99,20 @@ def selector(widget_id: Id) -> str:
     return f"#{widget_id.value}"
 
 
-def mention_keys(name: str) -> frozenset[str]:
-    """Spellings of a display name that a typed `@token` may match."""
-    lowered = name.strip().lower()
-    words = lowered.split()
-    return frozenset(
-        {lowered, lowered.replace(" ", ""), lowered.replace(" ", "-"), *words[:1]}
-    )
+def mention_handle(participant: ParticipantRecord) -> str:
+    """The canonical composer key, with a display-name fallback for legacy data."""
+    return participant.handle or participant.name
 
 
 def resolve_mention(
     body: str, participants: Iterable[ParticipantRecord]
 ) -> tuple[ParticipantRecord, str] | None:
-    """First `@token` that names a participant, plus the body without it."""
+    """First canonical `@handle` that names a participant, plus the remaining body."""
     roster = list(participants)
     for match in MENTION_PATTERN.finditer(body):
-        token = match.group(1).lower()
+        token = next(value for value in match.groups() if value is not None).casefold()
         participant = next(
-            (person for person in roster if token in mention_keys(person.name)),
+            (person for person in roster if token == mention_handle(person).casefold()),
             None,
         )
         if participant is not None:
@@ -562,6 +558,9 @@ class RoomDetailScreen(ControlScreen):
         self.query_one(selector(Id.DETAIL_STATUS), Static).update(store.status)
 
     async def _render_roster(self, store: RoomsStore) -> None:
+        self.query_one(selector(Id.COMPOSER), MarkdownComposer).set_mention_handles(
+            mention_handle(participant) for participant in store.participants
+        )
         await refill(
             self._roster_view(),
             [

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import ClassVar, Final, Protocol, runtime_checkable
 
@@ -13,6 +13,7 @@ from rich.text import Text
 from textual.binding import Binding
 from textual.message import Message
 from textual.reactive import reactive
+from textual.suggester import Suggester
 from textual.widget import Widget
 from textual.widgets import Input, Static
 
@@ -30,7 +31,10 @@ LIGHT_INK: Final = "#ffffff"
 
 BOLD_SPAN: Final = re.compile(r"\*\*(?=\S)(?:[^*]|\*(?!\*))+\*\*")
 CODE_SPAN: Final = re.compile(r"`[^`\n]+`")
-MENTION_SPAN: Final = re.compile(r"(?:(?<=\s)|\A)@[^\s@]+")
+MENTION_SPAN: Final = re.compile(r"(?:(?<=\s)|\A)@(?:\[[^\]\n]*\]|[^\s@]+)")
+MENTION_QUERY: Final = re.compile(r"(?:(?<=\s)|\A)@(?P<query>[^\s@\[\]]*)$")
+MENTION_OPEN: Final = "@["
+MENTION_CLOSE: Final = "]"
 
 COMPOSER_SPANS: Final[tuple[tuple[re.Pattern[str], Style], ...]] = (
     (BOLD_SPAN, Style(bold=True)),
@@ -113,6 +117,36 @@ class MarkdownSpanHighlighter(Highlighter):
                 text.stylize(style, *match.span())
 
 
+def mention_token(handle: str) -> str:
+    """Render a handle in the unambiguous composer mention syntax."""
+    return f"{MENTION_OPEN}{handle}{MENTION_CLOSE}"
+
+
+class MentionSuggester(Suggester):
+    """Complete the final `@` query from the current room's handles."""
+
+    def __init__(self, handles: Callable[[], Iterable[str]]) -> None:
+        super().__init__(use_cache=False, case_sensitive=False)
+        self._handles = handles
+
+    async def get_suggestion(self, value: str) -> str | None:
+        match = MENTION_QUERY.search(value)
+        if match is None:
+            return None
+        query = match.group("query")
+        handle = next(
+            (
+                candidate
+                for candidate in self._handles()
+                if candidate.casefold().startswith(query)
+            ),
+            None,
+        )
+        if handle is None:
+            return None
+        return f"{value[: match.start()]}{mention_token(handle)} "
+
+
 class MarkdownComposer(Input):
     """Single-line composer highlighting `**bold**`, `` `code` `` and `@mention`."""
 
@@ -123,12 +157,17 @@ class MarkdownComposer(Input):
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
+        self._mention_handles: tuple[str, ...] = ()
         super().__init__(
             placeholder=placeholder,
             highlighter=MarkdownSpanHighlighter(),
+            suggester=MentionSuggester(lambda: self._mention_handles),
             id=id,
             classes=classes,
         )
+
+    def set_mention_handles(self, handles: Iterable[str]) -> None:
+        self._mention_handles = tuple(handles)
 
 
 @dataclass(frozen=True)

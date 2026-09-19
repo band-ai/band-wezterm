@@ -84,6 +84,7 @@ class ParticipantRecord(BaseModel):
 
     id: str
     name: str
+    handle: str | None = None
     kind: AvatarKind
     color: str
 
@@ -396,11 +397,13 @@ class BandClient:
         for item in response.data or []:
             participant_id = str(item.id)
             name = getattr(item, "name", None) or participant_id
+            handle = getattr(item, "handle", None)
             kind_raw = getattr(item, "type", None) or getattr(item, "kind", None)
             participants.append(
                 ParticipantRecord(
                     id=participant_id,
                     name=name,
+                    handle=str(handle) if handle else None,
                     kind=_avatar_kind_from_platform(kind_raw),
                     color=agent_accent(participant_id),
                 )

@@ -80,6 +80,12 @@ in a local managed profile and applied when the agent pane starts.
 **Settings** (`Ctrl+,`): chat message limit, rooms page size, diagnostic toggles
 — persisted under `~/.band-wezterm/preferences.json`.
 
+### Mentions
+
+In a room, type `@` and the beginning of a participant handle. The composer
+offers an inline completion; press Right Arrow to accept it. Completed mentions
+use `@[handle]`, keeping handles with spaces as one recipient.
+
 ### Agent harnesses (Start agent)
 
 Register only creates the platform identity. **Start** spawns
