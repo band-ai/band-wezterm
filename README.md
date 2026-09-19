@@ -22,6 +22,8 @@ uv run band-wezterm            # open Control, or attach + raise if already runn
 uv run band-wezterm --restart  # replace the Control window
 ```
 
+Or with [just](https://github.com/casey/just): `just sync`, `just start`, `just restart`, `just test` (`just --list` for all).
+
 Re-running `band-wezterm` finds the existing Control tab, activates it, and
 raises WezTerm — it does not spawn a second Control. `--restart` kills that
 window first. Control opens in a normal (visible) WezTerm window; a separate
