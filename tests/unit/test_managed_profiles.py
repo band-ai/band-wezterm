@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from band_wezterm.backends import AgentTuning
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentStore, profile_from_registration
+
+SAVE_FAILURE_MESSAGE = "disk full"
 
 
 def test_record_get_and_persona_update(tmp_path: Path) -> None:
@@ -28,3 +32,44 @@ def test_record_get_and_persona_update(tmp_path: Path) -> None:
     assert updated is not None
     assert updated.persona == "# Architect\n"
     assert updated.tuning.model == "sonnet"
+
+
+def test_record_rolls_back_memory_when_save_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = ManagedAgentStore(tmp_path / "profiles.json")
+    existing = profile_from_registration(
+        agent_id="a1",
+        name="Alpha",
+        harness=HarnessId.CODEX,
+        persona=None,
+        tuning=AgentTuning(),
+    )
+    store.record(existing)
+
+    def boom() -> None:
+        raise OSError(SAVE_FAILURE_MESSAGE)
+
+    monkeypatch.setattr(store, "_save", boom)
+
+    replacement = profile_from_registration(
+        agent_id="a1",
+        name="Alpha",
+        harness=HarnessId.CLAUDE,
+        persona=None,
+        tuning=AgentTuning(),
+    )
+    with pytest.raises(OSError, match=SAVE_FAILURE_MESSAGE):
+        store.record(replacement)
+    assert store.get("a1") == existing
+
+    fresh = profile_from_registration(
+        agent_id="a2",
+        name="Beta",
+        harness=HarnessId.COPILOT,
+        persona=None,
+        tuning=AgentTuning(),
+    )
+    with pytest.raises(OSError, match=SAVE_FAILURE_MESSAGE):
+        store.record(fresh)
+    assert store.get("a2") is None

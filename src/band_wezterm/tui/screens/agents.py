@@ -68,6 +68,10 @@ DELETE_CONFIRM_MESSAGE: Final = (
 NO_MANAGED_PROFILE_MESSAGE: Final = (
     "No local profile — register or reconfigure after upgrade."
 )
+PREFLIGHT_HARNESS_STABILITY_ATTEMPTS: Final = 5
+PROFILE_HARNESS_UNSTABLE_MESSAGE: Final = (
+    "Harness kept changing during preflight — try Start again."
+)
 NEW_ROLE_PROMPT: Final = "New role name"
 
 
@@ -461,29 +465,24 @@ class AgentsScreen(ControlScreen):
     async def _preflight_launch_profile(
         self, agent_id: str, profile: ManagedAgentProfile
     ) -> ManagedAgentProfile | None:
-        """Preflight, then re-read so mid-flight reconfigure cannot stale-spawn."""
-        preflighted = profile.harness
-        try:
-            await asyncio.to_thread(preflight_harness, preflighted)
-        except HarnessUnavailableError as error:
-            self._set_status(str(error))
-            return None
-        fresh = self.control.managed_agents.get(agent_id)
-        if fresh is None:
-            self._set_status(NO_MANAGED_PROFILE_MESSAGE)
-            return None
-        if fresh.harness is preflighted:
-            return fresh
-        try:
-            await asyncio.to_thread(preflight_harness, fresh.harness)
-        except HarnessUnavailableError as error:
-            self._set_status(str(error))
-            return None
-        refreshed = self.control.managed_agents.get(agent_id)
-        if refreshed is None:
-            self._set_status(NO_MANAGED_PROFILE_MESSAGE)
-            return None
-        return refreshed
+        """Preflight until the stored harness matches the one just checked."""
+        current = profile
+        for _ in range(PREFLIGHT_HARNESS_STABILITY_ATTEMPTS):
+            preflighted = current.harness
+            try:
+                await asyncio.to_thread(preflight_harness, preflighted)
+            except HarnessUnavailableError as error:
+                self._set_status(str(error))
+                return None
+            fresh = self.control.managed_agents.get(agent_id)
+            if fresh is None:
+                self._set_status(NO_MANAGED_PROFILE_MESSAGE)
+                return None
+            if fresh.harness is preflighted:
+                return fresh
+            current = fresh
+        self._set_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
+        return None
 
     @work(exclusive=True, group="agents-spawn")
     async def _start_agent(self, agent: AgentRecord) -> None:

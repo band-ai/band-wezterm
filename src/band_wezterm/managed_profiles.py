@@ -58,8 +58,16 @@ class ManagedAgentStore:
         self._path.write_text(file.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
     def record(self, profile: ManagedAgentProfile) -> None:
+        previous = self._profiles.get(profile.agent_id)
         self._profiles[profile.agent_id] = profile
-        self._save()
+        try:
+            self._save()
+        except Exception:
+            if previous is None:
+                self._profiles.pop(profile.agent_id, None)
+            else:
+                self._profiles[profile.agent_id] = previous
+            raise
 
     def get(self, agent_id: str) -> ManagedAgentProfile | None:
         return self._profiles.get(agent_id)

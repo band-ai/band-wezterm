@@ -246,6 +246,83 @@ async def test_start_agent_spawns_agent_module_pane(
     assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.CODEX
 
 
+async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A→B→C mid-flight must preflight C before spawn — not only B."""
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CLAUDE)
+    band_client.list_my_agents.return_value = [target]
+    band_client.managed_agent_api_key.return_value = "band_a_managed"
+    control_app.window_id = 42
+    control_app.managed_agents.record(
+        ManagedAgentProfile(
+            agent_id=IDLE_AGENT_ID,
+            name="Beta",
+            harness=HarnessId.CODEX,
+        )
+    )
+
+    spawned: list[list[str]] = []
+    preflighted: list[object] = []
+    midflight_harness: dict[HarnessId, HarnessId] = {
+        HarnessId.CODEX: HarnessId.COPILOT,
+        HarnessId.COPILOT: HarnessId.CLAUDE,
+    }
+
+    def fake_preflight(harness: object) -> None:
+        preflighted.append(harness)
+        if not isinstance(harness, HarnessId):
+            return
+        next_harness = midflight_harness.get(harness)
+        if next_harness is None:
+            return
+        current = control_app.managed_agents.get(IDLE_AGENT_ID)
+        assert current is not None
+        control_app.managed_agents.record(
+            current.model_copy(update={"harness": next_harness})
+        )
+
+    def fake_spawn(window_id: object, cwd: object, command: list[str]) -> PaneId:
+        spawned.append(command)
+        return PaneId(99)
+
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.spawn_additional_tab", fake_spawn
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.set_tab_title", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.preflight_harness",
+        fake_preflight,
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.write_api_key_file",
+        lambda _key: Path("/tmp/band-wezterm-test.key"),
+    )
+
+    class _Pane:
+        pane_id = 99
+
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.list_panes",
+        lambda: [_Pane()],
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await settle(pilot)
+        assert control_app.agents_store.is_running(IDLE_AGENT_ID)
+
+    assert preflighted == [HarnessId.CODEX, HarnessId.COPILOT, HarnessId.CLAUDE]
+    assert len(spawned) == 1
+    assert spawned[0][spawned[0].index("--harness") + 1] == HarnessId.CLAUDE.value
+    assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.CLAUDE
+
+
 async def test_start_agent_requires_managed_key(
     control_app: ControlApp,
     band_client: MagicMock,
@@ -412,10 +489,10 @@ async def test_register_deletes_agent_when_profile_record_fails(
     created = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
     band_client.create_agent.return_value = created
 
-    def boom(_profile: ManagedAgentProfile) -> None:
+    def boom() -> None:
         raise OSError(PROFILE_RECORD_FAILURE_MESSAGE)
 
-    monkeypatch.setattr(control_app.managed_agents, "record", boom)
+    monkeypatch.setattr(control_app.managed_agents, "_save", boom)
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
@@ -438,6 +515,7 @@ async def test_register_deletes_agent_when_profile_record_fails(
     band_client.create_agent.assert_awaited_once()
     band_client.delete_agent.assert_awaited_once_with(IDLE_AGENT_ID)
     assert control_app.agents_store.find(IDLE_AGENT_ID) is None
+    assert control_app.managed_agents.get(IDLE_AGENT_ID) is None
 
 
 async def test_delete_requires_confirmation(
