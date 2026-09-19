@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from band_wezterm.__main__ import SETUP_COMMAND, _parse_args, main
-from band_wezterm.setup_wezterm import SetupAction, SetupResult
+from band_wezterm.__main__ import SETUP_COMMAND, SETUP_HELP, _parse_args, main
+from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
 from band_wezterm.wezterm_cli import WezTermNotFoundError
 
 
@@ -27,6 +27,19 @@ def test_parse_setup_subcommand() -> None:
     args = _parse_args([SETUP_COMMAND])
     assert args.command == SETUP_COMMAND
     assert args.restart is False
+
+
+def test_setup_help_mentions_active_config(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert "active WezTerm config" in SETUP_HELP
+    assert "default ~/.wezterm.lua" in SETUP_HELP
+    with pytest.raises(SystemExit) as exited:
+        _parse_args([SETUP_COMMAND, "-h"])
+    assert exited.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "active WezTerm config" in help_text
+    assert "default ~/.wezterm.lua" in help_text
 
 
 def test_main_setup_success(
@@ -62,3 +75,38 @@ def test_main_setup_missing_wezterm(
     err = capsys.readouterr().err
     assert "wezterm not found on PATH" in err
     assert "brew install --cask wezterm" in err
+
+
+def test_main_setup_config_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.__main__.is_control_process",
+        lambda: False,
+    )
+
+    def _boom() -> SetupResult:
+        raise SetupConfigError("WezTerm config path is not a file: /tmp/.wezterm.lua")
+
+    monkeypatch.setattr("band_wezterm.__main__.ensure_band_plugin_config", _boom)
+    assert main([SETUP_COMMAND]) == 1
+    err = capsys.readouterr().err
+    assert "not a file" in err
+    assert "/tmp/.wezterm.lua" in err
+
+
+def test_main_setup_oserror(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.__main__.is_control_process",
+        lambda: False,
+    )
+
+    def _boom() -> SetupResult:
+        raise OSError(13, "Permission denied", "/tmp/.wezterm.lua")
+
+    monkeypatch.setattr("band_wezterm.__main__.ensure_band_plugin_config", _boom)
+    assert main([SETUP_COMMAND]) == 1
+    err = capsys.readouterr().err
+    assert "Permission denied" in err

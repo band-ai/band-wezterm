@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Final
 
 from band_wezterm.config import BAND_WORKSPACE_NAME, CONTROL_TAB_TITLE
-from band_wezterm.setup_wezterm import SetupAction, ensure_band_plugin_config
+from band_wezterm.setup_wezterm import (
+    SetupAction,
+    SetupConfigError,
+    ensure_band_plugin_config,
+)
 from band_wezterm.tui.control_app import is_control_process, run_control_app
 from band_wezterm.wezterm_cli import (
     PaneId,
@@ -25,6 +29,10 @@ from band_wezterm.wezterm_cli import (
 CONTROL_MODULE: Final = "band_wezterm.tui"
 WINDOW_TITLE: Final = "Band"
 SETUP_COMMAND: Final = "setup"
+SETUP_HELP: Final = (
+    "Install/update the Band WezTerm plugin snippet in the active "
+    "WezTerm config (default ~/.wezterm.lua)"
+)
 
 
 def _control_command() -> list[str]:
@@ -58,7 +66,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser(
         SETUP_COMMAND,
-        help="Install/update the Band WezTerm plugin snippet in ~/.wezterm.lua",
+        help=SETUP_HELP,
+        description=SETUP_HELP,
     )
     return parser.parse_args(argv)
 
@@ -83,6 +92,9 @@ def _run_setup() -> int:
             f"{exc} — install WezTerm first (e.g. `brew install --cask wezterm`)",
             file=sys.stderr,
         )
+        return 1
+    except (SetupConfigError, OSError, UnicodeError) as exc:
+        print(f"{exc}", file=sys.stderr)
         return 1
 
     match result.action:
