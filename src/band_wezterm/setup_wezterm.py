@@ -74,6 +74,7 @@ _REQUIRE_WEZTERM_RE: Final = re.compile(
     r"^[ \t]*(?:local[ \t]+\w+[ \t]*=[ \t]*)?require\s*\(?\s*['\"]wezterm['\"].*$",
     re.MULTILINE,
 )
+_WEZTERM_ON_RE: Final = re.compile(r"wezterm\.on\b")
 _LONG_COMMENT_OPEN: Final = "--[["
 _LONG_COMMENT_CLOSE: Final = "]]"
 
@@ -123,6 +124,8 @@ def ensure_band_plugin_config(*, home: Path | None = None) -> SetupResult:
     wezterm_bin()
 
     path = resolve_wezterm_config_path(home=home)
+    if path.is_symlink() and not path.exists():
+        raise SetupConfigError(f"WezTerm config path is a broken symlink: {path}")
     if path.exists() and not path.is_file():
         raise SetupConfigError(f"WezTerm config path is not a file: {path}")
     if not path.is_file():
@@ -204,6 +207,8 @@ def _atomic_write(path: Path, content: str) -> None:
 def _upsert_managed_block(source: str) -> str:
     cleaned = _LEGACY_DOFILE_RE.sub("", source)
     cleaned = _strip_managed_regions(cleaned)
+    if not cleaned.strip():
+        return _FRESH_CONFIG
     return _insert_managed_block(cleaned)
 
 
@@ -226,8 +231,8 @@ def _strip_orphan_begins(source: str) -> str:
             if stop < len(source) and source[stop] == "\n":
                 stop += 1
             region = source[start:stop]
-            # Refuse to delete a top-level return trapped between markers.
-            if _top_level_return_in(region):
+            # Refuse to delete a return trapped between markers.
+            if _return_in(region):
                 source = _drop_line_at(source, orphan)
                 continue
             source = source[:start] + source[stop:]
@@ -241,8 +246,8 @@ def _strip_orphan_begins(source: str) -> str:
         continue
 
 
-def _top_level_return_in(region: str) -> bool:
-    return any(not match.group(1) for match in _RETURN_LINE_RE.finditer(region))
+def _return_in(region: str) -> bool:
+    return _RETURN_LINE_RE.search(region) is not None
 
 
 def _drop_line_at(source: str, match: re.Match[str]) -> str:
@@ -281,6 +286,14 @@ def _find_config_builder(source: str) -> re.Match[str] | None:
     return None
 
 
+def _find_require_wezterm(source: str) -> re.Match[str] | None:
+    comments = _long_comment_ranges(source)
+    for match in _REQUIRE_WEZTERM_RE.finditer(source):
+        if not _in_long_comment(match.start(), comments):
+            return match
+    return None
+
+
 def _line_end_after(source: str, match: re.Match[str]) -> int:
     """Index just past the matched line's trailing newline (if any)."""
     stop = match.end()
@@ -297,22 +310,25 @@ def _insert_managed_block(source: str) -> str:
         rest = source[builder.end() :].lstrip("\n")
         return f"{source[: builder.end()]}\n{_MANAGED_BLOCK}\n{rest}"
 
-    require = _REQUIRE_WEZTERM_RE.search(source)
+    require = _find_require_wezterm(source)
     if require is not None:
         line_end = _line_end_after(source, require)
         rest = source[line_end:].lstrip("\n")
         return f"{source[:line_end]}{_MANAGED_BLOCK}\n{rest}"
 
-    # No builder / require: start of file so we precede any wezterm.on handlers.
-    if source.strip():
-        return f"{_MANAGED_BLOCK}\n{source.lstrip('\n')}"
-
     returns = list(_RETURN_LINE_RE.finditer(source))
     top_level = [match for match in returns if not match.group(1)]
     if top_level:
-        match = top_level[-1]
-        prefix = source[: match.start()].rstrip("\n")
-        return f"{prefix}\n{_MANAGED_BLOCK}\n{source[match.start() :]}"
+        last_return = top_level[-1]
+        on_match = _WEZTERM_ON_RE.search(source, 0, last_return.start())
+        if on_match is not None:
+            # Band must run before user wezterm.on handlers.
+            return f"{_MANAGED_BLOCK}\n{source.lstrip('\n')}"
+        prefix = source[: last_return.start()].rstrip("\n")
+        return f"{prefix}\n{_MANAGED_BLOCK}\n{source[last_return.start() :]}"
+
+    if source.strip():
+        return f"{_MANAGED_BLOCK}\n{source.lstrip('\n')}"
 
     separator = "" if source.endswith("\n") or source == "" else "\n"
     return f"{source}{separator}\n{_MANAGED_BLOCK}"

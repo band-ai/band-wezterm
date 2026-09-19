@@ -529,3 +529,106 @@ def test_ensure_appends_when_only_nested_return(tmp_path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     assert text.index("require 'wezterm'") < text.index(MANAGED_BEGIN)
     assert text.index(MANAGED_BEGIN) < text.index("local function f()")
+
+
+def test_ensure_skips_commented_require(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "--[[\n"
+        "local wezterm = require 'wezterm'\n"
+        "]]\n"
+        "local wezterm = require 'wezterm'\n"
+        "wezterm.on('format-tab-title', function() end)\n"
+        "return {}\n",
+        encoding="utf-8",
+    )
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    comment_open = text.index("--[[")
+    comment_close = text.index("]]")
+    managed = text.index(MANAGED_BEGIN)
+    assert not (comment_open < managed < comment_close)
+    live_require = text.index("require 'wezterm'", comment_close)
+    assert live_require < managed
+    assert managed < text.index("format-tab-title")
+
+
+def test_ensure_orphan_only_file_gets_fresh_scaffold(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(f"{MANAGED_BEGIN}\n", encoding="utf-8")
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert "wezterm.config_builder()" in text
+    assert text.strip().endswith("return config")
+    assert text.count(MANAGED_BEGIN) == 1
+
+
+def test_ensure_malformed_begin_indented_return_end_keeps_return(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "local wezterm = require 'wezterm'\n"
+        "local config = wezterm.config_builder()\n"
+        f"{MANAGED_BEGIN}\n"
+        "\treturn config\n"
+        f"{MANAGED_END}\n",
+        encoding="utf-8",
+    )
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert "return config" in text
+    assert text.count(MANAGED_BEGIN) == 1
+    assert MANAGED_END in text
+
+
+def test_ensure_injects_before_return_when_no_builder_or_require(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text("local config = {}\nreturn config\n", encoding="utf-8")
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert text.index("local config") < text.index(MANAGED_BEGIN)
+    assert text.index(MANAGED_BEGIN) < text.index("return config")
+
+
+def test_ensure_injects_before_on_handler_without_builder_or_require(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "wezterm.on('format-tab-title', function() end)\nreturn {}\n",
+        encoding="utf-8",
+    )
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert text.index(MANAGED_BEGIN) < text.index("format-tab-title")
+    assert text.index(MANAGED_BEGIN) < text.index("return {}")
+
+
+def test_ensure_rejects_broken_symlink(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    missing = tmp_path / "missing-wezterm.lua"
+    link = home / HOME_CONFIG_NAME
+    link.symlink_to(missing)
+    with pytest.raises(SetupConfigError, match="broken symlink"):
+        ensure_band_plugin_config(home=home)
+    assert link.is_symlink()
+    assert not link.exists()
