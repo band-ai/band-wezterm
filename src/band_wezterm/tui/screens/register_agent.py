@@ -368,20 +368,26 @@ class RegisterAgentScreen(ControlScreen):
             return
         draft = self.draft
         persona = draft.role.content if draft.role is not None else None
+        previous = self.control.managed_agents.get(agent.id)
+        next_profile = profile_from_registration(
+            agent_id=agent.id,
+            name=agent.name,
+            harness=draft.harness,
+            persona=persona,
+            tuning=draft.tuning,
+        )
+        # Profile first so Start's prefer-profile path cannot see keyring ahead
+        # of durable local state if the keyring write fails afterward.
+        self.control.managed_agents.record(next_profile)
         try:
             self.control.client.update_managed_harness(agent.id, draft.harness)
         except Exception as error:
+            if previous is None:
+                self.control.managed_agents.remove(agent.id)
+            else:
+                self.control.managed_agents.record(previous)
             self._set_status(str(error))
             return
-        self.control.managed_agents.record(
-            profile_from_registration(
-                agent_id=agent.id,
-                name=agent.name,
-                harness=draft.harness,
-                persona=persona,
-                tuning=draft.tuning,
-            )
-        )
         updated = agent.model_copy(update={"harness": draft.harness})
         self.control.agents_store.update_agent(updated)
         self.control.agents_store.status = (

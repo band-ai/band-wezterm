@@ -20,6 +20,7 @@ from band_wezterm.agent.spawn_cmd import agent_pane_command, write_api_key_file
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
+from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.role_library import open_role_library
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.screens.new_role import NewRoleScreen
@@ -93,6 +94,16 @@ AGENT_CHIPS: Final[tuple[Chip, ...]] = tuple(
 
 def selector(widget_id: Id) -> str:
     return f"#{widget_id.value}"
+
+
+def _with_profile_harness(
+    agent: AgentRecord, profiles: ManagedAgentStore
+) -> AgentRecord:
+    """Project local profile harness onto the catalog row (launch SoT)."""
+    profile = profiles.get(agent.id)
+    if profile is None or profile.harness is agent.harness:
+        return agent
+    return agent.model_copy(update={"harness": profile.harness})
 
 
 def badge_for(agent: AgentRecord) -> HarnessBadge | None:
@@ -291,7 +302,12 @@ class AgentsScreen(ControlScreen):
         except Exception as error:
             store.status = format_platform_error(error)
         else:
-            store.replace_agents(agents)
+            store.replace_agents(
+                [
+                    _with_profile_harness(agent, self.control.managed_agents)
+                    for agent in agents
+                ]
+            )
             store.status = ""
         finally:
             store.loading = False
@@ -452,10 +468,10 @@ class AgentsScreen(ControlScreen):
         if profile is None:
             self._set_status(NO_MANAGED_PROFILE_MESSAGE)
             return
-        # Local profile is the launch source of truth (platform has no harness).
-        launch = agent.model_copy(update={"harness": profile.harness})
+        agent = _with_profile_harness(agent, self.control.managed_agents)
+        self.store.update_agent(agent)
         try:
-            await asyncio.to_thread(preflight_harness, launch.harness)
+            await asyncio.to_thread(preflight_harness, profile.harness)
         except HarnessUnavailableError as error:
             self._set_status(str(error))
             return
@@ -467,7 +483,7 @@ class AgentsScreen(ControlScreen):
         pane_id: PaneId | None = None
         try:
             command = agent_pane_command(
-                launch, key_file=key_file, cwd=cwd, profile=profile
+                agent, key_file=key_file, cwd=cwd, profile=profile
             )
             pane_id = await asyncio.to_thread(
                 spawn_additional_tab, window_id, cwd, command

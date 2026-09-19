@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import types
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -58,7 +59,6 @@ def test_preflight_surfaces_import_hint(monkeypatch: pytest.MonkeyPatch) -> None
         preflight_harness(HarnessId.CLAUDE_SDK)
 
 
-
 def test_copilot_passes_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> None:
     """Host maps tuning.reasoning → CopilotSDKAdapterConfig.reasoning_effort."""
     captured: dict[str, object] = {}
@@ -75,9 +75,9 @@ def test_copilot_passes_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> Non
     adapters_pkg.CopilotSDKAdapter = FakeAdapter  # type: ignore[attr-defined]
     copilot_mod = types.ModuleType("band.adapters.copilot_sdk")
     copilot_mod.CopilotSDKAdapterConfig = FakeConfig  # type: ignore[attr-defined]
-    monkeypatch.setitem(__import__("sys").modules, "band.adapters", adapters_pkg)
+    monkeypatch.setitem(sys.modules, "band.adapters", adapters_pkg)
     monkeypatch.setitem(
-        __import__("sys").modules, "band.adapters.copilot_sdk", copilot_mod
+        sys.modules, "band.adapters.copilot_sdk", copilot_mod
     )
 
     adapter = build_adapter(

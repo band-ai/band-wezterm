@@ -174,7 +174,7 @@ async def test_start_agent_spawns_agent_module_pane(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Start must spawn ``python -m band_wezterm.agent``, not a PoC cat tab."""
-    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CLAUDE_SDK)
     band_client.list_my_agents.return_value = [target]
     band_client.managed_agent_api_key.return_value = "band_a_managed"
     control_app.window_id = 42
@@ -188,6 +188,7 @@ async def test_start_agent_spawns_agent_module_pane(
     )
 
     spawned: list[tuple[object, ...]] = []
+    preflighted: list[object] = []
 
     def fake_spawn(window_id: object, cwd: object, command: list[str]) -> PaneId:
         spawned.append((window_id, cwd, command))
@@ -200,7 +201,8 @@ async def test_start_agent_spawns_agent_module_pane(
         "band_wezterm.tui.screens.agents.set_tab_title", lambda *_a, **_k: None
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.preflight_harness", lambda _h: None
+        "band_wezterm.tui.screens.agents.preflight_harness",
+        preflighted.append,
     )
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.write_api_key_file",
@@ -232,6 +234,9 @@ async def test_start_agent_spawns_agent_module_pane(
     assert "o3" in command
     assert "--reasoning" in command
     assert "high" in command
+    assert command[command.index("--harness") + 1] == HarnessId.CODEX.value
+    assert preflighted == [HarnessId.CODEX]
+    assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.CODEX
 
 
 async def test_start_agent_requires_managed_key(

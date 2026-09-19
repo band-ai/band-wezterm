@@ -90,4 +90,4 @@ def test_agent_pane_command_prefers_profile_harness(tmp_path: Path) -> None:
         harness=HarnessId.CODEX,
     )
     argv = agent_pane_command(agent, key_file=key_file, cwd=tmp_path, profile=profile)
-    assert argv[argv.index("--harness") + 1] == "codex"
+    assert argv[argv.index("--harness") + 1] == HarnessId.CODEX.value

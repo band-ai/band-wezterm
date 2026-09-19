@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from band_wezterm.backends import (
+    TUNING_DEFAULT_OPTION_ID,
     AgentTuning,
     TuningDimensionId,
     describe_tuning_value,
@@ -38,6 +39,14 @@ def test_tuning_value_for_and_describe() -> None:
 
 def test_copilot_exposes_reasoning_effort() -> None:
     backend = resolve_backend(HarnessId.COPILOT_SDK)
-    ids = {dimension.id for dimension in backend.tuning}
-    assert TuningDimensionId.MODEL in ids
-    assert TuningDimensionId.REASONING in ids
+    reasoning = next(
+        dimension
+        for dimension in backend.tuning
+        if dimension.id is TuningDimensionId.REASONING
+    )
+    assert [option.id for option in reasoning.options] == [
+        TUNING_DEFAULT_OPTION_ID,
+        "low",
+        "medium",
+        "high",
+    ]
