@@ -79,12 +79,9 @@ jobs:
           enable-cache: true
           python-version: "3.14"
       - run: uv sync --locked
-      - name: Live PTY + platform (opt-in)
-        env:
-          BAND_API_KEY_USER: ${{ secrets.BAND_API_KEY_USER }}
-          TEST_AGENT_ID: ${{ secrets.TEST_AGENT_ID }}
-          BAND_OAUTH_CLIENT_ID: ${{ vars.BAND_OAUTH_CLIENT_ID }}
-          BAND_OAUTH_ISSUER: ${{ vars.BAND_OAUTH_ISSUER }}
-          BAND_BASE_URL: ${{ vars.BAND_BASE_URL }}
-          BAND_WS_URL: ${{ vars.BAND_WS_URL }}
+      # Live platform API cases self-skip without BAND_API_KEY_USER (same
+      # opt-in gate as band-plugin-vsc). Do not inject that secret here —
+      # api.dev is not reachable from GHA, and a present key turned opt-in
+      # into a hard red ConnectError. Run live locally via .env.test.
+      - name: Control tab PTY
         run: uv run pytest tests/integration/test_control_tab_pty.py -q

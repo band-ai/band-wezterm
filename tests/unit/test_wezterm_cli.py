@@ -15,12 +15,13 @@ from band_wezterm.wezterm_cli import (
 
 def test_first_spawn_uses_new_window_and_workspace() -> None:
     command = ["python", "-m", "band_wezterm.tui"]
-    args = first_spawn_args(Path("/tmp/work"), command)
+    cwd = Path("/tmp/work")
+    args = first_spawn_args(cwd, command)
     assert args[:3] == ["cli", "spawn", "--new-window"]
     assert "--workspace" in args
     assert args[args.index("--workspace") + 1] == "band"
     assert "--window-id" not in args
-    assert args[args.index("--cwd") + 1] == "/tmp/work"
+    assert args[args.index("--cwd") + 1] == str(cwd)
     assert args[args.index("--") + 1 :] == command
 
 

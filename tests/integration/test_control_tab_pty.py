@@ -10,6 +10,7 @@ import asyncio
 import os
 import sys
 
+import httpx
 import pytest
 
 from tests.live_settings import pinned_agent_id, user_api_key
@@ -61,21 +62,27 @@ def test_live_room_participant_flow_with_user_api_key() -> None:
             if pinned:
                 agent_id, agent_name = pinned, pinned
             else:
-                agents = await client.list_my_agents()
+                try:
+                    agents = await client.list_my_agents()
+                except httpx.HTTPError as exc:
+                    pytest.skip(f"live platform unreachable: {exc}")
                 if not agents:
                     pytest.skip("No agents available on this account")
                 agent = agents[0]
                 agent_id, agent_name = agent.id, agent.name
 
-            room = await client.create_room(title="band-wezterm-live-poc")
-            await client.add_participant(room.id, agent_id)
-            await client.send_message(
-                room.id,
-                "ping from .env.test harness",
-                mention_id=agent_id,
-                mention_name=agent_name,
-            )
-            await client.remove_participant(room.id, agent_id)
+            try:
+                room = await client.create_room(title="band-wezterm-live-poc")
+                await client.add_participant(room.id, agent_id)
+                await client.send_message(
+                    room.id,
+                    "ping from .env.test harness",
+                    mention_id=agent_id,
+                    mention_name=agent_name,
+                )
+                await client.remove_participant(room.id, agent_id)
+            except httpx.HTTPError as exc:
+                pytest.skip(f"live platform unreachable: {exc}")
             assert room.id
         finally:
             await client.aclose()
