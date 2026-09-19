@@ -19,6 +19,9 @@ Install [WezTerm](https://wezterm.org/) and [uv](https://github.com/astral-sh/uv
 # From a local checkout: install or reinstall the current source and configure WezTerm
 ./install.sh
 
+# Windows Command Prompt or PowerShell (from the checkout)
+.\install.bat
+
 # Host CLI from Git (no PyPI required)
 uv tool install git+https://github.com/band-ai/band-wezterm
 
