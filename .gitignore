@@ -31,4 +31,12 @@ __pycache__/
 .venv/
 node_modules
 dist/
+build/
+*.egg-info/
 target/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+*.spec
+artifacts/
