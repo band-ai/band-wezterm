@@ -97,10 +97,3 @@
   test hypotheses actively, and validate all behaviors before drawing
   conclusions.
 
-## Source extension installation
-
-- Follow `.claude/skills/band-source-install/SKILL.md` when rebuilding or
-  reinstalling the extension from source.
-- Rebuild and install the production VSIX with `rtk npm run install:source`.
-  The script resolves the public OAuth build variables, verifies the package,
-  force-installs it, and prints the required **Developer: Reload Window** step.
