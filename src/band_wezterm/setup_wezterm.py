@@ -6,6 +6,9 @@ import os
 import re
 import subprocess
 import tempfile
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from importlib import resources
@@ -31,13 +34,15 @@ PLUGIN_DIRNAME: Final = "plugin"
 PLUGIN_PACKAGE: Final = "band_wezterm.wezterm_plugin"
 PLUGIN_INIT_NAME: Final = "init.lua"
 PLUGIN_INIT_REPO_PATH: Final = f"{PLUGIN_DIRNAME}/{PLUGIN_INIT_NAME}"
+PLUGIN_LOCK_SUFFIX: Final = ".lock"
+PLUGIN_LOCK_TIMEOUT_SECONDS: Final = 10
+PLUGIN_LOCK_POLL_SECONDS: Final = 0.05
 # Path(__file__).resolve().parents[N] → repo root (band_wezterm → src → repo).
 REPO_ROOT_FROM_PACKAGE: Final = 2
 GIT_COMMIT_USER_NAME: Final = "band-wezterm"
 GIT_COMMIT_USER_EMAIL: Final = "band-wezterm@localhost"
 GIT_COMMIT_MESSAGE: Final = "band-wezterm WezTerm plugin"
 GIT_COMMIT_GPGSIGN_FALSE: Final = "commit.gpgsign=false"
-GIT_COMMIT_GPG_SIGN_FALSE: Final = "commit.gpgSign=false"
 GIT_REQUIRED_ERROR: Final = (
     "git is required to materialize the Band WezTerm plugin "
     "(install git and ensure it is on PATH)"
@@ -80,8 +85,11 @@ _REQUIRE_WEZTERM_RE: Final = re.compile(
     re.MULTILINE,
 )
 _WEZTERM_ON_RE: Final = re.compile(r"wezterm\.on\b")
-_LONG_COMMENT_OPEN: Final = "--[["
-_LONG_COMMENT_CLOSE: Final = "]]"
+_LONG_COMMENT_OPEN_RE: Final = re.compile(r"--\[(=*)\[")
+_LUA_SINGLE_QUOTE: Final = "'"
+_LUA_ESCAPE: Final = "\\"
+_LUA_NEWLINE: Final = "\n"
+_LUA_CARRIAGE_RETURN: Final = "\r"
 
 
 class SetupAction(StrEnum):
@@ -155,16 +163,40 @@ def materialize_plugin_repo(*, home: Path | None = None) -> Path:
     """Write packaged ``plugin/init.lua`` into a tiny git repo under local state."""
     home_dir = home if home is not None else Path.home()
     root = (home_dir / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME).resolve()
-    plugin_dir = root / PLUGIN_DIRNAME
-    plugin_dir.mkdir(parents=True, exist_ok=True)
-    target = plugin_dir / PLUGIN_INIT_NAME
-    source_text = _plugin_init_lua_text()
-    if not target.is_file() or target.read_text(encoding="utf-8") != source_text:
-        _atomic_write(target, source_text)
-    # Always recover git state — do not skip merely because file bytes match.
-    if _plugin_repo_needs_commit(root):
-        _git_commit_plugin_repo(root)
+    with _plugin_repo_lock(root):
+        plugin_dir = root / PLUGIN_DIRNAME
+        plugin_dir.mkdir(parents=True, exist_ok=True)
+        target = plugin_dir / PLUGIN_INIT_NAME
+        source_text = _plugin_init_lua_text()
+        if not target.is_file() or target.read_text(encoding="utf-8") != source_text:
+            _atomic_write(target, source_text)
+        # Always recover git state — do not skip merely because file bytes match.
+        if _plugin_repo_needs_commit(root):
+            _git_commit_plugin_repo(root)
     return root
+
+
+@contextmanager
+def _plugin_repo_lock(root: Path) -> Iterator[None]:
+    """Serialize setup calls that share a materialized plugin repository."""
+    lock_path = root.with_name(f".{root.name}{PLUGIN_LOCK_SUFFIX}")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + PLUGIN_LOCK_TIMEOUT_SECONDS
+    while True:
+        try:
+            lock_path.mkdir()
+        except FileExistsError as error:
+            if time.monotonic() >= deadline:
+                raise SetupConfigError(
+                    f"Timed out waiting for the Band WezTerm plugin lock: {lock_path}"
+                ) from error
+            time.sleep(PLUGIN_LOCK_POLL_SECONDS)
+        else:
+            break
+    try:
+        yield
+    finally:
+        lock_path.rmdir()
 
 
 def _plugin_init_lua_text() -> str:
@@ -260,8 +292,6 @@ def _git_commit_plugin_repo(root: Path) -> None:
             "-c",
             GIT_COMMIT_GPGSIGN_FALSE,
             "-c",
-            GIT_COMMIT_GPG_SIGN_FALSE,
-            "-c",
             f"user.name={GIT_COMMIT_USER_NAME}",
             "-c",
             f"user.email={GIT_COMMIT_USER_EMAIL}",
@@ -283,11 +313,21 @@ def _managed_block(plugin_url: str) -> str:
         f"{MANAGED_BEGIN}\n"
         "do\n"
         "  local wezterm = require 'wezterm'\n"
-        f"  local band = wezterm.plugin.require '{plugin_url}'\n"
+        f"  local band = wezterm.plugin.require {_lua_string(plugin_url)}\n"
         "  band.apply_to_config(config)\n"
         "end\n"
         f"{MANAGED_END}\n"
     )
+
+
+def _lua_string(value: str) -> str:
+    escaped = (
+        value.replace(_LUA_ESCAPE, _LUA_ESCAPE * 2)
+        .replace(_LUA_SINGLE_QUOTE, _LUA_ESCAPE + _LUA_SINGLE_QUOTE)
+        .replace(_LUA_CARRIAGE_RETURN, _LUA_ESCAPE + "r")
+        .replace(_LUA_NEWLINE, _LUA_ESCAPE + "n")
+    )
+    return f"{_LUA_SINGLE_QUOTE}{escaped}{_LUA_SINGLE_QUOTE}"
 
 
 def _fresh_config(plugin_url: str) -> str:
@@ -420,15 +460,16 @@ def _long_comment_ranges(source: str) -> list[tuple[int, int]]:
     ranges: list[tuple[int, int]] = []
     cursor = 0
     while True:
-        start = source.find(_LONG_COMMENT_OPEN, cursor)
-        if start < 0:
+        opening = _LONG_COMMENT_OPEN_RE.search(source, cursor)
+        if opening is None:
             return ranges
-        end = source.find(_LONG_COMMENT_CLOSE, start + len(_LONG_COMMENT_OPEN))
-        if end < 0:
-            ranges.append((start, len(source)))
+        closing = re.compile(r"\]" + re.escape(opening.group(1)) + r"\]")
+        end = closing.search(source, opening.end())
+        if end is None:
+            ranges.append((opening.start(), len(source)))
             return ranges
-        ranges.append((start, end + len(_LONG_COMMENT_CLOSE)))
-        cursor = end + len(_LONG_COMMENT_CLOSE)
+        ranges.append((opening.start(), end.end()))
+        cursor = end.end()
 
 
 def _first_match_outside_long_comments(

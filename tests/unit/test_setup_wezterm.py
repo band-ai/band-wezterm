@@ -5,6 +5,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from itertools import repeat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,7 +17,6 @@ from band_wezterm.setup_wezterm import (
     BAND_WEZTERM_PLUGIN_URL_ENV,
     DEFAULT_CONFIG_DIRNAME,
     EXAMPLE_HTTPS_PLUGIN_URL,
-    GIT_COMMIT_GPG_SIGN_FALSE,
     GIT_COMMIT_GPGSIGN_FALSE,
     HOME_CONFIG_NAME,
     MANAGED_BEGIN,
@@ -35,6 +36,12 @@ from band_wezterm.setup_wezterm import (
     resolve_wezterm_config_path,
 )
 from band_wezterm.wezterm_cli import WezTermNotFoundError
+
+CONCURRENT_MATERIALIZATION_CALLS = 8
+
+
+def _materialize_plugin_repo(home: Path) -> Path:
+    return materialize_plugin_repo(home=home)
 
 
 @pytest.fixture(autouse=True)
@@ -514,6 +521,37 @@ def test_ensure_skips_commented_config_builder(tmp_path: Path) -> None:
     assert not (comment_open < managed < comment_close)
 
 
+def test_ensure_skips_equals_delimited_commented_config_builder(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "--[=[\n"
+        "local config = wezterm.config_builder()\n"
+        "]=]\n"
+        "local wezterm = require 'wezterm'\n"
+        "local config = wezterm.config_builder()\n"
+        "return config\n",
+        encoding="utf-8",
+    )
+    ensure_band_plugin_config(home=home)
+    text = path.read_text(encoding="utf-8")
+    assert text.index("]=]") < text.index(MANAGED_BEGIN)
+
+
+def test_ensure_escapes_plugin_url_in_lua_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    plugin_url = "file:///tmp/O'Brien/plugin"
+    monkeypatch.setenv(BAND_WEZTERM_PLUGIN_URL_ENV, plugin_url)
+    result = ensure_band_plugin_config(home=home)
+    assert "wezterm.plugin.require 'file:///tmp/O\\'Brien/plugin'" in result.path.read_text(
+        encoding="utf-8"
+    )
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
 def test_ensure_preserves_file_mode(tmp_path: Path) -> None:
     home = tmp_path / "home"
@@ -862,6 +900,27 @@ def test_materialize_recreates_git_when_missing(tmp_path: Path) -> None:
     assert head.stdout.strip()
 
 
+def test_materialize_serializes_concurrent_setup(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    with ThreadPoolExecutor(max_workers=CONCURRENT_MATERIALIZATION_CALLS) as executor:
+        roots = list(
+            executor.map(
+                _materialize_plugin_repo,
+                repeat(home, CONCURRENT_MATERIALIZATION_CALLS),
+            )
+        )
+    assert set(roots) == {home / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME}
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=roots[0],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert head.stdout.strip()
+
+
 def test_materialize_retries_commit_after_failed_commit(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
@@ -939,5 +998,4 @@ def test_materialize_commit_disables_gpgsign(tmp_path: Path) -> None:
 
     commit_argv = next(argv for argv in seen if "commit" in argv)
     assert GIT_COMMIT_GPGSIGN_FALSE in commit_argv
-    assert GIT_COMMIT_GPG_SIGN_FALSE in commit_argv
     assert PLUGIN_INIT_REPO_PATH in commit_argv

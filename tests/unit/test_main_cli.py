@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from band_wezterm.__main__ import SETUP_COMMAND, _parse_args, main
+from band_wezterm.__main__ import SETUP_COMMAND, _parse_args, _run_control, main
 from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
-from band_wezterm.wezterm_cli import WezTermNotFoundError
+from band_wezterm.wezterm_cli import PaneId, PaneInfo, WezTermNotFoundError, WindowId
 
 
 @pytest.fixture(autouse=True)
@@ -99,3 +99,25 @@ def test_main_setup_oserror(
     assert main([SETUP_COMMAND]) == 1
     err = capsys.readouterr().err
     assert "Permission denied" in err
+
+
+def test_run_control_preserves_user_control_tab_in_band_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing = PaneInfo(
+        window_id=734,
+        pane_id=81,
+        workspace="band",
+        tab_title="Control",
+        title="zsh",
+    )
+    killed: list[WindowId] = []
+    monkeypatch.setattr("band_wezterm.__main__.find_control_pane", lambda: existing)
+    monkeypatch.setattr("band_wezterm.__main__.kill_window", killed.append)
+    monkeypatch.setattr(
+        "band_wezterm.__main__._spawn_control",
+        lambda _cwd: (WindowId(735), PaneId(82)),
+    )
+    monkeypatch.setattr("band_wezterm.__main__.request_workspace_focus", lambda **_: None)
+    assert _run_control(restart=False) == 0
+    assert killed == []

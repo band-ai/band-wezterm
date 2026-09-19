@@ -79,11 +79,6 @@ def _spawn_control(cwd: Path) -> tuple[WindowId, PaneId]:
     return spawned.window_id, spawned.pane_id
 
 
-def _retire_legacy_band_workspace(control_window: WindowId) -> None:
-    """Drop Control that was spawned into the hidden ``band`` workspace."""
-    kill_window(control_window)
-
-
 def _run_setup() -> int:
     try:
         result = ensure_band_plugin_config()
@@ -116,9 +111,8 @@ def _run_control(*, restart: bool) -> int:
     existing = find_control_pane()
 
     if existing is not None and existing.workspace == BAND_WORKSPACE_NAME:
-        # Pre-fix spawns used --workspace band and stay invisible until the GUI
-        # switches workspaces (no CLI for that). Replace with a visible window.
-        _retire_legacy_band_workspace(WindowId(existing.window_id))
+        # A tab title is not a safe ownership signal for closing a whole user window.
+        # Leave a hidden legacy Control running and open a visible replacement instead.
         existing = None
 
     if restart and existing is not None:
