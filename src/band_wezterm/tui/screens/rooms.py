@@ -226,6 +226,8 @@ class RoomsScreen(ControlScreen):
     """Rooms list: client-side search, starring, creation."""
 
     BINDINGS = [
+        Binding("ctrl+a", "app.show_agents", "Agents", show=False),
+        Binding("ctrl+o", "app.show_rooms", "Rooms", show=False),
         Binding("slash", "focus_search", "Search"),
         Binding("f", "focus_filters", "Filters"),
         Binding("n", "new_room", "New room"),
@@ -418,6 +420,8 @@ class RoomDetailScreen(ControlScreen):
     """One room: roster, add-only participant picker, chat."""
 
     BINDINGS = [
+        Binding("ctrl+a", "app.show_agents", "Agents", show=False),
+        Binding("ctrl+o", "app.show_rooms", "Rooms", show=False),
         Binding("a", "add_participant", "Add participant"),
         Binding("x", "remove_participant", "Remove"),
         Binding("m", "focus_composer", "Compose"),

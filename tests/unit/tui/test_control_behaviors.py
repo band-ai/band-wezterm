@@ -71,12 +71,12 @@ async def test_switching_screens_discards_the_open_draft(
         await settle(pilot)
         assert control_app.agents_store.draft_open is True
 
-        await pilot.press("ctrl+2")
+        await pilot.press("ctrl+o")
         await settle(pilot)
         assert isinstance(control_app.screen, RoomsScreen)
         assert control_app.agents_store.draft_open is False
 
-        await pilot.press("ctrl+1")
+        await pilot.press("ctrl+a")
         await settle(pilot)
         draft = control_app.screen.query_one(agent_selector(AgentId.DRAFT), Vertical)
         draft_name = control_app.screen.query_one(

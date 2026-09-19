@@ -116,9 +116,11 @@ class ControlApp(App[None]):
     }
 
     BINDINGS = [
-        # Ctrl+digit — Mac-friendly (no Fn) and ignored by focused text inputs.
-        Binding("ctrl+1", "show_agents", "Agents"),
-        Binding("ctrl+2", "show_rooms", "Rooms"),
+        # Ctrl+letter (not Ctrl+Shift): terminals collapse Shift on control
+        # chords, so ctrl+shift+a never arrives. Avoid Ctrl+digit (macOS Spaces)
+        # and F-keys (Fn). Ctrl+A/O are unbound in WezTerm defaults.
+        Binding("ctrl+a", "show_agents", "Agents"),
+        Binding("ctrl+o", "show_rooms", "Rooms"),
         Binding("f1", "show_agents", "Agents", show=False),
         Binding("f2", "show_rooms", "Rooms", show=False),
         Binding("ctrl+q", "quit", "Quit host"),

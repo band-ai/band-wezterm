@@ -161,6 +161,8 @@ class AgentsScreen(ControlScreen):
     """Keyboard-first agents catalog projected from ``AgentsStore``."""
 
     BINDINGS = [
+        Binding("ctrl+a", "app.show_agents", "Agents", show=False),
+        Binding("ctrl+o", "app.show_rooms", "Rooms", show=False),
         Binding("slash", "focus_search", "Search"),
         Binding("f", "focus_filters", "Filters"),
         Binding("n", "new_agent", "Register"),
