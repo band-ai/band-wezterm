@@ -150,6 +150,10 @@ class MentionSuggester(Suggester):
 class MarkdownComposer(Input):
     """Single-line composer highlighting `**bold**`, `` `code` `` and `@mention`."""
 
+    BINDINGS: ClassVar[list[Binding]] = [
+        Binding("tab", "complete_mention", "Complete handle", show=False),
+    ]
+
     def __init__(
         self,
         *,
@@ -168,6 +172,11 @@ class MarkdownComposer(Input):
 
     def set_mention_handles(self, handles: Iterable[str]) -> None:
         self._mention_handles = tuple(handles)
+
+    def action_complete_mention(self) -> None:
+        """Accept the inline handle completion when the cursor is at the end."""
+        if self.cursor_at_end:
+            self.action_cursor_right()
 
 
 @dataclass(frozen=True)
