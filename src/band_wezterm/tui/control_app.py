@@ -59,6 +59,20 @@ def mark_control_process() -> None:
     os.environ[CONTROL_PROCESS_ENV] = CONTROL_PROCESS_FLAG
 
 
+def ensure_terminal_color() -> None:
+    """Drop NO_COLOR so Textual keeps truecolor (room dots, chips, avatars).
+
+    Launchers (CI, Cursor agent shells) often export NO_COLOR=1; WezTerm panes
+    can inherit it and Textual then installs a Monochrome/NoColor filter.
+    """
+    os.environ.pop("NO_COLOR", None)
+    if os.environ.get("FORCE_COLOR") == "0":
+        os.environ.pop("FORCE_COLOR", None)
+    os.environ.setdefault("COLORTERM", "truecolor")
+    if os.environ.get("TERM") in (None, "", "dumb"):
+        os.environ["TERM"] = "xterm-256color"
+
+
 def current_pane_id() -> PaneId | None:
     pane = os.environ.get(WEZTERM_PANE_ENV)
     if not pane:
@@ -101,8 +115,11 @@ class ControlApp(App[None]):
     }
 
     BINDINGS = [
-        Binding("f1", "show_agents", "Agents"),
-        Binding("f2", "show_rooms", "Rooms"),
+        # Ctrl+digit — Mac-friendly (no Fn) and ignored by focused text inputs.
+        Binding("ctrl+1", "show_agents", "Agents"),
+        Binding("ctrl+2", "show_rooms", "Rooms"),
+        Binding("f1", "show_agents", "Agents", show=False),
+        Binding("f2", "show_rooms", "Rooms", show=False),
         Binding("ctrl+q", "quit", "Quit host"),
     ]
 
@@ -198,5 +215,6 @@ def announce_human(user_id: str) -> None:
 def run_control_app() -> int:
     """Run the Control tab in this process; returns the host exit code."""
     mark_control_process()
+    ensure_terminal_color()
     ControlApp().run()
     return 0

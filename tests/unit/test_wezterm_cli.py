@@ -9,6 +9,7 @@ from band_wezterm.wezterm_cli import (
     WindowId,
     additional_spawn_args,
     first_spawn_args,
+    pane_command_env,
     set_tab_title_args,
 )
 
@@ -37,3 +38,18 @@ def test_additional_spawn_uses_window_id_only() -> None:
 def test_set_tab_title_targets_pane() -> None:
     args = set_tab_title_args(PaneId(42), "Control")
     assert args == ["cli", "set-tab-title", "--pane-id", "42", "Control"]
+
+
+def test_pane_command_env_strips_no_color() -> None:
+    env = pane_command_env(
+        {
+            "PATH": "/bin",
+            "NO_COLOR": "1",
+            "FORCE_COLOR": "0",
+            "TERM": "dumb",
+        }
+    )
+    assert "NO_COLOR" not in env
+    assert "FORCE_COLOR" not in env
+    assert env["COLORTERM"] == "truecolor"
+    assert env["TERM"] == "xterm-256color"

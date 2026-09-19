@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -46,6 +47,24 @@ class WezTermCliError(RuntimeError):
 
 class WezTermNotFoundError(WezTermCliError):
     pass
+
+
+def pane_command_env(
+    base: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Environment for programs we spawn into WezTerm panes.
+
+    Strips ``NO_COLOR`` / ``FORCE_COLOR=0`` so Textual does not go monochrome
+    when the launcher shell exported them (common in agent/CI environments).
+    """
+    env = dict(os.environ if base is None else base)
+    env.pop("NO_COLOR", None)
+    if env.get("FORCE_COLOR") == "0":
+        env.pop("FORCE_COLOR", None)
+    env.setdefault("COLORTERM", "truecolor")
+    if env.get("TERM") in (None, "", "dumb"):
+        env["TERM"] = "xterm-256color"
+    return env
 
 
 def _wezterm_bin() -> str:
