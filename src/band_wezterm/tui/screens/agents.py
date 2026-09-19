@@ -295,9 +295,12 @@ class AgentsScreen(ControlScreen):
             projected: list[AgentRecord] = []
             for agent in agents:
                 harness = profiles.harness_for(agent.id)
-                if harness is not None and harness is not agent.harness:
-                    agent = agent.model_copy(update={"harness": harness})
-                projected.append(agent)
+                row = (
+                    agent.model_copy(update={"harness": harness})
+                    if harness is not None and harness is not agent.harness
+                    else agent
+                )
+                projected.append(row)
             store.replace_agents(projected)
             store.status = ""
         finally:
