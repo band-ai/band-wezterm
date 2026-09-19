@@ -7,12 +7,29 @@ from pathlib import Path
 
 import pytest
 
-from band_wezterm.agent.runner import _read_api_key
+from band_wezterm.agent.runner import _read_api_key, runtime_banner
 from band_wezterm.agent.spawn_cmd import agent_pane_command, write_api_key_file
 from band_wezterm.backends import AgentTuning
 from band_wezterm.client import AgentRecord
 from band_wezterm.identity import AvatarKind, HarnessId, agent_accent
 from band_wezterm.managed_profiles import ManagedAgentProfile
+
+
+def test_runtime_banner_makes_a_running_agent_pane_useful(tmp_path: Path) -> None:
+    banner = runtime_banner(
+        name="Developer 6753",
+        harness="codex",
+        tuning=AgentTuning(model="gpt-5.6-sol", reasoning="high"),
+        cwd=tmp_path,
+    )
+
+    assert "Band agent" in banner
+    assert "Agent: Developer 6753" in banner
+    assert "Runtime: codex" in banner
+    assert "Model: gpt-5.6-sol" in banner
+    assert "Reasoning: high" in banner
+    assert "Online — listening to Band rooms" in banner
+    assert "Read and send messages in Control" in banner
 
 
 def test_write_api_key_file_is_private() -> None:

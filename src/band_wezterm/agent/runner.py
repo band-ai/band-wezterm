@@ -14,6 +14,7 @@ from band.runtime.types import AgentConfig
 
 from band_wezterm.agent.adapters import build_adapter
 from band_wezterm.agent.spawn_cmd import tuning_from_cli
+from band_wezterm.backends import AgentTuning, TuningDimensionId
 from band_wezterm.config import (
     AGENT_API_KEY_ENV,
     AGENT_HARNESS_ENV,
@@ -34,6 +35,11 @@ from band_wezterm.identity import (
     parse_harness,
 )
 from band_wezterm.osc import OscKey, emit_many_to_stdout, emit_to_stdout
+
+AGENT_TAB_TITLE = "Band agent"
+AGENT_TAB_ONLINE = "Online — listening to Band rooms"
+AGENT_TAB_HINT = "Read and send messages in Control. Press Ctrl+C to stop this agent."
+DEFAULT_TUNING_VALUE = "automatic"
 
 
 def announce(agent_id: str, name: str, harness: str | None) -> None:
@@ -84,6 +90,29 @@ def _read_persona(persona_file: Path | None) -> str | None:
     return text or None
 
 
+def runtime_banner(
+    *, name: str, harness: str | None, tuning: AgentTuning, cwd: Path
+) -> str:
+    """Describe the live agent in its terminal pane."""
+    model = tuning.value_for(TuningDimensionId.MODEL) or DEFAULT_TUNING_VALUE
+    reasoning = tuning.value_for(TuningDimensionId.REASONING) or DEFAULT_TUNING_VALUE
+    runtime = harness or "unknown"
+    return "\n".join(
+        (
+            AGENT_TAB_TITLE,
+            f"  Agent: {name}",
+            f"  Runtime: {runtime}",
+            f"  Model: {model}",
+            f"  Reasoning: {reasoning}",
+            f"  Working directory: {cwd}",
+            "",
+            f"  Status: {AGENT_TAB_ONLINE}",
+            f"  {AGENT_TAB_HINT}",
+            "",
+        )
+    )
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="band_wezterm.agent")
     parser.add_argument("--agent-id", default=os.environ.get(AGENT_ID_ENV, ""))
@@ -127,8 +156,17 @@ async def run(args: argparse.Namespace) -> int:
             ws_url=settings.band_ws_url,
             config=config,
         )
-        emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.RUNNING.value)
         async with agent:
+            emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.RUNNING.value)
+            print(
+                runtime_banner(
+                    name=name,
+                    harness=harness,
+                    tuning=tuning,
+                    cwd=args.cwd,
+                ),
+                flush=True,
+            )
             await agent.run_forever()
     except Exception as error:
         failed = True
