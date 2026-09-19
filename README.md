@@ -13,16 +13,57 @@ permanent Control tab, with agent PTYs as visible Band-styled tabs.
 
 ## Setup
 
+Install [WezTerm](https://wezterm.org/) and [uv](https://github.com/astral-sh/uv), then:
+
 ```bash
-uv sync          # installs default-groups.dev from uv.lock
-# Point WezTerm at the Band Lua config (tab colors/status + focus):
-#   echo 'dofile("/absolute/path/to/band-wezterm/wezterm/band.wezterm.lua")' >> ~/.wezterm.lua
+# Host CLI from Git (no PyPI required)
+uv tool install git+https://github.com/band-ai/band-wezterm
+
+# Install/update Band plugin snippet in active WezTerm config (idempotent)
+band-wezterm setup
+
+# Open Control (or attach + raise if already running)
+band-wezterm
+```
+
+`setup` materializes the packaged `plugin/init.lua` into a tiny local git repo
+under `~/.band-wezterm/wezterm-plugin/` and writes a managed block into
+`~/.wezterm.lua` (or your existing XDG `wezterm.lua`) that loads it via
+`wezterm.plugin.require` + `file://` (WezTerm only accepts HTTPS/file git URLs;
+private GitHub HTTPS clones fail without credentials inside WezTerm).
+
+```lua
+local band = wezterm.plugin.require 'file:///…/.band-wezterm/wezterm-plugin'
+band.apply_to_config(config)
+```
+
+Override with `BAND_WEZTERM_PLUGIN_URL` (HTTPS or another `file://` checkout)
+when needed. Reload WezTerm config after setup (`Ctrl+Shift+R`). After Lua
+changes / re-setup, run `wezterm.plugin.update_all()` from the Debug Overlay
+so WezTerm re-syncs its plugin clone, then reload.
+
+Upgrade the host: `uv tool upgrade band-wezterm` (or reinstall from git).
+
+WezTerm runs only the first `format-tab-title` handler. `band-wezterm setup`
+injects the Band plugin right after `config_builder()` so Band registers early;
+keep other `format-tab-title` handlers after that block (or remove them).
+
+### Contributors (repo checkout)
+
+Repo-root `plugin/init.lua` is the SSOT (also force-included into the wheel).
+Edit that file, re-run `band-wezterm setup`, then `wezterm.plugin.update_all()`
++ reload. Or set `BAND_WEZTERM_PLUGIN_URL=file:///path/to/this/repo` to point
+WezTerm at the checkout directly (see [WezTerm plugins](https://wezterm.org/config/plugins.html)).
+
+```bash
+uv sync                       # installs default-groups.dev from uv.lock
+uv run band-wezterm setup      # or: just setup
 uv run band-wezterm            # open Control, or attach + raise if already running
 uv run band-wezterm --restart  # replace the Control window
 ```
 
-Or with [just](https://github.com/casey/just): `just sync`, `just start` / `just attach`,
-`just restart`, `just test` (`just --list` for all).
+Or with [just](https://github.com/casey/just): `just sync`, `just setup`,
+`just start` / `just attach`, `just restart`, `just test` (`just --list` for all).
 
 Re-running `band-wezterm` finds the existing Control tab, activates it, and
 raises WezTerm — it does not spawn a second Control. `--restart` kills that

@@ -82,7 +82,7 @@ def pane_command_env(
     return env
 
 
-def _wezterm_bin() -> str:
+def wezterm_bin() -> str:
     path = shutil.which("wezterm")
     if path is None:
         raise WezTermNotFoundError("wezterm not found on PATH")
@@ -91,7 +91,7 @@ def _wezterm_bin() -> str:
 
 def _run(args: list[str], *, env: Mapping[str, str] | None = None) -> str:
     completed = subprocess.run(
-        [_wezterm_bin(), *args],
+        [wezterm_bin(), *args],
         check=False,
         capture_output=True,
         text=True,
@@ -269,7 +269,7 @@ def find_focus_relay_pane() -> PaneInfo | None:
 
 
 def format_focus_sequence() -> str:
-    """OSC 1337 that ``band.wezterm.lua`` handles as SwitchToWorkspace + focus."""
+    """OSC 1337 that the Band WezTerm plugin handles as SwitchToWorkspace + focus."""
     encoded = base64.b64encode(_FOCUS_PAYLOAD.encode("utf-8")).decode("ascii")
     return f"{_OSC_PREFIX}{_FOCUS_USER_VAR}={encoded}{_OSC_SUFFIX}"
 
