@@ -31,6 +31,18 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.14"
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(uv version --short)"
+          if [[ "$TAG" != "v${VERSION}" ]]; then
+            echo "::error::Tag ${TAG} must match pyproject.toml version v${VERSION}."
+            exit 1
+          fi
       - run: uv sync --locked
       - name: PyInstaller
         shell: bash
