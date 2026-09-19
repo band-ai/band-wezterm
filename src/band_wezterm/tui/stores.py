@@ -39,6 +39,7 @@ class AgentFilter(StrEnum):
 
 
 class RoomFilter(StrEnum):
+    ALL = "all"
     STARRED = "starred"
 
 
@@ -70,7 +71,10 @@ AGENT_FILTER_LABELS: Final[dict[AgentFilter, str]] = {
     AgentFilter.OPENCODE: "OpenCode",
 }
 
-ROOM_FILTER_LABELS: Final[dict[RoomFilter, str]] = {RoomFilter.STARRED: "Starred"}
+ROOM_FILTER_LABELS: Final[dict[RoomFilter, str]] = {
+    RoomFilter.ALL: "All",
+    RoomFilter.STARRED: "Starred",
+}
 
 
 def _matches_search(haystack: str, needle: str) -> bool:
@@ -166,7 +170,7 @@ class RoomsStore:
 
     rooms: list[RoomRecord] = field(default_factory=list)
     search: str = ""
-    filters: frozenset[RoomFilter] = frozenset()
+    filter: RoomFilter = RoomFilter.ALL
     starred_ids: frozenset[str] = frozenset()
     selected_id: str | None = None
     draft_open: bool = False
@@ -183,12 +187,13 @@ class RoomsStore:
 
     @property
     def visible(self) -> list[RoomRecord]:
+        """Search plus at most one chip; ``All`` leaves starring as decoration only."""
         return [
             room
             for room in self.rooms
             if _matches_search(room.title, self.search)
             and (
-                RoomFilter.STARRED not in self.filters
+                self.filter is RoomFilter.ALL
                 or room.id in self.starred_ids
             )
         ]
@@ -207,8 +212,8 @@ class RoomsStore:
         self.rooms = [room, *self.rooms]
         self.selected_id = room.id
 
-    def toggle_filter(self, chip: RoomFilter) -> None:
-        self.filters = self.filters ^ {chip}
+    def select_filter(self, chip: RoomFilter) -> None:
+        self.filter = chip
 
     def is_starred(self, room_id: str) -> bool:
         return room_id in self.starred_ids

@@ -258,7 +258,12 @@ class RoomsScreen(ControlScreen):
         yield Header()
         with Horizontal(id=Id.TOOLBAR.value):
             yield Input(placeholder=SEARCH_PLACEHOLDER, id=Id.SEARCH.value)
-        yield FilterChips(ROOM_CHIPS, id=Id.FILTERS.value)
+        yield FilterChips(
+            ROOM_CHIPS,
+            exclusive=True,
+            selected=frozenset({RoomFilter.ALL.value}),
+            id=Id.FILTERS.value,
+        )
         yield ListView(id=Id.LIST.value)
         with Vertical(id=Id.DRAFT.value):
             yield Static(DRAFT_TITLE)
@@ -314,7 +319,8 @@ class RoomsScreen(ControlScreen):
         self.mutate_reactive(RoomsScreen.store)
 
     def on_filter_chips_changed(self, event: FilterChips.Changed) -> None:
-        self.store.filters = frozenset(RoomFilter(key) for key in event.selected)
+        key = next(iter(event.selected), RoomFilter.ALL.value)
+        self.store.select_filter(RoomFilter(key))
         self.mutate_reactive(RoomsScreen.store)
 
     # --- list interactions -------------------------------------------------
