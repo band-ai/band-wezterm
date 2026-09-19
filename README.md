@@ -30,6 +30,16 @@ raises WezTerm — it does not spawn a second Control. `--restart` kills that
 window first. Control opens in a normal (visible) WezTerm window; a separate
 `band` workspace is avoided because WezTerm has no CLI to switch workspaces.
 
+### Roles, models, and settings
+
+Register (`n` on Agents) is a multi-step wizard: **runtime → role → name →
+description → model/reasoning**. Roles live in `~/.band/roles` (same library as
+Band for VS Code; defaults are seeded on first use). Persona + tuning are stored
+in a local managed profile and applied when the agent pane starts.
+
+**Settings** (`Ctrl+,`): chat message limit, rooms page size, diagnostic toggles
+— persisted under `~/.band-wezterm/preferences.json`.
+
 ### Agent harnesses (Start agent)
 
 Register only creates the platform identity. **Start** spawns

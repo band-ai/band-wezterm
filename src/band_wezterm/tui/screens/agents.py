@@ -21,6 +21,7 @@ from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
 from band_wezterm.tui.screens import ControlScreen
+from band_wezterm.tui.screens.register_agent import RegisterAgentScreen
 from band_wezterm.tui.stores import (
     AGENT_FILTER_LABELS,
     AgentFilter,
@@ -317,9 +318,7 @@ class AgentsScreen(ControlScreen):
     # --- registration draft (transient overlay) ----------------------------
 
     def action_new_agent(self) -> None:
-        self.store.draft_open = True
-        self.mutate_reactive(AgentsScreen.store)
-        self.query_one(selector(Id.DRAFT_NAME), Input).focus()
+        self.app.push_screen(RegisterAgentScreen())
 
     def action_cancel(self) -> None:
         if self.store.draft_open:
@@ -411,7 +410,10 @@ class AgentsScreen(ControlScreen):
         key_file = write_api_key_file(api_key)
         pane_id: PaneId | None = None
         try:
-            command = agent_pane_command(agent, key_file=key_file, cwd=cwd)
+            profile = self.control.managed_agents.get(agent.id)
+            command = agent_pane_command(
+                agent, key_file=key_file, cwd=cwd, profile=profile
+            )
             pane_id = await asyncio.to_thread(
                 spawn_additional_tab, window_id, cwd, command
             )

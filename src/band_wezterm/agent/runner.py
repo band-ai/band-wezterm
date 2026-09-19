@@ -13,11 +13,15 @@ from band import Agent
 from band.runtime.types import AgentConfig
 
 from band_wezterm.agent.adapters import build_adapter
+from band_wezterm.agent.spawn_cmd import tuning_from_cli
 from band_wezterm.config import (
     AGENT_API_KEY_ENV,
     AGENT_HARNESS_ENV,
     AGENT_ID_ENV,
+    AGENT_MODEL_ENV,
     AGENT_NAME_ENV,
+    AGENT_PERSONA_FILE_ENV,
+    AGENT_REASONING_ENV,
     load_settings,
 )
 from band_wezterm.identity import (
@@ -64,12 +68,29 @@ def _read_api_key(key_file: Path | None) -> str:
     return env_key
 
 
+def _read_persona(persona_file: Path | None) -> str | None:
+    if persona_file is None:
+        env_path = os.environ.get(AGENT_PERSONA_FILE_ENV, "").strip()
+        persona_file = Path(env_path) if env_path else None
+    if persona_file is None:
+        return None
+    try:
+        text = persona_file.read_text(encoding="utf-8")
+    finally:
+        with contextlib.suppress(OSError):
+            persona_file.unlink(missing_ok=True)
+    return text or None
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="band_wezterm.agent")
     parser.add_argument("--agent-id", default=os.environ.get(AGENT_ID_ENV, ""))
     parser.add_argument("--harness", default=os.environ.get(AGENT_HARNESS_ENV, ""))
     parser.add_argument("--name", default=os.environ.get(AGENT_NAME_ENV, ""))
     parser.add_argument("--key-file", type=Path, default=None)
+    parser.add_argument("--persona-file", type=Path, default=None)
+    parser.add_argument("--model", default=os.environ.get(AGENT_MODEL_ENV, ""))
+    parser.add_argument("--reasoning", default=os.environ.get(AGENT_REASONING_ENV, ""))
     parser.add_argument("--cwd", type=Path, default=Path.cwd())
     return parser.parse_args(argv)
 
@@ -86,8 +107,15 @@ async def run(args: argparse.Namespace) -> int:
     failed = False
     try:
         api_key = _read_api_key(args.key_file)
+        persona = _read_persona(args.persona_file)
+        tuning = tuning_from_cli(
+            model=args.model.strip() or None,
+            reasoning=args.reasoning.strip() or None,
+        )
         settings = load_settings()
-        adapter = build_adapter(harness, cwd=args.cwd)
+        adapter = build_adapter(
+            harness, cwd=args.cwd, persona=persona, tuning=tuning
+        )
         config = AgentConfig(auto_subscribe_existing_rooms=True, single_instance=True)
         agent = Agent.create(
             adapter=adapter,

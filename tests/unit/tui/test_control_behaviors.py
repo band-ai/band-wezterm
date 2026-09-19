@@ -6,22 +6,21 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from textual.containers import Vertical
-from textual.widgets import Input, ListView
+from textual.widgets import ListView
 
 from band_wezterm.client import MessageRecord
 from band_wezterm.identity import HarnessId
 from band_wezterm.tui.control_app import ControlApp
 from band_wezterm.tui.screens.agents import (
     NO_MANAGED_KEY_MESSAGE,
-    OPEN_CLASS,
     AgentRow,
     AgentsScreen,
 )
 from band_wezterm.tui.screens.agents import Id as AgentId
 from band_wezterm.tui.screens.agents import selector as agent_selector
+from band_wezterm.tui.screens.register_agent import RegisterAgentScreen
 from band_wezterm.tui.screens.rooms import Id as RoomId
-from band_wezterm.tui.screens.rooms import IdentityRow, RoomDetailScreen, RoomsScreen
+from band_wezterm.tui.screens.rooms import IdentityRow, RoomDetailScreen
 from band_wezterm.tui.screens.rooms import selector as room_selector
 from band_wezterm.wezterm_cli import PaneId
 
@@ -68,29 +67,20 @@ async def test_chips_and_search_narrow_together(control_app: ControlApp) -> None
         assert listed_agents(control_app) == []
 
 
-async def test_switching_screens_discards_the_open_draft(
+async def test_register_opens_wizard_and_escape_returns(
     control_app: ControlApp,
 ) -> None:
-    """A half-typed registration must not survive a trip through Rooms."""
+    """Register pushes the multi-step wizard; Esc returns to Agents."""
     async with control_app.run_test() as pilot:
         await settle(pilot)
-        await pilot.press("n", *"half-typed")
+        await pilot.press("n")
         await settle(pilot)
-        assert control_app.agents_store.draft_open is True
+        assert isinstance(control_app.screen, RegisterAgentScreen)
 
-        await pilot.press("ctrl+o")
+        await pilot.press("escape")
         await settle(pilot)
-        assert isinstance(control_app.screen, RoomsScreen)
-        assert control_app.agents_store.draft_open is False
+        assert isinstance(control_app.screen, AgentsScreen)
 
-        await pilot.press("ctrl+a")
-        await settle(pilot)
-        draft = control_app.screen.query_one(agent_selector(AgentId.DRAFT), Vertical)
-        draft_name = control_app.screen.query_one(
-            agent_selector(AgentId.DRAFT_NAME), Input
-        )
-        assert draft.has_class(OPEN_CLASS) is False
-        assert draft_name.value == ""
 
 
 async def test_add_participant_only_adds(
@@ -165,7 +155,9 @@ async def test_opening_a_room_loads_message_history(
         assert isinstance(control_app.screen, RoomDetailScreen)
         assert [m.id for m in control_app.rooms_store.messages] == ["m1", "m2"]
 
-    band_client.list_messages.assert_awaited_once_with(ROOM_ID)
+    band_client.list_messages.assert_awaited_once_with(
+        ROOM_ID, limit=control_app.preferences.current.chat_messages_limit
+    )
 
 
 async def test_start_agent_spawns_agent_module_pane(

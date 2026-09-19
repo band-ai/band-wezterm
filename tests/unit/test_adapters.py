@@ -44,7 +44,7 @@ def test_build_adapter_rejects_missing_harness() -> None:
 
 
 def test_preflight_surfaces_import_hint(monkeypatch: pytest.MonkeyPatch) -> None:
-    def boom(_cwd: str | None = None) -> None:
+    def boom(*_args: object, **_kwargs: object) -> None:
         raise HarnessUnavailableError(
             "Harness claude_sdk requires `uv sync --extra claude_sdk` "
             "(or `--extra agents`; installs band-sdk[claude-sdk]). "

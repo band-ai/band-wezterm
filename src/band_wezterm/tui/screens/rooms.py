@@ -562,7 +562,10 @@ class RoomDetailScreen(ControlScreen):
     async def _load_messages(self) -> None:
         store = self.store
         try:
-            messages = await self.control.client.list_messages(self.room.id)
+            messages = await self.control.client.list_messages(
+                self.room.id,
+                limit=self.control.preferences.current.chat_messages_limit,
+            )
         except Exception as error:
             store.status = format_platform_error(error)
         else:

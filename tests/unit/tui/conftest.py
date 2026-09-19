@@ -17,6 +17,8 @@ from band_wezterm.client import AgentRecord, BandClient, ParticipantRecord, Room
 from band_wezterm.config import Settings
 from band_wezterm.identity import AvatarKind, HarnessId, agent_accent, parse_harness
 from band_wezterm.local_state import StarredRooms
+from band_wezterm.managed_profiles import ManagedAgentStore
+from band_wezterm.preferences import PreferencesStore
 from band_wezterm.room_color import room_accent
 from band_wezterm.tui.control_app import ControlApp
 
@@ -80,6 +82,8 @@ def control_app(
         host_auth=host_auth,
         client=band_client,
         starred=StarredRooms(tmp_path / "local_state.json"),
+        managed_agents=ManagedAgentStore(tmp_path / "managed_agents.json"),
+        preferences=PreferencesStore(tmp_path / "preferences.json"),
     )
 
 
