@@ -48,7 +48,8 @@ def agent_pane_command(
     cwd: Path,
     profile: ManagedAgentProfile | None = None,
 ) -> list[str]:
-    if agent.harness is None:
+    harness = profile.harness if profile is not None else agent.harness
+    if harness is None:
         raise ValueError("Agent has no harness — re-register with one.")
     command = [
         sys.executable,
@@ -57,7 +58,7 @@ def agent_pane_command(
         "--agent-id",
         agent.id,
         "--harness",
-        agent.harness.value,
+        harness.value,
         "--name",
         agent.name,
         "--key-file",

@@ -113,6 +113,14 @@ _COPILOT_MODELS: Final = (
     TuningOption(id="gemini-2.5-pro", label="Gemini 2.5 Pro"),
 )
 
+_COPILOT_REASONING: Final = (
+    _DEFAULT,
+    *(
+        TuningOption(id=effort, label=effort.capitalize())
+        for effort in ("low", "medium", "high")
+    ),
+)
+
 HARNESS_BACKENDS: Final[tuple[HarnessBackend, ...]] = (
     HarnessBackend(
         harness=HarnessId.CLAUDE_SDK,
@@ -160,6 +168,12 @@ HARNESS_BACKENDS: Final[tuple[HarnessBackend, ...]] = (
                 id=TuningDimensionId.MODEL,
                 label="Model",
                 options=_COPILOT_MODELS,
+                allow_custom=True,
+            ),
+            TuningDimension(
+                id=TuningDimensionId.REASONING,
+                label="Reasoning effort",
+                options=_COPILOT_REASONING,
                 allow_custom=True,
             ),
         ),

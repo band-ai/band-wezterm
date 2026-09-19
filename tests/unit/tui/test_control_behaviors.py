@@ -8,11 +8,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from textual.widgets import ListView
 
+from band_wezterm.backends import AgentTuning
 from band_wezterm.client import MessageRecord
 from band_wezterm.identity import HarnessId
+from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.tui.control_app import ControlApp
 from band_wezterm.tui.screens.agents import (
     NO_MANAGED_KEY_MESSAGE,
+    NO_MANAGED_PROFILE_MESSAGE,
     AgentRow,
     AgentsScreen,
 )
@@ -175,6 +178,14 @@ async def test_start_agent_spawns_agent_module_pane(
     band_client.list_my_agents.return_value = [target]
     band_client.managed_agent_api_key.return_value = "band_a_managed"
     control_app.window_id = 42
+    control_app.managed_agents.record(
+        ManagedAgentProfile(
+            agent_id=IDLE_AGENT_ID,
+            name="Beta",
+            harness=HarnessId.CODEX,
+            tuning=AgentTuning(model="o3", reasoning="high"),
+        )
+    )
 
     spawned: list[tuple[object, ...]] = []
 
@@ -217,6 +228,10 @@ async def test_start_agent_spawns_agent_module_pane(
     assert "-m" in command
     assert "band_wezterm.agent" in command
     assert "band_a_managed" not in " ".join(command)
+    assert "--model" in command
+    assert "o3" in command
+    assert "--reasoning" in command
+    assert "high" in command
 
 
 async def test_start_agent_requires_managed_key(
@@ -238,6 +253,27 @@ async def test_start_agent_requires_managed_key(
 
     spawn.assert_not_called()
     assert control_app.agents_store.status == NO_MANAGED_KEY_MESSAGE
+
+
+async def test_start_agent_requires_managed_profile(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+    band_client.managed_agent_api_key.return_value = "band_a_managed"
+    control_app.window_id = 42
+    spawn = MagicMock()
+    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawn)
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await settle(pilot)
+
+    spawn.assert_not_called()
+    assert control_app.agents_store.status == NO_MANAGED_PROFILE_MESSAGE
 
 
 async def test_sign_out_returns_to_sign_in(

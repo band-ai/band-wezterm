@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -12,6 +13,7 @@ from band_wezterm.agent.adapters import (
     build_adapter,
     preflight_harness,
 )
+from band_wezterm.backends import AgentTuning
 from band_wezterm.identity import HarnessId
 
 
@@ -54,3 +56,38 @@ def test_preflight_surfaces_import_hint(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr("band_wezterm.agent.adapters._claude", boom)
     with pytest.raises(HarnessUnavailableError, match="uv sync --extra claude_sdk"):
         preflight_harness(HarnessId.CLAUDE_SDK)
+
+
+
+def test_copilot_passes_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Host maps tuning.reasoning → CopilotSDKAdapterConfig.reasoning_effort."""
+    captured: dict[str, object] = {}
+
+    class FakeConfig:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    class FakeAdapter:
+        def __init__(self, config: object) -> None:
+            self.config = config
+
+    adapters_pkg = types.ModuleType("band.adapters")
+    adapters_pkg.CopilotSDKAdapter = FakeAdapter  # type: ignore[attr-defined]
+    copilot_mod = types.ModuleType("band.adapters.copilot_sdk")
+    copilot_mod.CopilotSDKAdapterConfig = FakeConfig  # type: ignore[attr-defined]
+    monkeypatch.setitem(__import__("sys").modules, "band.adapters", adapters_pkg)
+    monkeypatch.setitem(
+        __import__("sys").modules, "band.adapters.copilot_sdk", copilot_mod
+    )
+
+    adapter = build_adapter(
+        HarnessId.COPILOT_SDK,
+        persona="Be terse.",
+        tuning=AgentTuning(model="gpt-5.4", reasoning="high"),
+    )
+    assert isinstance(adapter, FakeAdapter)
+    assert captured == {
+        "model": "gpt-5.4",
+        "reasoning_effort": "high",
+        "custom_section": "Be terse.",
+    }

@@ -136,6 +136,9 @@ def _copilot(*, persona: str | None, tuning: AgentTuning) -> Any:
     model = tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         config_kwargs["model"] = model
+    effort = tuning.value_for(TuningDimensionId.REASONING)
+    if effort is not None:
+        config_kwargs["reasoning_effort"] = effort
     if persona:
         config_kwargs["custom_section"] = persona
     return CopilotSDKAdapter(CopilotSDKAdapterConfig(**config_kwargs))

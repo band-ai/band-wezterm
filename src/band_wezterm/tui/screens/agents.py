@@ -448,8 +448,14 @@ class AgentsScreen(ControlScreen):
         if not api_key:
             self._set_status(NO_MANAGED_KEY_MESSAGE)
             return
+        profile = self.control.managed_agents.get(agent.id)
+        if profile is None:
+            self._set_status(NO_MANAGED_PROFILE_MESSAGE)
+            return
+        # Local profile is the launch source of truth (platform has no harness).
+        launch = agent.model_copy(update={"harness": profile.harness})
         try:
-            await asyncio.to_thread(preflight_harness, agent.harness)
+            await asyncio.to_thread(preflight_harness, launch.harness)
         except HarnessUnavailableError as error:
             self._set_status(str(error))
             return
@@ -460,9 +466,8 @@ class AgentsScreen(ControlScreen):
         key_file = write_api_key_file(api_key)
         pane_id: PaneId | None = None
         try:
-            profile = self.control.managed_agents.get(agent.id)
             command = agent_pane_command(
-                agent, key_file=key_file, cwd=cwd, profile=profile
+                launch, key_file=key_file, cwd=cwd, profile=profile
             )
             pane_id = await asyncio.to_thread(
                 spawn_additional_tab, window_id, cwd, command
@@ -476,9 +481,8 @@ class AgentsScreen(ControlScreen):
             self._set_status(format_platform_error(error))
             return
         store.mark_running(agent.id, pane_id)
-        harness = agent.harness.value if agent.harness is not None else "unknown"
         store.status = (
-            f"Started {agent.name} ({harness}) in pane {pane_id.root}."
+            f"Started {agent.name} ({profile.harness.value}) in pane {pane_id.root}."
         )
         self.mutate_reactive(AgentsScreen.store)
 

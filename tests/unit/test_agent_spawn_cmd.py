@@ -72,3 +72,22 @@ def test_agent_pane_command_includes_persona_and_tuning(tmp_path: Path) -> None:
     assert "--reasoning" in argv
     assert "off" in argv
     assert "band_a_secret" not in " ".join(argv)
+
+
+def test_agent_pane_command_prefers_profile_harness(tmp_path: Path) -> None:
+    agent = AgentRecord(
+        id="agent-9",
+        name="Omega",
+        kind=AvatarKind.AGENT,
+        color=agent_accent("agent-9"),
+        harness=HarnessId.CLAUDE_SDK,
+    )
+    key_file = tmp_path / "key"
+    key_file.write_text("band_a_secret", encoding="utf-8")
+    profile = ManagedAgentProfile(
+        agent_id=agent.id,
+        name=agent.name,
+        harness=HarnessId.CODEX,
+    )
+    argv = agent_pane_command(agent, key_file=key_file, cwd=tmp_path, profile=profile)
+    assert argv[argv.index("--harness") + 1] == "codex"

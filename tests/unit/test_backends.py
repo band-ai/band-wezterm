@@ -34,3 +34,10 @@ def test_tuning_value_for_and_describe() -> None:
         == "Sonnet"
     )
     assert AgentTuning().value_for(TuningDimensionId.MODEL) is None
+
+
+def test_copilot_exposes_reasoning_effort() -> None:
+    backend = resolve_backend(HarnessId.COPILOT_SDK)
+    ids = {dimension.id for dimension in backend.tuning}
+    assert TuningDimensionId.MODEL in ids
+    assert TuningDimensionId.REASONING in ids
