@@ -30,6 +30,7 @@ from band_wezterm.wezterm_cli import (
     WezTermCliError,
     WindowId,
     kill_pane,
+    set_tab_title,
     window_id_for_pane,
 )
 
@@ -58,15 +59,34 @@ def mark_control_process() -> None:
     os.environ[CONTROL_PROCESS_ENV] = CONTROL_PROCESS_FLAG
 
 
-def current_window_id() -> WindowId | None:
-    """Resolve the band window from the pane this process was spawned into."""
+def current_pane_id() -> PaneId | None:
     pane = os.environ.get(WEZTERM_PANE_ENV)
     if not pane:
         return None
     try:
-        return window_id_for_pane(PaneId(int(pane)))
+        return PaneId(int(pane))
+    except ValueError:
+        return None
+
+
+def current_window_id() -> WindowId | None:
+    """Resolve the band window from the pane this process was spawned into."""
+    pane_id = current_pane_id()
+    if pane_id is None:
+        return None
+    try:
+        return window_id_for_pane(pane_id)
     except Exception:
         return None
+
+
+def name_control_tab() -> None:
+    """Replace the process title (e.g. python3.14) with ``Control``."""
+    pane_id = current_pane_id()
+    if pane_id is None:
+        return
+    with suppress(WezTermCliError, OSError):
+        set_tab_title(pane_id, CONTROL_TAB_TITLE)
 
 
 class ControlApp(App[None]):
@@ -105,6 +125,7 @@ class ControlApp(App[None]):
         self.rooms_store = RoomsStore()
 
     def on_mount(self) -> None:
+        name_control_tab()
         if self.host_auth.has_stored_tokens():
             self.run_worker(self.enter_workspace(), group="workspace")
             return

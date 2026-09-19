@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from band_wezterm.wezterm_cli import (
+    PaneId,
     WindowId,
     additional_spawn_args,
     first_spawn_args,
+    set_tab_title_args,
 )
 
 
@@ -30,3 +32,8 @@ def test_additional_spawn_uses_window_id_only() -> None:
     assert "--workspace" not in args
     assert "--new-window" not in args
     assert args[args.index("--") + 1 :] == command
+
+
+def test_set_tab_title_targets_pane() -> None:
+    args = set_tab_title_args(PaneId(42), "Control")
+    assert args == ["cli", "set-tab-title", "--pane-id", "42", "Control"]

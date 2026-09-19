@@ -119,6 +119,19 @@ def kill_pane(pane_id: PaneId) -> None:
     _run(["cli", "kill-pane", "--pane-id", str(pane_id.root)])
 
 
+def set_tab_title(pane_id: PaneId, title: str) -> None:
+    """Name the tab that owns ``pane_id`` (visible in the tab bar)."""
+    _run(
+        [
+            "cli",
+            "set-tab-title",
+            "--pane-id",
+            str(pane_id.root),
+            title,
+        ]
+    )
+
+
 def send_text(pane_id: PaneId, text: str) -> None:
     _run(
         [
@@ -185,4 +198,15 @@ def additional_spawn_args(
         str(cwd),
         "--",
         *command,
+    ]
+
+
+def set_tab_title_args(pane_id: PaneId, title: str) -> list[str]:
+    """Pure argument builder for unit tests (no subprocess)."""
+    return [
+        "cli",
+        "set-tab-title",
+        "--pane-id",
+        str(pane_id.root),
+        title,
     ]

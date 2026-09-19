@@ -6,8 +6,9 @@ import sys
 from pathlib import Path
 from typing import Final
 
+from band_wezterm.config import CONTROL_TAB_TITLE
 from band_wezterm.tui.control_app import is_control_process, run_control_app
-from band_wezterm.wezterm_cli import spawn_first_tab
+from band_wezterm.wezterm_cli import set_tab_title, spawn_first_tab
 
 CONTROL_MODULE: Final = "band_wezterm.tui"
 
@@ -18,6 +19,7 @@ def main() -> int:
     spawned = spawn_first_tab(
         Path.cwd(), [sys.executable, "-m", CONTROL_MODULE]
     )
+    set_tab_title(spawned.pane_id, CONTROL_TAB_TITLE)
     print(
         f"Control tab open in window {spawned.window_id.root} "
         f"(pane {spawned.pane_id.root})."

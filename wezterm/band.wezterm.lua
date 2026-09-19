@@ -53,10 +53,18 @@ end
 wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_width)
   local pane = tab.active_pane
   local state = pane_state[pane.pane_id] or {}
+  local tab_title = tab.tab_title
+  -- Explicit mux title wins for the Control host (Textual's process title is useless).
+  if tab_title ~= nil and tab_title ~= "" and tab_title == "Control" then
+    return { { Text = " ◆ Control " } }
+  end
+
+  local name = state["band.agent.name"]
   local initials = state["band.agent.initials"]
-  if initials == nil then
-    -- Control tab / plain shell — no Band agent chrome.
-    local title = pane.title or "shell"
+  if name == nil and initials == nil then
+    local title = (tab_title ~= nil and tab_title ~= "" and tab_title)
+      or pane.title
+      or "shell"
     if title:find("band_wezterm") or title:find("Control") then
       return { { Text = " ◆ Control " } }
     end
@@ -66,8 +74,6 @@ wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_wid
   local color = state["band.agent.color"] or "#444444"
   local kind = state["band.agent.kind"] or "agent"
   local glyph = (kind == "human") and "●" or "■"
-  local harness = state["band.agent.harness"]
-  local harness_bit = harness and (" " .. harness) or ""
   local status = state["band.agent.status"]
   local runtime = state["band.agent.runtime"]
   local presence = "·"
@@ -79,10 +85,13 @@ wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_wid
     presence = "○"
   end
 
+  -- Full agent name (truncated); harness stays on the Agents list, not the tab.
+  local label = wezterm.truncate_right(name or initials or "?", math.max(4, (max_width or 20) - 6))
+
   local elements = {
     { Background = { Color = color } },
     { Foreground = { Color = "#ffffff" } },
-    { Text = string.format(" %s %s%s %s ", glyph, initials, harness_bit, presence) },
+    { Text = string.format(" %s %s %s ", glyph, label, presence) },
     "ResetAttributes",
   }
 

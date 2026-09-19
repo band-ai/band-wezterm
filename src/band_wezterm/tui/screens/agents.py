@@ -38,6 +38,7 @@ from band_wezterm.wezterm_cli import (
     WezTermCliError,
     kill_pane,
     list_panes,
+    set_tab_title,
     spawn_additional_tab,
 )
 
@@ -118,6 +119,7 @@ def announce_agent(pane_id: PaneId, agent: AgentRecord) -> None:
     if badge is not None:
         fields[OscKey.AGENT_HARNESS] = badge.value
     emit_many(pane_id, fields)
+    set_tab_title(pane_id, agent.name)
 
 
 class AgentRow(ListItem):
