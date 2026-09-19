@@ -40,7 +40,15 @@ later: run `wezterm.plugin.update_all()` from the Debug Overlay, then reload.
 
 Upgrade the host: `uv tool upgrade band-wezterm` (or reinstall from git).
 
+WezTerm runs only the first `format-tab-title` handler. `band-wezterm setup`
+injects the Band plugin right after `config_builder()` so Band registers early;
+keep other `format-tab-title` handlers after that block (or remove them).
+
 ### Contributors (repo checkout)
+
+For local Lua edits, point WezTerm at a `file://` plugin URL instead of GitHub
+(see [WezTerm plugins](https://wezterm.org/config/plugins.html)), then run
+`wezterm.plugin.update_all()` after changes.
 
 ```bash
 uv sync                       # installs default-groups.dev from uv.lock

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -14,6 +15,10 @@ from band_wezterm.wezterm_cli import wezterm_bin
 WEZTERM_PLUGIN_URL: Final = "https://github.com/band-ai/band-wezterm"
 MANAGED_BEGIN: Final = "-- BEGIN BAND-WEZTERM MANAGED"
 MANAGED_END: Final = "-- END BAND-WEZTERM MANAGED"
+HOME_CONFIG_NAME: Final = ".wezterm.lua"
+DEFAULT_CONFIG_DIRNAME: Final = ".config"
+XDG_WEZTERM_RELATIVE: Final = Path("wezterm") / "wezterm.lua"
+WEZTERM_CONFIG_FILE_ENV: Final = "WEZTERM_CONFIG_FILE"
 
 _MANAGED_BLOCK: Final = f"""{MANAGED_BEGIN}
 do
@@ -30,13 +35,29 @@ local config = wezterm.config_builder()
 return config
 """
 
-_RETURN_CONFIG_RE: Final = re.compile(
-    r"^([ \t]*)return[ \t]+config\b",
+_RETURN_LINE_RE: Final = re.compile(
+    r"^([ \t]*)return\b.*$",
     re.MULTILINE,
 )
 _MANAGED_BLOCK_RE: Final = re.compile(
-    re.escape(MANAGED_BEGIN) + r".*?" + re.escape(MANAGED_END) + r"\n?",
-    re.DOTALL,
+    r"^[ \t]*"
+    + re.escape(MANAGED_BEGIN)
+    + r".*?"
+    + re.escape(MANAGED_END)
+    + r"[ \t]*\n?",
+    re.DOTALL | re.MULTILINE,
+)
+_ORPHAN_BEGIN_RE: Final = re.compile(
+    r"^[ \t]*" + re.escape(MANAGED_BEGIN) + r".*$",
+    re.MULTILINE,
+)
+_LEGACY_DOFILE_RE: Final = re.compile(
+    r"^[ \t]*dofile\s*\([^\n]*band\.wezterm\.lua[^\n]*\)[ \t]*\n?",
+    re.MULTILINE,
+)
+_CONFIG_BUILDER_RE: Final = re.compile(
+    r"^([ \t]*local[ \t]+config[ \t]*=[ \t]*wezterm\.config_builder\s*\(\s*\)[ \t]*\n)",
+    re.MULTILINE,
 )
 
 
@@ -53,12 +74,20 @@ class SetupResult:
 
 
 def resolve_wezterm_config_path(*, home: Path | None = None) -> Path:
-    """Prefer an existing WezTerm config; otherwise use ``~/.wezterm.lua``."""
+    """Prefer WezTerm's own config resolution order, else ``~/.wezterm.lua``."""
+    env_path = os.environ.get(WEZTERM_CONFIG_FILE_ENV, "").strip()
+    if env_path:
+        return Path(env_path).expanduser()
+
     home_dir = home if home is not None else Path.home()
-    xdg_config = Path(os.environ["XDG_CONFIG_HOME"]) if "XDG_CONFIG_HOME" in os.environ else home_dir / ".config"
+    xdg_config = (
+        Path(os.environ["XDG_CONFIG_HOME"])
+        if "XDG_CONFIG_HOME" in os.environ
+        else home_dir / DEFAULT_CONFIG_DIRNAME
+    )
     candidates = (
-        home_dir / ".wezterm.lua",
-        xdg_config / "wezterm" / "wezterm.lua",
+        home_dir / HOME_CONFIG_NAME,
+        xdg_config / XDG_WEZTERM_RELATIVE,
     )
     for path in candidates:
         if path.is_file():
@@ -72,32 +101,86 @@ def ensure_band_plugin_config(*, home: Path | None = None) -> SetupResult:
 
     path = resolve_wezterm_config_path(home=home)
     if not path.is_file():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_FRESH_CONFIG, encoding="utf-8")
-        return SetupResult(path=path, action=SetupAction.CREATED)
+        return _create_fresh_config(path)
 
     current = path.read_text(encoding="utf-8")
     updated = _upsert_managed_block(current)
     if updated == current:
         return SetupResult(path=path, action=SetupAction.UNCHANGED)
 
-    path.write_text(updated, encoding="utf-8")
+    _atomic_write(path, updated)
     return SetupResult(path=path, action=SetupAction.UPDATED)
 
 
-def _upsert_managed_block(source: str) -> str:
-    replaced, count = _MANAGED_BLOCK_RE.subn(_MANAGED_BLOCK, source, count=1)
-    if count:
-        return replaced
+def _create_fresh_config(path: Path) -> SetupResult:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(_FRESH_CONFIG)
+    except FileExistsError:
+        current = path.read_text(encoding="utf-8")
+        updated = _upsert_managed_block(current)
+        if updated == current:
+            return SetupResult(path=path, action=SetupAction.UNCHANGED)
+        _atomic_write(path, updated)
+        return SetupResult(path=path, action=SetupAction.UPDATED)
+    return SetupResult(path=path, action=SetupAction.CREATED)
 
-    match = _RETURN_CONFIG_RE.search(source)
-    if match is not None:
-        indent = match.group(1)
-        block = "".join(
-            f"{indent}{line}" if line.strip() else line
-            for line in _MANAGED_BLOCK.splitlines(keepends=True)
-        )
-        return source[: match.start()] + block + source[match.start() :]
+
+def _atomic_write(path: Path, content: str) -> None:
+    directory = path.parent
+    directory.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=directory)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(tmp_path, path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def _upsert_managed_block(source: str) -> str:
+    cleaned = _LEGACY_DOFILE_RE.sub("", source)
+    cleaned = _strip_managed_regions(cleaned)
+    return _insert_managed_block(cleaned)
+
+
+def _strip_managed_regions(source: str) -> str:
+    stripped, count = _MANAGED_BLOCK_RE.subn("", source, count=0)
+    if count:
+        return stripped
+    orphan = _ORPHAN_BEGIN_RE.search(source)
+    if orphan is None:
+        return source
+    # Drop from orphan BEGIN through the next END, return, or EOF.
+    start = orphan.start()
+    end_match = re.search(re.escape(MANAGED_END), source[orphan.end() :])
+    if end_match is not None:
+        stop = orphan.end() + end_match.end()
+        if stop < len(source) and source[stop] == "\n":
+            stop += 1
+        return source[:start] + source[stop:]
+    return_match = _RETURN_LINE_RE.search(source, orphan.end())
+    if return_match is not None:
+        return source[:start] + source[return_match.start() :]
+    return source[:start]
+
+
+def _insert_managed_block(source: str) -> str:
+    builder = _CONFIG_BUILDER_RE.search(source)
+    if builder is not None:
+        rest = source[builder.end() :].lstrip("\n")
+        return f"{source[: builder.end()]}\n{_MANAGED_BLOCK}\n{rest}"
+
+    returns = list(_RETURN_LINE_RE.finditer(source))
+    if returns:
+        match = returns[-1]
+        prefix = source[: match.start()].rstrip("\n")
+        return f"{prefix}\n{_MANAGED_BLOCK}\n{source[match.start() :]}"
 
     separator = "" if source.endswith("\n") or source == "" else "\n"
     return f"{source}{separator}\n{_MANAGED_BLOCK}"
+
+

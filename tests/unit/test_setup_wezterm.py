@@ -7,9 +7,12 @@ from pathlib import Path
 import pytest
 
 from band_wezterm.setup_wezterm import (
+    HOME_CONFIG_NAME,
     MANAGED_BEGIN,
     MANAGED_END,
+    WEZTERM_CONFIG_FILE_ENV,
     WEZTERM_PLUGIN_URL,
+    XDG_WEZTERM_RELATIVE,
     SetupAction,
     ensure_band_plugin_config,
     resolve_wezterm_config_path,
@@ -25,12 +28,11 @@ def _stub_wezterm_bin(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-
 def test_resolve_prefers_existing_home_dotfile(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
-    dot = home / ".wezterm.lua"
-    xdg = home / ".config" / "wezterm" / "wezterm.lua"
+    dot = home / HOME_CONFIG_NAME
+    xdg = home / ".config" / XDG_WEZTERM_RELATIVE
     xdg.parent.mkdir(parents=True)
     dot.write_text("-- home\n", encoding="utf-8")
     xdg.write_text("-- xdg\n", encoding="utf-8")
@@ -39,16 +41,40 @@ def test_resolve_prefers_existing_home_dotfile(tmp_path: Path) -> None:
 
 def test_resolve_falls_back_to_xdg(tmp_path: Path) -> None:
     home = tmp_path / "home"
-    xdg = home / ".config" / "wezterm" / "wezterm.lua"
+    xdg = home / ".config" / XDG_WEZTERM_RELATIVE
     xdg.parent.mkdir(parents=True)
     xdg.write_text("-- xdg\n", encoding="utf-8")
     assert resolve_wezterm_config_path(home=home) == xdg
 
 
+def test_resolve_honors_xdg_config_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    xdg_root = tmp_path / "xdg"
+    target = xdg_root / XDG_WEZTERM_RELATIVE
+    target.parent.mkdir(parents=True)
+    target.write_text("-- xdg home\n", encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_root))
+    assert resolve_wezterm_config_path(home=home) == target
+
+
+def test_resolve_honors_wezterm_config_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    custom = tmp_path / "custom.lua"
+    custom.write_text("-- custom\n", encoding="utf-8")
+    monkeypatch.setenv(WEZTERM_CONFIG_FILE_ENV, str(custom))
+    assert resolve_wezterm_config_path(home=home) == custom
+
+
 def test_resolve_defaults_to_home_dotfile_when_missing(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
-    assert resolve_wezterm_config_path(home=home) == home / ".wezterm.lua"
+    assert resolve_wezterm_config_path(home=home) == home / HOME_CONFIG_NAME
 
 
 def test_ensure_creates_fresh_config(tmp_path: Path) -> None:
@@ -56,7 +82,7 @@ def test_ensure_creates_fresh_config(tmp_path: Path) -> None:
     home.mkdir()
     result = ensure_band_plugin_config(home=home)
     assert result.action is SetupAction.CREATED
-    assert result.path == home / ".wezterm.lua"
+    assert result.path == home / HOME_CONFIG_NAME
     text = result.path.read_text(encoding="utf-8")
     assert MANAGED_BEGIN in text
     assert MANAGED_END in text
@@ -65,10 +91,10 @@ def test_ensure_creates_fresh_config(tmp_path: Path) -> None:
     assert text.strip().endswith("return config")
 
 
-def test_ensure_injects_before_return_config(tmp_path: Path) -> None:
+def test_ensure_injects_after_config_builder(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
-    path = home / ".wezterm.lua"
+    path = home / HOME_CONFIG_NAME
     path.write_text(
         "local wezterm = require 'wezterm'\n"
         "local config = wezterm.config_builder()\n"
@@ -80,7 +106,8 @@ def test_ensure_injects_before_return_config(tmp_path: Path) -> None:
     assert result.action is SetupAction.UPDATED
     text = path.read_text(encoding="utf-8")
     assert "config.font_size = 14" in text
-    assert text.index(MANAGED_BEGIN) < text.index("return config")
+    assert text.index("config_builder()") < text.index(MANAGED_BEGIN)
+    assert text.index(MANAGED_BEGIN) < text.index("config.font_size")
     assert text.count(MANAGED_BEGIN) == 1
 
 
@@ -95,10 +122,61 @@ def test_ensure_is_idempotent(tmp_path: Path) -> None:
     assert text.count(MANAGED_BEGIN) == 1
 
 
+def test_ensure_idempotent_after_indented_return(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "local wezterm = require 'wezterm'\n"
+        "local config = wezterm.config_builder()\n"
+        "\treturn config\n",
+        encoding="utf-8",
+    )
+    first = ensure_band_plugin_config(home=home)
+    second = ensure_band_plugin_config(home=home)
+    assert first.action is SetupAction.UPDATED
+    assert second.action is SetupAction.UNCHANGED
+    assert path.read_text(encoding="utf-8").count(MANAGED_BEGIN) == 1
+
+
+def test_ensure_uses_last_return_not_nested(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "local wezterm = require 'wezterm'\n"
+        "local function unused()\n"
+        "  return config\n"
+        "end\n"
+        "config.font_size = 14\n"
+        "return {}\n",
+        encoding="utf-8",
+    )
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert text.index(MANAGED_BEGIN) > text.index("config.font_size")
+    assert text.index(MANAGED_BEGIN) < text.rindex("return {}")
+
+
+def test_ensure_injects_before_return_empty_table(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "local wezterm = require 'wezterm'\nreturn {}\n",
+        encoding="utf-8",
+    )
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert text.index(MANAGED_BEGIN) < text.index("return {}")
+
+
 def test_ensure_updates_stale_managed_block(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
-    path = home / ".wezterm.lua"
+    path = home / HOME_CONFIG_NAME
     path.write_text(
         "local wezterm = require 'wezterm'\n"
         "local config = wezterm.config_builder()\n"
@@ -114,6 +192,44 @@ def test_ensure_updates_stale_managed_block(tmp_path: Path) -> None:
     assert WEZTERM_PLUGIN_URL in text
     assert "-- stale" not in text
     assert text.count(MANAGED_BEGIN) == 1
+
+
+def test_ensure_repairs_orphan_begin(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "local wezterm = require 'wezterm'\n"
+        "local config = wezterm.config_builder()\n"
+        f"{MANAGED_BEGIN}\n"
+        "-- broken\n"
+        "return config\n",
+        encoding="utf-8",
+    )
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert text.count(MANAGED_BEGIN) == 1
+    assert MANAGED_END in text
+    assert "-- broken" not in text
+
+
+def test_ensure_strips_legacy_dofile(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = home / HOME_CONFIG_NAME
+    path.write_text(
+        "local wezterm = require 'wezterm'\n"
+        "local config = wezterm.config_builder()\n"
+        'dofile("/repo/wezterm/band.wezterm.lua")\n'
+        "return config\n",
+        encoding="utf-8",
+    )
+    result = ensure_band_plugin_config(home=home)
+    assert result.action is SetupAction.UPDATED
+    text = path.read_text(encoding="utf-8")
+    assert "band.wezterm.lua" not in text
+    assert MANAGED_BEGIN in text
 
 
 def test_ensure_requires_wezterm_on_path(
