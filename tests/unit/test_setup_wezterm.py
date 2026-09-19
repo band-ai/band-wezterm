@@ -7,10 +7,14 @@ from pathlib import Path
 
 import pytest
 
+from band_wezterm.config import LOCAL_STATE_DIRNAME
 from band_wezterm.setup_wezterm import (
+    BAND_WEZTERM_PLUGIN_URL_ENV,
     HOME_CONFIG_NAME,
     MANAGED_BEGIN,
     MANAGED_END,
+    PLUGIN_INIT_NAME,
+    PLUGIN_REPO_DIRNAME,
     WEZTERM_CONFIG_FILE_ENV,
     WEZTERM_PLUGIN_URL,
     XDG_CONFIG_HOME_ENV,
@@ -18,6 +22,8 @@ from band_wezterm.setup_wezterm import (
     SetupAction,
     SetupConfigError,
     ensure_band_plugin_config,
+    materialize_plugin_repo,
+    resolve_plugin_require_url,
     resolve_wezterm_config_path,
 )
 from band_wezterm.wezterm_cli import WezTermNotFoundError
@@ -29,6 +35,8 @@ def _stub_wezterm_bin(monkeypatch: pytest.MonkeyPatch) -> None:
         "band_wezterm.setup_wezterm.wezterm_bin",
         lambda: "/usr/bin/wezterm",
     )
+    monkeypatch.delenv(BAND_WEZTERM_PLUGIN_URL_ENV, raising=False)
+    monkeypatch.delenv(WEZTERM_CONFIG_FILE_ENV, raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -132,8 +140,11 @@ def test_ensure_creates_fresh_config(tmp_path: Path) -> None:
     text = result.path.read_text(encoding="utf-8")
     assert MANAGED_BEGIN in text
     assert MANAGED_END in text
-    assert WEZTERM_PLUGIN_URL in text
+    assert "wezterm.plugin.require 'file://" in text
     assert "wezterm.config_builder()" in text
+    plugin_repo = home / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME
+    assert (plugin_repo / "plugin" / PLUGIN_INIT_NAME).is_file()
+    assert (plugin_repo / ".git").is_dir()
     block = text[text.index(MANAGED_BEGIN) : text.index(MANAGED_END)]
     assert "local wezterm = require 'wezterm'" in block
     assert "wezterm.plugin.require" in block
@@ -260,7 +271,7 @@ def test_ensure_updates_stale_managed_block(tmp_path: Path) -> None:
     result = ensure_band_plugin_config(home=home)
     assert result.action is SetupAction.UPDATED
     text = path.read_text(encoding="utf-8")
-    assert WEZTERM_PLUGIN_URL in text
+    assert "wezterm.plugin.require 'file://" in text
     assert "-- stale" not in text
     assert text.count(MANAGED_BEGIN) == 1
 
@@ -632,3 +643,22 @@ def test_ensure_rejects_broken_symlink(tmp_path: Path) -> None:
         ensure_band_plugin_config(home=home)
     assert link.is_symlink()
     assert not link.exists()
+
+
+def test_resolve_plugin_url_honors_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(BAND_WEZTERM_PLUGIN_URL_ENV, WEZTERM_PLUGIN_URL)
+    assert resolve_plugin_require_url(home=tmp_path / "home") == WEZTERM_PLUGIN_URL
+
+
+def test_materialize_plugin_repo_is_idempotent(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    first = materialize_plugin_repo(home=home)
+    second = materialize_plugin_repo(home=home)
+    assert first == second
+    assert (first / "plugin" / PLUGIN_INIT_NAME).read_text(encoding="utf-8")
+    assert "apply_to_config" in (first / "plugin" / PLUGIN_INIT_NAME).read_text(
+        encoding="utf-8"
+    )

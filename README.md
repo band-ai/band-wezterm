@@ -27,16 +27,21 @@ band-wezterm setup
 band-wezterm
 ```
 
-`setup` writes a managed block into `~/.wezterm.lua` (or your existing XDG
-`wezterm.lua`) that loads:
+`setup` materializes the packaged `plugin/init.lua` into a tiny local git repo
+under `~/.band-wezterm/wezterm-plugin/` and writes a managed block into
+`~/.wezterm.lua` (or your existing XDG `wezterm.lua`) that loads it via
+`wezterm.plugin.require` + `file://` (WezTerm only accepts HTTPS/file git URLs;
+private GitHub HTTPS clones fail without credentials inside WezTerm).
 
 ```lua
-local band = wezterm.plugin.require 'https://github.com/band-ai/band-wezterm'
+local band = wezterm.plugin.require 'file:///…/.band-wezterm/wezterm-plugin'
 band.apply_to_config(config)
 ```
 
-Reload WezTerm config after setup (`Ctrl+Shift+R`). To refresh the Lua plugin
-later: run `wezterm.plugin.update_all()` from the Debug Overlay, then reload.
+Override with `BAND_WEZTERM_PLUGIN_URL` (HTTPS or another `file://` checkout)
+when needed. Reload WezTerm config after setup (`Ctrl+Shift+R`). After Lua
+changes / re-setup, run `wezterm.plugin.update_all()` from the Debug Overlay
+so WezTerm re-syncs its plugin clone, then reload.
 
 Upgrade the host: `uv tool upgrade band-wezterm` (or reinstall from git).
 
@@ -46,9 +51,10 @@ keep other `format-tab-title` handlers after that block (or remove them).
 
 ### Contributors (repo checkout)
 
-For local Lua edits, point WezTerm at a `file://` plugin URL instead of GitHub
-(see [WezTerm plugins](https://wezterm.org/config/plugins.html)), then run
-`wezterm.plugin.update_all()` after changes.
+Repo-root `plugin/init.lua` is the SSOT (also force-included into the wheel).
+Edit that file, re-run `band-wezterm setup`, then `wezterm.plugin.update_all()`
++ reload. Or set `BAND_WEZTERM_PLUGIN_URL=file:///path/to/this/repo` to point
+WezTerm at the checkout directly (see [WezTerm plugins](https://wezterm.org/config/plugins.html)).
 
 ```bash
 uv sync                       # installs default-groups.dev from uv.lock

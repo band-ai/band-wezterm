@@ -40,6 +40,11 @@ band-wezterm = "band_wezterm.__main__:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/band_wezterm"]
 
+# Repo-root plugin/init.lua is the WezTerm plugin SSOT; ship a copy in the wheel
+# so setup can materialize a local file:// plugin without GitHub HTTPS auth.
+[tool.hatch.build.targets.wheel.force-include]
+"plugin/init.lua" = "band_wezterm/wezterm_plugin/init.lua"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
