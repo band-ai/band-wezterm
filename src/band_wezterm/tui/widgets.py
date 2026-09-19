@@ -138,7 +138,11 @@ class Chip:
 
 
 class FilterChips(Widget):
-    """Multi-select chips; selections combine with AND on top of the search."""
+    """Chip row for catalog filters.
+
+    Default is multi-select (AND). Pass ``exclusive=True`` for radio behaviour
+    (exactly one chip selected — used by the Agents screen with an All chip).
+    """
 
     DEFAULT_CSS = """
     FilterChips {
@@ -178,11 +182,16 @@ class FilterChips(Widget):
         self,
         chips: Sequence[Chip],
         *,
+        exclusive: bool = False,
+        selected: frozenset[str] | None = None,
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
         super().__init__(id=id, classes=classes)
         self._chips = tuple(chips)
+        self._exclusive = exclusive
+        if selected is not None:
+            self.selected = frozenset(selected)
 
     def render(self) -> Text:
         text = Text()
@@ -209,5 +218,10 @@ class FilterChips(Widget):
         if not self._chips:
             return
         key = self._chips[self.cursor].key
-        self.selected = self.selected ^ {key}
+        if self._exclusive:
+            if self.selected == frozenset({key}):
+                return
+            self.selected = frozenset({key})
+        else:
+            self.selected = self.selected ^ {key}
         self.post_message(self.Changed(self, self.selected))

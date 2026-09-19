@@ -63,7 +63,7 @@ SOURCE_LABELS: Final[dict[AgentSource, str]] = {
     AgentSource.MINE: "My agents",
     AgentSource.DIRECTORY: "Discover · public directory",
 }
-EMPTY_CATALOG: Final = "No agents match the current search and filters."
+EMPTY_CATALOG: Final = "No agents match the current search and filter."
 NO_WINDOW_MESSAGE: Final = "No WezTerm window — start the host with `band-wezterm`."
 NO_SELECTION_MESSAGE: Final = "Select an agent first."
 DRAFT_INCOMPLETE_MESSAGE: Final = "Name and description are both required."
@@ -201,7 +201,12 @@ class AgentsScreen(ControlScreen):
         with Horizontal(id=Id.TOOLBAR.value):
             yield Input(placeholder=SEARCH_PLACEHOLDER, id=Id.SEARCH.value)
             yield Static(SOURCE_LABELS[AgentSource.MINE], id=Id.SOURCE.value)
-        yield FilterChips(AGENT_CHIPS, id=Id.FILTERS.value)
+        yield FilterChips(
+            AGENT_CHIPS,
+            exclusive=True,
+            selected=frozenset({AgentFilter.ALL.value}),
+            id=Id.FILTERS.value,
+        )
         yield ListView(id=Id.LIST.value)
         with Vertical(id=Id.DRAFT.value):
             yield Static(DRAFT_TITLE)
@@ -276,7 +281,8 @@ class AgentsScreen(ControlScreen):
         self._load_agents()
 
     def on_filter_chips_changed(self, event: FilterChips.Changed) -> None:
-        self.store.filters = frozenset(AgentFilter(key) for key in event.selected)
+        key = next(iter(event.selected), AgentFilter.ALL.value)
+        self.store.select_filter(AgentFilter(key))
         self.mutate_reactive(AgentsScreen.store)
 
     # --- catalog loading ---------------------------------------------------

@@ -45,12 +45,13 @@ def running_and_idle(control_app: ControlApp, band_client: MagicMock) -> None:
 
 @pytest.mark.usefixtures("running_and_idle")
 async def test_chips_and_search_narrow_together(control_app: ControlApp) -> None:
-    """Chips AND the search — a chip never widens the catalog back out."""
+    """One chip at a time (All = none); search still narrows on top."""
     async with control_app.run_test() as pilot:
         await settle(pilot)
         assert listed_agents(control_app) == ["Alpha", "Beta"]
 
-        await pilot.press("f", "space")
+        # All is first; move to Running and select it.
+        await pilot.press("f", "right", "space")
         await settle(pilot)
         assert listed_agents(control_app) == ["Alpha"]
 

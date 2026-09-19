@@ -29,6 +29,7 @@ class AgentSource(StrEnum):
 
 
 class AgentFilter(StrEnum):
+    ALL = "all"
     RUNNING = "running"
     IDLE = "idle"
     CLAUDE = "claude"
@@ -60,6 +61,7 @@ AGENT_FILTERS: Final[dict[AgentFilter, AgentPredicate]] = {
 }
 
 AGENT_FILTER_LABELS: Final[dict[AgentFilter, str]] = {
+    AgentFilter.ALL: "All",
     AgentFilter.RUNNING: "Running",
     AgentFilter.IDLE: "Idle",
     AgentFilter.CLAUDE: "Claude",
@@ -77,13 +79,13 @@ def _matches_search(haystack: str, needle: str) -> bool:
 
 @dataclass
 class AgentsStore:
-    """Agents catalog: search, AND-combined chips, run state and draft form."""
+    """Agents catalog: search, one exclusive chip (All = no filter), run state."""
 
     agents: list[AgentRecord] = field(default_factory=list)
     directory: list[AgentRecord] = field(default_factory=list)
     source: AgentSource = AgentSource.MINE
     search: str = ""
-    filters: frozenset[AgentFilter] = frozenset()
+    filter: AgentFilter = AgentFilter.ALL
     running: dict[str, PaneId] = field(default_factory=dict)
     selected_id: str | None = None
     draft_open: bool = False
@@ -102,14 +104,16 @@ class AgentsStore:
 
     @property
     def visible(self) -> list[AgentRecord]:
-        """Search AND every selected chip — chips never widen the result set."""
+        """Search plus at most one chip; ``All`` leaves the catalog unfiltered."""
         running = self.running_ids
+        chip = self.filter
         return [
             agent
             for agent in self.catalog
             if _matches_search(agent.name, self.search)
-            and all(
-                AGENT_FILTERS[chip](agent, running) for chip in self.filters
+            and (
+                chip is AgentFilter.ALL
+                or AGENT_FILTERS[chip](agent, running)
             )
         ]
 
@@ -128,8 +132,8 @@ class AgentsStore:
         self.agents = [agent, *self.agents]
         self.selected_id = agent.id
 
-    def toggle_filter(self, chip: AgentFilter) -> None:
-        self.filters = self.filters ^ {chip}
+    def select_filter(self, chip: AgentFilter) -> None:
+        self.filter = chip
 
     def is_running(self, agent_id: str) -> bool:
         return agent_id in self.running
