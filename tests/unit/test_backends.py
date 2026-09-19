@@ -50,3 +50,17 @@ def test_copilot_exposes_reasoning_effort() -> None:
         "medium",
         "high",
     ]
+
+
+def test_codex_exposes_the_current_recommended_model() -> None:
+    backend = resolve_backend(HarnessId.CODEX)
+    model = next(
+        dimension
+        for dimension in backend.tuning
+        if dimension.id is TuningDimensionId.MODEL
+    )
+
+    assert [option.id for option in model.options] == [
+        TUNING_DEFAULT_OPTION_ID,
+        "gpt-5.6",
+    ]

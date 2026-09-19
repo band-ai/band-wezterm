@@ -92,10 +92,7 @@ _CLAUDE_REASONING: Final = (
 
 _CODEX_MODELS: Final = (
     _DEFAULT,
-    TuningOption(id="gpt-5.4", label="GPT-5.4"),
-    TuningOption(id="gpt-5.3-codex", label="GPT-5.3 Codex"),
-    TuningOption(id="o3", label="o3"),
-    TuningOption(id="o4-mini", label="o4-mini"),
+    TuningOption(id="gpt-5.6", label="GPT-5.6"),
 )
 
 def _reasoning_effort_options(*efforts: str) -> tuple[TuningOption, ...]:
