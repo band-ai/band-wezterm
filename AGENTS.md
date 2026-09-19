@@ -35,15 +35,15 @@
   Favor well-maintained third-party libraries with solid provenance instead
   of reinventing the wheel.
 
-## Comments Style
+## Comments & Docs Style
 
-- **No Fluff, To the Point**: Keep comments concise, direct, and strictly
-  relevant.
+- **No Fluff, To the Point**: Keep comments and docs concise, direct, and
+  strictly relevant.
 - **No Narration, Keep Factual**: Do not narrate obvious step-by-step code
-  actions; state only factual rationale, constraints, or non-obvious
-  context.
+  actions in comments or docs; state only factual rationale, constraints, or
+  non-obvious context.
 - **Code Should Speak for Itself**: Prioritize self-explanatory code. Only
-  add comments when the intent, logic, or edge case is not immediately
+  add comments where intent, logic, or an edge case is not immediately
   obvious from the code itself.
 
 ## Testing Style
