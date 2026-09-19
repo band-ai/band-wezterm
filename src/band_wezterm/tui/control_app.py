@@ -123,9 +123,9 @@ class ControlApp(App[None]):
             self.user_id = await self.client.whoami()
         except Exception as error:
             self.notify(str(error), severity="error")
-        else:
-            self.rooms_store.starred_ids = self.starred.list(self.user_id)
-            announce_human(self.user_id)
+            return
+        self.rooms_store.starred_ids = self.starred.list(self.user_id)
+        announce_human(self.user_id)
         self._show(AGENTS_SCREEN)
 
     # --- navigation ---------------------------------------------------------

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
+
 import asyncio
 from enum import StrEnum
 from pathlib import Path
@@ -36,10 +38,12 @@ from band_wezterm.wezterm_cli import PaneId, kill_pane, list_panes, spawn_additi
 NO_BADGE: Final = "  "
 
 # PoC placeholder process — launching a real harness lands in a later slice.
+# `cat` copies pane input to output so OSC SetUserVar from send-text is parsed
+# (WezTerm has no cli inject-output; sleep would ignore input).
 AGENT_POC_COMMAND: Final[list[str]] = [
     "bash",
     "-lc",
-    "echo agent; exec sleep infinity",
+    "echo agent; exec cat",
 ]
 PANE_POLL_SECONDS: Final = 2.0
 SEARCH_DEBOUNCE_SECONDS: Final = 0.25
@@ -392,10 +396,10 @@ class AgentsScreen(ControlScreen):
         if agent is None:
             self._set_status(NO_SELECTION_MESSAGE)
             return
-        pane_id = self.store.mark_stopped(agent.id)
+        pane_id = self.store.running.get(agent.id)
         if pane_id is None:
             return
-        self._stop_agent(agent.name, pane_id)
+        self._stop_agent(agent.id, agent.name, pane_id)
 
     @work(group="agents-spawn")
     async def _start_agent(self, agent: AgentRecord) -> None:
@@ -404,12 +408,16 @@ class AgentsScreen(ControlScreen):
             self._set_status(NO_WINDOW_MESSAGE)
             return
         store = self.store
+        pane_id: PaneId | None = None
         try:
             pane_id = await asyncio.to_thread(
                 spawn_additional_tab, window_id, Path.cwd(), AGENT_POC_COMMAND
             )
             await asyncio.to_thread(announce_agent, pane_id, agent)
         except Exception as error:
+            if pane_id is not None:
+                with suppress(Exception):
+                    await asyncio.to_thread(kill_pane, pane_id)
             self._set_status(str(error))
             return
         store.mark_running(agent.id, pane_id)
@@ -417,13 +425,17 @@ class AgentsScreen(ControlScreen):
         self.mutate_reactive(AgentsScreen.store)
 
     @work(group="agents-spawn")
-    async def _stop_agent(self, agent_name: str, pane_id: PaneId) -> None:
+    async def _stop_agent(
+        self, agent_id: str, agent_name: str, pane_id: PaneId
+    ) -> None:
         try:
             await asyncio.to_thread(kill_pane, pane_id)
         except Exception as error:
             self._set_status(str(error))
             return
+        self.store.mark_stopped(agent_id)
         self._set_status(f"Stopped {agent_name}.")
+        self.mutate_reactive(AgentsScreen.store)
 
     @work(exclusive=True, group="agents-panes")
     async def _reconcile_panes(self) -> None:

@@ -175,8 +175,13 @@ class HostAuth:
                 "client_id": self._settings.band_oauth_client_id,
                 "refresh_token": tokens.refresh_token,
             },
+            prior_refresh_token=tokens.refresh_token,
         )
-        if not await self._store_user_tokens(refreshed, generation):
+        if generation != self._token_generation:
+            raise NoApiKeyError()
+        # Bump so BandClient realtime can detect credential rotation.
+        self._token_generation += 1
+        if not await self._store_user_tokens(refreshed, self._token_generation):
             raise NoApiKeyError()
         return refreshed.access_token
 
@@ -194,7 +199,11 @@ class HostAuth:
         return metadata
 
     async def _exchange(
-        self, token_endpoint: str, form: dict[str, str]
+        self,
+        token_endpoint: str,
+        form: dict[str, str],
+        *,
+        prior_refresh_token: str | None = None,
     ) -> UserTokens:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -211,16 +220,19 @@ class HostAuth:
                 payload.error,
                 payload.error_description or response.text,
             )
-        if not payload.access_token or not payload.refresh_token:
+        if not payload.access_token:
+            raise TokenExchangeError(None, "Token response missing access_token")
+        refresh_token = payload.refresh_token or prior_refresh_token
+        if not refresh_token:
             raise TokenExchangeError(
-                None, "Token response missing access_token or refresh_token"
+                None, "Token response missing refresh_token"
             )
         lifetime = payload.expires_in or DEFAULT_TOKEN_LIFETIME_SECONDS
         lifetime_s = max(MINIMUM_TOKEN_LIFETIME_SECONDS, int(lifetime))
         expires_at = int(self._now() * 1000) + lifetime_s * 1000
         return UserTokens(
             access_token=payload.access_token,
-            refresh_token=payload.refresh_token,
+            refresh_token=refresh_token,
             expires_at=expires_at,
         )
 

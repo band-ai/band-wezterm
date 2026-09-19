@@ -1,8 +1,7 @@
 """Real-PTY Control tab + live platform ops via ``.env.test``.
 
-Self-skips when ``BAND_API_KEY_USER`` is absent (CI never injects one) —
-same opt-in gate as band-plugin-vsc ``liveFlow.test.ts`` and
-band-sdk-python integration fixtures.
+Live API tests self-skip when ``BAND_API_KEY_USER`` is absent — same opt-in
+gate as band-plugin-vsc ``liveFlow.test.ts``.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ import sys
 
 import pytest
 
-from tests.live_settings import live_settings, user_api_key
+from tests.live_settings import pinned_agent_id, user_api_key
 from tests.paths import REPO_ROOT
 
 pytestmark = pytest.mark.live_platform
@@ -23,8 +22,6 @@ if sys.platform.startswith("win"):
 
 pexpect = pytest.importorskip("pexpect")
 pyte = pytest.importorskip("pyte")
-
-_LIVE_KEY = user_api_key()
 
 
 @pytest.fixture
@@ -48,27 +45,21 @@ def _display_text(display: object) -> str:
     return "\n".join(line for line in display.display)  # type: ignore[attr-defined]
 
 
-@pytest.mark.skipif(_LIVE_KEY is None, reason="BAND_API_KEY_USER not set (see .env.test)")
 def test_live_room_participant_flow_with_user_api_key() -> None:
     """create_room → add_participant → @mention → remove_participant."""
     from band_wezterm.client import BandClient
-    from band_wezterm.config import Settings
+    from band_wezterm.config import load_settings
 
-    settings = live_settings()
-    cfg = Settings(
-        band_base_url=settings.band_base_url,
-        band_ws_url=settings.band_ws_url,
-    )
+    api_key = user_api_key()
+    if not api_key:
+        pytest.skip("BAND_API_KEY_USER not set (see .env.test)")
 
     async def run() -> None:
-        assert _LIVE_KEY is not None
-        client = BandClient(api_key=_LIVE_KEY, settings=cfg)
+        client = BandClient.from_user_api_key(api_key, load_settings())
         try:
-            if settings.test_agent_id:
-                agent_id = settings.test_agent_id
-                agents = await client.list_my_agents()
-                match = next((a for a in agents if a.id == agent_id), None)
-                agent_name = match.name if match else agent_id
+            pinned = pinned_agent_id()
+            if pinned:
+                agent_id, agent_name = pinned, pinned
             else:
                 agents = await client.list_my_agents()
                 if not agents:
@@ -92,9 +83,8 @@ def test_live_room_participant_flow_with_user_api_key() -> None:
     asyncio.run(run())
 
 
-@pytest.mark.skipif(_LIVE_KEY is None, reason="BAND_API_KEY_USER not set (see .env.test)")
-def test_signed_in_control_tab_renders(screen: tuple[object, object]) -> None:
-    """Control tab chrome renders in a real PTY (sign-in UI when no OAuth)."""
+def test_control_tab_chrome_renders(screen: tuple[object, object]) -> None:
+    """Control tab chrome renders in a real PTY (unsigned / sign-in UI)."""
     display, stream = screen
     env = {**os.environ, "BAND_WEZTERM_CONTROL": "1"}
     child = pexpect.spawn(

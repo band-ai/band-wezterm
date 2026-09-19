@@ -233,6 +233,8 @@ class RoomsStore:
         ]
 
     def append_message(self, message: MessageRecord) -> None:
+        if any(existing.id == message.id for existing in self.messages):
+            return
         self.messages = [*self.messages, message]
 
     def find_participant(self, participant_id: str) -> ParticipantRecord | None:

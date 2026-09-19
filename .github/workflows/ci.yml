@@ -52,11 +52,9 @@ jobs:
           echo 'deb [signed-by=/usr/share/keyrings/wezterm-fury.gpg] https://apt.fury.io/wez/ * *' | sudo tee /etc/apt/sources.list.d/wezterm.list
           sudo apt-get update
           sudo apt-get install -y wezterm
-        continue-on-error: true
       - name: Install WezTerm (macOS)
         if: runner.os == 'macOS'
         run: brew install --cask wezterm
-        continue-on-error: true
       - name: Install WezTerm (Windows)
         if: runner.os == 'Windows'
         run: winget install --id wez.wezterm -e --accept-source-agreements --accept-package-agreements
@@ -81,9 +79,10 @@ jobs:
           enable-cache: true
           python-version: "3.14"
       - run: uv sync --locked
-      - name: Live PTY whole-flow
+      - name: Live PTY + platform (opt-in)
         env:
-          BAND_LIVE_PTY: ${{ secrets.BAND_LIVE_PTY || '0' }}
+          BAND_API_KEY_USER: ${{ secrets.BAND_API_KEY_USER }}
+          TEST_AGENT_ID: ${{ secrets.TEST_AGENT_ID }}
           BAND_OAUTH_CLIENT_ID: ${{ vars.BAND_OAUTH_CLIENT_ID }}
           BAND_OAUTH_ISSUER: ${{ vars.BAND_OAUTH_ISSUER }}
           BAND_BASE_URL: ${{ vars.BAND_BASE_URL }}

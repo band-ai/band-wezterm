@@ -93,7 +93,7 @@ wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_wid
   for _, part in ipairs(underline) do
     table.insert(elements, part)
   end
-  return wezterm.format(elements)
+  return elements
 end)
 
 wezterm.on("update-status", function(window, pane)

@@ -24,6 +24,7 @@ from band_rest.types.chat_message_request_mentions_item import (
     ChatMessageRequestMentionsItem,
 )
 from band_rest.types.participant_request import ParticipantRequest
+from band_sdk_core import chat_room_topic, room_participants_topic
 from phoenix_channels_python_client.client import (
     PHXChannelsClient,
     PhoenixChannelsProtocolVersion,
@@ -147,22 +148,33 @@ def _realtime_kind(raw: object) -> RealtimeEventKind:
 
 
 class BandClient:
-    """The only door to the platform. Screens never import band_rest.
-
-    Product path: ``HostAuth`` (OAuth Bearer via ``async_token``).
-    Live-test path: static ``api_key`` (``X-API-Key``), matching
-    band-sdk-python's ``AsyncRestClient(api_key=BAND_API_KEY_USER)``.
-    """
+    """The only door to the platform. Screens never import band_rest."""
 
     def __init__(
         self,
-        host_auth: HostAuth | None = None,
+        host_auth: HostAuth,
         settings: Settings | None = None,
-        *,
-        api_key: str | None = None,
     ) -> None:
-        if (host_auth is None) == (api_key is None):
-            raise ValueError("Provide exactly one of host_auth or api_key")
+        self._configure(host_auth=host_auth, api_key=None, settings=settings)
+
+    @classmethod
+    def from_user_api_key(
+        cls,
+        api_key: str,
+        settings: Settings | None = None,
+    ) -> BandClient:
+        """Live-test / harness path — ``X-API-Key`` like sdk-python fixtures."""
+        client = cls.__new__(cls)
+        client._configure(host_auth=None, api_key=api_key, settings=settings)
+        return client
+
+    def _configure(
+        self,
+        *,
+        host_auth: HostAuth | None,
+        api_key: str | None,
+        settings: Settings | None,
+    ) -> None:
         self._host_auth = host_auth
         self._api_key = api_key
         self._settings = settings or load_settings()
@@ -170,9 +182,7 @@ class BandClient:
         self._wrapper = AsyncClientWrapper(
             api_key=api_key or "",
             base_url=self._settings.band_base_url.rstrip("/"),
-            async_token=(
-                None if api_key is not None else host_auth.get_access_token  # type: ignore[union-attr]
-            ),
+            async_token=None if api_key is not None else host_auth.get_access_token,  # type: ignore[union-attr]
             httpx_client=self._http,
         )
         self._agents = AsyncHumanApiAgentsClient(client_wrapper=self._wrapper)
@@ -196,7 +206,10 @@ class BandClient:
         if self._api_key is not None:
             return self._api_key
         assert self._host_auth is not None
-        return await self._host_auth.get_access_token()
+        token = await self._host_auth.get_access_token()
+        if self._phx is not None and self._phx_generation != self._token_generation:
+            await self.reset_realtime_after_credential_change()
+        return token
 
     async def aclose(self) -> None:
         await self._disconnect_realtime()
@@ -365,11 +378,6 @@ class BandClient:
             if on_event in self._realtime_listeners:
                 self._realtime_listeners.remove(on_event)
 
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._ensure_realtime())
-        except RuntimeError:
-            pass
         return unsubscribe
 
     async def ensure_realtime(self) -> None:
@@ -380,22 +388,30 @@ class BandClient:
         if self._phx is not None and self._phx_generation == generation:
             return
         await self._disconnect_realtime()
-        token = await self._access_credential()
-        ws_url = self._settings.band_ws_url
-        separator = "&" if "?" in ws_url else "?"
-        url = f"{ws_url}{separator}token={token}&vsn=2.0.0"
-        client = PHXChannelsClient(
-            url,
-            protocol_version=PhoenixChannelsProtocolVersion.V2_0_0,
+        token = await self._host_auth.get_access_token() if self._host_auth else self._api_key
+        assert token is not None
+        ws_url = self._settings.band_ws_url.rstrip("/")
+        # Match plugin (x-auth-token) / sdk (x-api-key): auth on the handshake,
+        # not a bespoke `token=` query. PHXChannelsClient still places `api_key`
+        # in the query (library requirement); header is authoritative for users.
+        headers = (
+            {"x-api-key": token}
+            if self._api_key is not None
+            else {"x-auth-token": token}
         )
-        await client.connect()
+        client = PHXChannelsClient(
+            ws_url,
+            token,
+            protocol_version=PhoenixChannelsProtocolVersion.V2,
+            additional_headers=headers,
+        )
+        await client.__aenter__()
         self._phx = client
         self._phx_generation = generation
 
     async def subscribe_room(self, room_id: str) -> None:
         await self._ensure_realtime()
         assert self._phx is not None
-        topic = f"chat:{room_id}"
 
         async def handler(message: object) -> None:
             payload = getattr(message, "payload", None)
@@ -407,7 +423,9 @@ class BandClient:
             for listener in list(self._realtime_listeners):
                 listener(event)
 
-        await self._phx.subscribe_to_topic(topic, handler)
+        # Plugin joins both topics as one transaction.
+        await self._phx.subscribe_to_topic(chat_room_topic(room_id), handler)
+        await self._phx.subscribe_to_topic(room_participants_topic(room_id), handler)
 
     async def reset_realtime_after_credential_change(self) -> None:
         """Mirror chatViewModel.refreshAfterCredentialChange realtime reset."""
@@ -419,7 +437,7 @@ class BandClient:
         if self._phx is None:
             return
         try:
-            await self._phx.disconnect()
+            await self._phx.shutdown("credential change or client close")
         except Exception:
             pass
         self._phx = None
