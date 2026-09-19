@@ -1,11 +1,15 @@
-"""Keyring-backed token store — port of credentials.ts (user tokens only)."""
+"""Keyring-backed stores — port of credentials.ts (user tokens + managed agent keys)."""
 
 from __future__ import annotations
 
 import keyring
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from band_wezterm.config import KEYRING_SERVICE, KEYRING_USER_TOKENS
+from band_wezterm.config import (
+    KEYRING_MANAGED_AGENT_KEY_PREFIX,
+    KEYRING_SERVICE,
+    KEYRING_USER_TOKENS,
+)
 
 
 class UserTokens(BaseModel):
@@ -31,7 +35,7 @@ class NoApiKeyError(Exception):
 
 
 class TokenStore:
-    """Only host_auth.py touches keyring — screens never import this."""
+    """Only host_auth.py touches user tokens — screens never import this."""
 
     def __init__(
         self,
@@ -61,5 +65,27 @@ class TokenStore:
     def delete_user_tokens(self) -> None:
         try:
             keyring.delete_password(self._service, self._username)
+        except keyring.errors.PasswordDeleteError:
+            return
+
+
+class ManagedAgentKeyStore:
+    """One-time agent API keys from registerMyAgent — INT-1484 managed namespace."""
+
+    def __init__(self, *, service: str = KEYRING_SERVICE) -> None:
+        self._service = service
+
+    def _username(self, agent_id: str) -> str:
+        return f"{KEYRING_MANAGED_AGENT_KEY_PREFIX}{agent_id}"
+
+    def get(self, agent_id: str) -> str | None:
+        return keyring.get_password(self._service, self._username(agent_id))
+
+    def set(self, agent_id: str, api_key: str) -> None:
+        keyring.set_password(self._service, self._username(agent_id), api_key)
+
+    def delete(self, agent_id: str) -> None:
+        try:
+            keyring.delete_password(self._service, self._username(agent_id))
         except keyring.errors.PasswordDeleteError:
             return

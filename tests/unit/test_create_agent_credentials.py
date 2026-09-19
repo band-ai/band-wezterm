@@ -1,0 +1,84 @@
+"""create_agent persists the one-time managed key; keyring failure rolls back."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from band_wezterm.auth.credentials import ManagedAgentKeyStore
+from band_wezterm.client import BandClient
+from band_wezterm.config import Settings
+from band_wezterm.identity import HarnessId
+
+
+class _MemoryAgentKeys(ManagedAgentKeyStore):
+    def __init__(self) -> None:
+        self._keys: dict[str, str] = {}
+        self.fail_on_set = False
+
+    def get(self, agent_id: str) -> str | None:
+        return self._keys.get(agent_id)
+
+    def set(self, agent_id: str, api_key: str) -> None:
+        if self.fail_on_set:
+            raise RuntimeError("keyring unavailable")
+        self._keys[agent_id] = api_key
+
+    def delete(self, agent_id: str) -> None:
+        self._keys.pop(agent_id, None)
+
+
+def _register_response(*, agent_id: str, name: str, api_key: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        data=SimpleNamespace(
+            agent=SimpleNamespace(id=agent_id, name=name, harness=None),
+            credentials=SimpleNamespace(api_key=api_key),
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_agent_persists_managed_api_key() -> None:
+    keys = _MemoryAgentKeys()
+    client = BandClient.from_user_api_key(
+        "user-key", Settings(), agent_keys=keys
+    )
+    client._agents = MagicMock()
+    client._agents.register_my_agent = AsyncMock(
+        return_value=_register_response(
+            agent_id="a1", name="Alpha", api_key="band_a_once"
+        )
+    )
+
+    record = await client.create_agent(
+        name="Alpha", description="test", harness=HarnessId.CODEX
+    )
+
+    assert record.id == "a1"
+    assert record.harness is HarnessId.CODEX
+    assert keys.get("a1") == "band_a_once"
+    assert client.managed_agent_api_key("a1") == "band_a_once"
+
+
+@pytest.mark.asyncio
+async def test_create_agent_rolls_back_when_keyring_fails() -> None:
+    keys = _MemoryAgentKeys()
+    keys.fail_on_set = True
+    client = BandClient.from_user_api_key(
+        "user-key", Settings(), agent_keys=keys
+    )
+    client._agents = MagicMock()
+    client._agents.register_my_agent = AsyncMock(
+        return_value=_register_response(
+            agent_id="a2", name="Beta", api_key="band_a_lost"
+        )
+    )
+    client._agents.delete_my_agent = AsyncMock()
+
+    with pytest.raises(RuntimeError, match="keyring unavailable"):
+        await client.create_agent(name="Beta", description="test")
+
+    client._agents.delete_my_agent.assert_awaited_once_with("a2", force=True)
+    assert keys.get("a2") is None

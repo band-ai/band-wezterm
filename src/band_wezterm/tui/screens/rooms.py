@@ -35,6 +35,7 @@ from band_wezterm.client import (
     Unsubscribe,
     display_message_content,
 )
+from band_wezterm.errors import format_platform_error
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.stores import ROOM_FILTER_LABELS, RoomFilter, RoomsStore
 from band_wezterm.tui.widgets import (
@@ -352,7 +353,7 @@ class RoomsScreen(ControlScreen):
         try:
             rooms = await self.control.client.list_my_chats()
         except Exception as error:
-            store.status = str(error)
+            store.status = format_platform_error(error)
         else:
             store.replace_rooms(rooms)
             store.status = ""
@@ -401,7 +402,7 @@ class RoomsScreen(ControlScreen):
         try:
             room = await self.control.client.create_room(title=title)
         except Exception as error:
-            self._set_status(str(error))
+            self._set_status(format_platform_error(error))
             return
         self.store.add_room(room)
         self.store.status = ""
@@ -543,7 +544,7 @@ class RoomDetailScreen(ControlScreen):
         try:
             participants = await self.control.client.list_participants(self.room.id)
         except Exception as error:
-            store.status = str(error)
+            store.status = format_platform_error(error)
         else:
             store.replace_participants(participants)
             store.status = ""
@@ -559,7 +560,7 @@ class RoomDetailScreen(ControlScreen):
         try:
             messages = await self.control.client.list_messages(self.room.id)
         except Exception as error:
-            store.status = str(error)
+            store.status = format_platform_error(error)
         else:
             store.replace_messages(messages)
             store.status = ""
@@ -584,7 +585,7 @@ class RoomDetailScreen(ControlScreen):
         try:
             await self.control.client.remove_participant(self.room.id, participant_id)
         except Exception as error:
-            self._set_status(str(error))
+            self._set_status(format_platform_error(error))
             self._load_roster()
 
     # --- add participant (select-then-act, add-only) -----------------------
@@ -605,7 +606,7 @@ class RoomDetailScreen(ControlScreen):
         try:
             store.candidates = await self.control.client.list_my_agents()
         except Exception as error:
-            store.status = str(error)
+            store.status = format_platform_error(error)
         if not store.addable_candidates():
             store.status = EMPTY_CANDIDATES
         self.mutate_reactive(RoomDetailScreen.store)
@@ -623,7 +624,7 @@ class RoomDetailScreen(ControlScreen):
         try:
             await self.control.client.add_participant(self.room.id, participant_id)
         except Exception as error:
-            self._set_status(str(error))
+            self._set_status(format_platform_error(error))
             return
         self._set_picker_open(False)
         self._load_roster()
@@ -667,7 +668,7 @@ class RoomDetailScreen(ControlScreen):
                 mention_name=participant.name,
             )
         except Exception as error:
-            self._set_status(str(error))
+            self._set_status(format_platform_error(error))
             return
         self.store.append_message(message)
         self.store.status = ""
@@ -681,7 +682,7 @@ class RoomDetailScreen(ControlScreen):
             self._unsubscribe = self.control.client.subscribe_realtime(self._on_event)
             await self.control.client.subscribe_room(self.room.id)
         except Exception as error:
-            self._set_status(str(error))
+            self._set_status(format_platform_error(error))
 
     def _on_event(self, event: RealtimeEvent) -> None:
         self.post_message(self.Incoming(event))

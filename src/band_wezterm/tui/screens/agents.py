@@ -16,7 +16,10 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
 
+from band_wezterm.agent.adapters import HarnessUnavailableError, preflight_harness
+from band_wezterm.agent.spawn_cmd import agent_pane_command, write_api_key_file
 from band_wezterm.client import AgentRecord
+from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import (
     AgentRuntime,
     AgentStatus,
@@ -44,14 +47,6 @@ from band_wezterm.wezterm_cli import (
 
 NO_BADGE: Final = "  "
 
-# PoC placeholder process — launching a real harness lands in a later slice.
-# `cat` copies pane input to output so OSC SetUserVar from send-text is parsed
-# (WezTerm has no cli inject-output; sleep would ignore input).
-AGENT_POC_COMMAND: Final[list[str]] = [
-    "bash",
-    "-lc",
-    "echo agent; exec cat",
-]
 PANE_POLL_SECONDS: Final = 2.0
 SEARCH_DEBOUNCE_SECONDS: Final = 0.25
 
@@ -66,6 +61,11 @@ SOURCE_LABELS: Final[dict[AgentSource, str]] = {
 EMPTY_CATALOG: Final = "No agents match the current search and filter."
 NO_WINDOW_MESSAGE: Final = "No WezTerm window — start the host with `band-wezterm`."
 NO_SELECTION_MESSAGE: Final = "Select an agent first."
+NO_MANAGED_KEY_MESSAGE: Final = (
+    "No managed API key for this agent — re-register it from Control "
+    "(keys are one-time at registration)."
+)
+NO_HARNESS_MESSAGE: Final = "Agent has no harness — re-register with a harness."
 DRAFT_INCOMPLETE_MESSAGE: Final = "Name and description are both required."
 
 
@@ -113,7 +113,7 @@ def announce_agent(pane_id: PaneId, agent: AgentRecord) -> None:
         OscKey.AGENT_COLOR: agent.color,
         OscKey.AGENT_KIND: agent.kind.value,
         OscKey.AGENT_STATUS: AgentStatus.ONLINE.value,
-        OscKey.AGENT_RUNTIME: AgentRuntime.RUNNING.value,
+        OscKey.AGENT_RUNTIME: AgentRuntime.STARTING.value,
     }
     badge = badge_for(agent)
     if badge is not None:
@@ -298,7 +298,7 @@ class AgentsScreen(ControlScreen):
         try:
             agents = await self.control.client.list_my_agents(name=store.search or None)
         except Exception as error:
-            store.status = str(error)
+            store.status = format_platform_error(error)
         else:
             store.replace_agents(agents)
             store.status = ""
@@ -313,7 +313,7 @@ class AgentsScreen(ControlScreen):
         try:
             directory = await self.control.client.list_directory()
         except Exception as error:
-            store.status = str(error)
+            store.status = format_platform_error(error)
         else:
             store.replace_directory(directory)
             store.status = ""
@@ -384,7 +384,7 @@ class AgentsScreen(ControlScreen):
                 name=name, description=description
             )
         except Exception as error:
-            self._set_status(str(error))
+            self._set_status(format_platform_error(error))
             return
         store.add_agent(agent)
         store.status = f"Registered {agent.name} — not started."
@@ -420,21 +420,37 @@ class AgentsScreen(ControlScreen):
         if window_id is None:
             self._set_status(NO_WINDOW_MESSAGE)
             return
+        api_key = self.control.client.managed_agent_api_key(agent.id)
+        if not api_key:
+            self._set_status(NO_MANAGED_KEY_MESSAGE)
+            return
+        try:
+            preflight_harness(agent.harness)
+        except HarnessUnavailableError as error:
+            self._set_status(format_platform_error(error))
+            return
         store = self.store
+        cwd = Path.cwd()
+        key_file = write_api_key_file(api_key)
         pane_id: PaneId | None = None
         try:
+            command = agent_pane_command(agent, key_file=key_file, cwd=cwd)
             pane_id = await asyncio.to_thread(
-                spawn_additional_tab, window_id, Path.cwd(), AGENT_POC_COMMAND
+                spawn_additional_tab, window_id, cwd, command
             )
             await asyncio.to_thread(announce_agent, pane_id, agent)
         except (WezTermCliError, OSError) as error:
+            key_file.unlink(missing_ok=True)
             if pane_id is not None:
                 with suppress(WezTermCliError, OSError):
                     await asyncio.to_thread(kill_pane, pane_id)
-            self._set_status(str(error))
+            self._set_status(format_platform_error(error))
             return
         store.mark_running(agent.id, pane_id)
-        store.status = (f"Started {agent.name} in pane {pane_id.root} — PoC tab only; harness reply is not wired yet.")
+        harness = agent.harness.value if agent.harness is not None else "unknown"
+        store.status = (
+            f"Started {agent.name} ({harness}) in pane {pane_id.root}."
+        )
         self.mutate_reactive(AgentsScreen.store)
 
     @work(group="agents-spawn")
@@ -444,7 +460,7 @@ class AgentsScreen(ControlScreen):
         try:
             await asyncio.to_thread(kill_pane, pane_id)
         except (WezTermCliError, OSError) as error:
-            self._set_status(str(error))
+            self._set_status(format_platform_error(error))
             return
         self.store.mark_stopped(agent_id)
         self._set_status(f"Stopped {agent_name}.")

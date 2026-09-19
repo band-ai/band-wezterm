@@ -16,6 +16,7 @@ from textual.binding import Binding
 from textual.screen import Screen
 
 from band_wezterm.auth.host_auth import HostAuth
+from band_wezterm.errors import format_platform_error
 from band_wezterm.client import BandClient, RoomRecord
 from band_wezterm.config import CONTROL_TAB_TITLE, Settings, load_settings
 from band_wezterm.identity import AgentStatus, AvatarKind, agent_accent, initials
@@ -161,7 +162,7 @@ class ControlApp(App[None]):
         try:
             self.user_id = await self.client.whoami()
         except Exception as error:
-            self.notify(str(error), severity="error")
+            self.notify(format_platform_error(error), severity="error")
             return
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
         announce_human(self.user_id)

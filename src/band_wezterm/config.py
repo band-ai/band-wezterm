@@ -15,9 +15,16 @@ OAUTH_SCOPES = "openid email profile offline_access"
 CALLBACK_PATH = "/callback"
 KEYRING_SERVICE = "band-wezterm"
 KEYRING_USER_TOKENS = "userTokens"
+# Mirrors band-plugin-vsc `band.managedAgentApiKey.${id}` (keyring username suffix).
+KEYRING_MANAGED_AGENT_KEY_PREFIX = "managedAgentApiKey."
 LOCAL_STATE_DIRNAME = ".band-wezterm"
 # Matches band-plugin-vsc DEFAULT_CHAT_MESSAGES_LIMIT — latest page on room enter.
 CHAT_MESSAGES_LIMIT = 20
+# Child-pane env / CLI — never OSC.
+AGENT_API_KEY_ENV = "BAND_AGENT_API_KEY"
+AGENT_ID_ENV = "BAND_AGENT_ID"
+AGENT_HARNESS_ENV = "BAND_AGENT_HARNESS"
+AGENT_NAME_ENV = "BAND_AGENT_NAME"
 
 
 class Settings(BaseSettings):
