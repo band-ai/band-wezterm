@@ -91,7 +91,8 @@ class HostAuth:
         except Exception as error:
             if _is_terminal_refresh_failure(error):
                 await self._clear_user_tokens(generation)
-            raise NoApiKeyError(str(error)) from error
+                raise NoApiKeyError(str(error)) from error
+            raise
 
     async def sign_in(self) -> None:
         if not self._settings.band_oauth_client_id:

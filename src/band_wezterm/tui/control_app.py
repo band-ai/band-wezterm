@@ -13,6 +13,7 @@ from typing import ClassVar, Final
 
 from textual.app import App
 from textual.binding import Binding
+from textual.message import Message
 from textual.screen import Screen
 
 from band_wezterm.auth.host_auth import HostAuth
@@ -50,6 +51,10 @@ ROOMS_SCREEN: Final = "rooms"
 SETTINGS_SCREEN: Final = "settings"
 # App default screen + the active base screen; anything above is an overlay.
 BASE_STACK_DEPTH: Final = 2
+
+
+class AuthenticationRejected(Message):
+    """A platform response rejected the stored user credential."""
 
 
 def is_control_process() -> bool:
@@ -150,10 +155,15 @@ class ControlApp(App[None]):
         self.starred = starred or StarredRooms()
         self.managed_agents = managed_agents or ManagedAgentStore()
         self.preferences = preferences or PreferencesStore()
+        self.client.set_authentication_rejected_handler(
+            self._post_authentication_rejected
+        )
         self.window_id = current_window_id()
         self.user_id: str | None = None
         self.agents_store = AgentsStore()
         self.rooms_store = RoomsStore()
+        self._ending_session = False
+        self._authentication_rejected_pending = False
 
     def on_mount(self) -> None:
         name_control_tab()
@@ -164,6 +174,7 @@ class ControlApp(App[None]):
 
     async def on_unmount(self) -> None:
         """Host shutdown: every agent tab this host started goes with it."""
+        self.client.set_authentication_rejected_handler(None)
         for pane_id in list(self.agents_store.running.values()):
             with suppress(WezTermCliError, OSError):
                 kill_pane(pane_id)
@@ -197,18 +208,47 @@ class ControlApp(App[None]):
 
     async def _sign_out(self) -> None:
         """Clear tokens, stop agent panes, return to Sign In."""
-        for pane_id in list(self.agents_store.running.values()):
-            with suppress(WezTermCliError, OSError):
-                kill_pane(pane_id)
-        self.agents_store.running.clear()
-        await self.host_auth.sign_out()
-        self.user_id = None
-        self.agents_store = AgentsStore()
-        self.rooms_store = RoomsStore()
-        while len(self.screen_stack) > 1:
-            self.pop_screen()
-        self.push_screen(SIGN_IN_SCREEN)
-        self.notify("Signed out.")
+        if await self._return_to_sign_in():
+            self.notify("Signed out.")
+
+    def _post_authentication_rejected(self) -> None:
+        self.post_message(AuthenticationRejected())
+
+    def on_authentication_rejected(self) -> None:
+        if self._authentication_rejected_pending:
+            return
+        self._authentication_rejected_pending = True
+        self.run_worker(self._handle_authentication_rejected(), group="auth")
+
+    async def _handle_authentication_rejected(self) -> None:
+        try:
+            if await self._return_to_sign_in():
+                self.notify(
+                    "Your Band session expired. Sign in again.", severity="warning"
+                )
+        finally:
+            self._authentication_rejected_pending = False
+
+    async def _return_to_sign_in(self) -> bool:
+        """Clear a no-longer-valid session and show the sign-in gate."""
+        if self._ending_session:
+            return False
+        self._ending_session = True
+        try:
+            for pane_id in list(self.agents_store.running.values()):
+                with suppress(WezTermCliError, OSError):
+                    kill_pane(pane_id)
+            self.agents_store.running.clear()
+            await self.host_auth.sign_out()
+            self.user_id = None
+            self.agents_store = AgentsStore()
+            self.rooms_store = RoomsStore()
+            while len(self.screen_stack) > 1:
+                self.pop_screen()
+            self.push_screen(SIGN_IN_SCREEN)
+            return True
+        finally:
+            self._ending_session = False
 
     def _show(self, screen_name: str) -> None:
         """Switching top-level screens discards any in-progress draft."""

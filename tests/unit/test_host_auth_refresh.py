@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from band_wezterm.auth.credentials import TokenStore, UserTokens
-from band_wezterm.auth.host_auth import HostAuth
+from band_wezterm.auth.credentials import NoApiKeyError, TokenStore, UserTokens
+from band_wezterm.auth.host_auth import HostAuth, TokenExchangeError
 from band_wezterm.config import Settings
 
 
@@ -70,3 +70,23 @@ async def test_refresh_keeps_prior_refresh_token_when_omitted(
     assert stored.refresh_token == "keep-me"
     assert stored.access_token == "new-at"
 
+
+@pytest.mark.asyncio
+async def test_invalid_refresh_token_clears_the_local_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _MemoryStore()
+    store.set_user_tokens(
+        UserTokens(access_token="old-at", refresh_token="revoked", expires_at=0)
+    )
+    auth = HostAuth(Settings(band_oauth_client_id="client"), store)
+
+    async def failed_refresh(*_args: object, **_kwargs: object) -> UserTokens:
+        raise TokenExchangeError("invalid_grant", "Refresh token revoked")
+
+    monkeypatch.setattr(auth, "_refresh", failed_refresh)
+
+    with pytest.raises(NoApiKeyError, match="Refresh token revoked"):
+        await auth.get_access_token()
+
+    assert store.get_user_tokens() is None

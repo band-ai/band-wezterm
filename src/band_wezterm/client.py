@@ -32,7 +32,7 @@ from phoenix_channels_python_client.client import (
 )
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from band_wezterm.auth.credentials import ManagedAgentKeyStore
+from band_wezterm.auth.credentials import ManagedAgentKeyStore, NoApiKeyError
 from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.config import CHAT_MESSAGES_LIMIT, Settings, load_settings
 from band_wezterm.identity import (
@@ -45,6 +45,8 @@ from band_wezterm.identity import (
 from band_wezterm.room_color import room_accent
 
 Unsubscribe = Callable[[], None]
+AuthenticationRejectedHandler = Callable[[], None]
+UNAUTHORIZED_STATUS = 401
 
 
 class ParticipantRole(StrEnum):
@@ -233,7 +235,10 @@ class BandClient:
         self._api_key = api_key
         self._agent_keys = agent_keys or ManagedAgentKeyStore()
         self._settings = settings or load_settings()
-        self._http = httpx.AsyncClient(timeout=60.0)
+        self._authentication_rejected_handler: AuthenticationRejectedHandler | None = None
+        self._http = httpx.AsyncClient(
+            timeout=60.0, event_hooks={"response": [self._observe_response]}
+        )
         self._wrapper = AsyncClientWrapper(
             api_key=api_key or "",
             base_url=self._settings.band_base_url.rstrip("/"),
@@ -261,7 +266,25 @@ class BandClient:
         if self._api_key is not None:
             return self._api_key
         assert self._host_auth is not None
-        return await self._host_auth.get_access_token()
+        try:
+            return await self._host_auth.get_access_token()
+        except NoApiKeyError:
+            self._notify_authentication_rejected()
+            raise
+
+    def set_authentication_rejected_handler(
+        self, handler: AuthenticationRejectedHandler | None
+    ) -> None:
+        """Register the host's response to a rejected user credential."""
+        self._authentication_rejected_handler = handler
+
+    async def _observe_response(self, response: httpx.Response) -> None:
+        if self._api_key is None and response.status_code == UNAUTHORIZED_STATUS:
+            self._notify_authentication_rejected()
+
+    def _notify_authentication_rejected(self) -> None:
+        if self._authentication_rejected_handler is not None:
+            self._authentication_rejected_handler()
 
     async def _bearer_token(self) -> str:
         """OAuth token for REST; reconnects realtime when generation rotates."""

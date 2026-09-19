@@ -137,6 +137,19 @@ async def test_agents_screen_is_the_entry_point_once_signed_in(
     band_client.whoami.assert_awaited_once()
 
 
+async def test_rejected_jwt_returns_to_sign_in_once(
+    control_app: ControlApp, band_client: MagicMock, host_auth: MagicMock
+) -> None:
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        rejected = band_client.set_authentication_rejected_handler.call_args.args[0]
+        rejected()
+        rejected()
+        await settle(pilot)
+        assert isinstance(control_app.screen, SignInScreen)
+        host_auth.sign_out.assert_awaited_once()
+
+
 async def test_unmount_stops_every_agent_tab_the_host_started(
     control_app: ControlApp, monkeypatch: pytest.MonkeyPatch
 ) -> None:

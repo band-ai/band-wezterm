@@ -21,8 +21,6 @@ PLAN_REQUIRED_MESSAGE: Final = (
 
 VALIDATION_STATUS: Final = 422
 VALIDATION_ERROR_CODE: Final = "validation_error"
-
-
 def _error_payload(body: Any) -> Mapping[str, Any] | None:
     if body is None:
         return None
