@@ -53,6 +53,7 @@ def band_client() -> MagicMock:
     client.list_my_chats.return_value = []
     client.list_participants.return_value = []
     client.list_directory.return_value = []
+    client.list_messages.return_value = []
     client.subscribe_realtime.return_value = lambda: None
     return client
 

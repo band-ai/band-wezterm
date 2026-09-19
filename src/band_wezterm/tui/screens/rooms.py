@@ -30,8 +30,10 @@ from band_wezterm.client import (
     MessageRecord,
     ParticipantRecord,
     RealtimeEvent,
+    RealtimeEventKind,
     RoomRecord,
     Unsubscribe,
+    display_message_content,
 )
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.stores import ROOM_FILTER_LABELS, RoomFilter, RoomsStore
@@ -134,15 +136,33 @@ async def refill(list_view: ListView, rows: Sequence[ListItem]) -> None:
     list_view.index = min(previous or 0, len(rows) - 1) if rows else None
 
 
+_MESSAGE_EVENT_KINDS = frozenset(
+    {
+        RealtimeEventKind.MESSAGE,
+        RealtimeEventKind.MESSAGE_CREATED,
+        RealtimeEventKind.MESSAGE_UPDATED,
+    }
+)
+
+
 def message_from_event(event: RealtimeEvent) -> MessageRecord | None:
+    if event.kind not in _MESSAGE_EVENT_KINDS:
+        return None
     payload = event.payload or {}
     content = payload.get("content") or payload.get("body")
     if not content:
         return None
+    metadata = payload.get("metadata")
+    meta = metadata if isinstance(metadata, dict) else None
     return MessageRecord(
         id=str(payload.get("id") or event.kind.value),
-        content=str(content),
-        author_name=str(payload.get("author_name") or payload.get("sender") or "agent"),
+        content=display_message_content(str(content), meta),
+        author_name=str(
+            payload.get("sender_name")
+            or payload.get("author_name")
+            or payload.get("sender")
+            or "unknown"
+        ),
     )
 
 
@@ -465,6 +485,7 @@ class RoomDetailScreen(ControlScreen):
         self.store = self.control.rooms_store
         self._roster_view().focus()
         self._load_roster()
+        self._load_messages()
         self._connect_realtime()
 
     def on_unmount(self) -> None:
@@ -524,6 +545,19 @@ class RoomDetailScreen(ControlScreen):
 
     def action_reload(self) -> None:
         self._load_roster()
+        self._load_messages()
+
+    @work(exclusive=True, group="room-messages")
+    async def _load_messages(self) -> None:
+        store = self.store
+        try:
+            messages = await self.control.client.list_messages(self.room.id)
+        except Exception as error:
+            store.status = str(error)
+        else:
+            store.replace_messages(messages)
+            store.status = ""
+        self.mutate_reactive(RoomDetailScreen.store)
 
     def _highlighted_identity_id(self, list_view: ListView) -> str | None:
         row = list_view.highlighted_child

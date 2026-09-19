@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Callable, Mapping
 from enum import StrEnum
 from typing import Any
@@ -32,7 +33,7 @@ from phoenix_channels_python_client.client import (
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from band_wezterm.auth.host_auth import HostAuth
-from band_wezterm.config import Settings, load_settings
+from band_wezterm.config import CHAT_MESSAGES_LIMIT, Settings, load_settings
 from band_wezterm.identity import (
     AvatarKind,
     HarnessId,
@@ -92,6 +93,42 @@ class MessageRecord(BaseModel):
     id: str
     content: str
     author_name: str
+
+
+_MENTION_MARKUP = re.compile(r"@\[\[([0-9a-fA-F-]+)\]\]")
+
+
+def display_message_content(
+    content: str, metadata: Mapping[str, Any] | None = None
+) -> str:
+    """Turn platform `@[[uuid]]` mention markup into `@name` for the chat pane."""
+    names: dict[str, str] = {}
+    if metadata is not None:
+        for item in metadata.get("mentions") or ():
+            if not isinstance(item, Mapping):
+                continue
+            mention_id = item.get("id")
+            if mention_id is None:
+                continue
+            label = item.get("name") or item.get("handle") or mention_id
+            names[str(mention_id)] = str(label)
+    return _MENTION_MARKUP.sub(
+        lambda match: f"@{names.get(match.group(1), match.group(1))}", content
+    )
+
+
+def message_record_from_api(message: object) -> MessageRecord:
+    """Map a Fern ChatMessage (or compatible object) into the host record."""
+    metadata = getattr(message, "metadata", None)
+    meta = metadata if isinstance(metadata, Mapping) else None
+    content = str(getattr(message, "content", "") or "")
+    sender_name = getattr(message, "sender_name", None)
+    sender_id = getattr(message, "sender_id", None)
+    return MessageRecord(
+        id=str(getattr(message, "id")),
+        content=display_message_content(content, meta),
+        author_name=str(sender_name or sender_id or "unknown"),
+    )
 
 
 class RealtimeEvent(BaseModel):
@@ -343,11 +380,21 @@ class BandClient:
                 ],
             ),
         )
-        return MessageRecord(
-            id=str(response.data.id),
-            content=getattr(response.data, "content", body) or body,
-            author_name="me",
+        return message_record_from_api(response.data)
+
+    async def list_messages(
+        self,
+        room_id: UUID | str,
+        *,
+        limit: int = CHAT_MESSAGES_LIMIT,
+    ) -> list[MessageRecord]:
+        """Latest page of room history, oldest-first (plugin fetchLatestMessages)."""
+        response = await self._messages.list_my_chat_messages(
+            str(room_id), limit=limit
         )
+        rows = list(response.data or [])
+        rows.reverse()
+        return [message_record_from_api(message) for message in rows]
 
     async def list_directory(self) -> list[AgentRecord]:
         """Public opt-in Discover directory — distinct from Agents search."""

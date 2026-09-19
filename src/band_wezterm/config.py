@@ -16,6 +16,8 @@ CALLBACK_PATH = "/callback"
 KEYRING_SERVICE = "band-wezterm"
 KEYRING_USER_TOKENS = "userTokens"
 LOCAL_STATE_DIRNAME = ".band-wezterm"
+# Matches band-plugin-vsc DEFAULT_CHAT_MESSAGES_LIMIT — latest page on room enter.
+CHAT_MESSAGES_LIMIT = 20
 
 
 class Settings(BaseSettings):

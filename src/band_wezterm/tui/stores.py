@@ -222,6 +222,10 @@ class RoomsStore:
     ) -> None:
         self.participants = list(participants)
 
+    def replace_messages(self, messages: Sequence[MessageRecord]) -> None:
+        """Replace the open room's history (REST latest page, oldest-first)."""
+        self._messages = {message.id: message for message in messages}
+
     def addable_candidates(self) -> list[AgentRecord]:
         """Add-only picker: agents already in the roster are never offered."""
         present = self.participant_ids

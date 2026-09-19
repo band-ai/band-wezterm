@@ -135,3 +135,27 @@ async def test_unmount_stops_every_agent_tab_the_host_started(
 
     assert killed == [AGENT_PANE]
     assert control_app.agents_store.running == {}
+
+
+async def test_opening_a_room_loads_message_history(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    """Room enter must REST-fetch history — realtime alone is not enough."""
+    from band_wezterm.client import MessageRecord
+
+    history = [
+        MessageRecord(id="m1", content="@omp hello", author_name="user1 ci"),
+        MessageRecord(id="m2", content="hi back", author_name="omp"),
+    ]
+    band_client.list_messages.return_value = history
+    band_client.list_participants.return_value = []
+    target = room(ROOM_ID, "Core")
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target)
+        await settle(pilot)
+        assert isinstance(control_app.screen, RoomDetailScreen)
+        assert [m.id for m in control_app.rooms_store.messages] == ["m1", "m2"]
+
+    band_client.list_messages.assert_awaited_once_with(ROOM_ID)

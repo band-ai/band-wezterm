@@ -426,7 +426,7 @@ class AgentsScreen(ControlScreen):
             self._set_status(str(error))
             return
         store.mark_running(agent.id, pane_id)
-        store.status = f"Started {agent.name} in pane {pane_id.root}."
+        store.status = (f"Started {agent.name} in pane {pane_id.root} — PoC tab only; harness reply is not wired yet.")
         self.mutate_reactive(AgentsScreen.store)
 
     @work(group="agents-spawn")
