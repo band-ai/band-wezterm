@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -34,6 +35,7 @@ from band_wezterm.tui.screens.rooms import (
     RoomsScreen,
 )
 from band_wezterm.tui.screens.rooms import selector as room_selector
+from band_wezterm.tui.screens.settings import SettingsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
 from band_wezterm.wezterm_cli import PaneId
 
@@ -430,7 +432,52 @@ async def test_sign_out_returns_to_sign_in(
         await settle(pilot)
         assert isinstance(control_app.screen, SignInScreen)
         assert control_app.user_id is None
-        host_auth.sign_out.assert_awaited_once()
+    host_auth.sign_out.assert_awaited_once()
+
+
+async def test_escape_cancels_pending_browser_sign_in(
+    control_app: ControlApp, host_auth: MagicMock
+) -> None:
+    host_auth.has_stored_tokens.return_value = False
+    pending = asyncio.Event()
+
+    async def wait_for_browser() -> None:
+        await pending.wait()
+
+    host_auth.sign_in.side_effect = wait_for_browser
+    host_auth.cancel_sign_in.side_effect = pending.set
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("enter", "escape")
+        await settle(pilot)
+        assert isinstance(control_app.screen, AgentsScreen)
+
+    host_auth.cancel_sign_in.assert_called_once()
+
+
+async def test_global_navigation_reaches_every_base_screen(
+    control_app: ControlApp,
+) -> None:
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        assert isinstance(control_app.screen, AgentsScreen)
+
+        await pilot.press("ctrl+o")
+        await settle(pilot)
+        assert isinstance(control_app.screen, RoomsScreen)
+
+        await pilot.press("ctrl+comma")
+        await settle(pilot)
+        assert isinstance(control_app.screen, SettingsScreen)
+
+        await pilot.press("escape")
+        await settle(pilot)
+        assert isinstance(control_app.screen, RoomsScreen)
+
+        await pilot.press("ctrl+a")
+        await settle(pilot)
+        assert isinstance(control_app.screen, AgentsScreen)
 
 
 async def test_reconfigure_opens_wizard(control_app: ControlApp, band_client: MagicMock) -> None:

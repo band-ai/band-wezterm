@@ -321,6 +321,8 @@ class RoomsScreen(ControlScreen):
 
     def on_screen_resume(self) -> None:
         """A draft never survives leaving the screen — reopen it from scratch."""
+        if not self.is_mounted:
+            return
         self._pending_delete_id = None
         self._close_draft()
         self.mutate_reactive(RoomsScreen.store)

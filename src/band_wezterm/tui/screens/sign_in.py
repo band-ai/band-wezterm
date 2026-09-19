@@ -17,7 +17,7 @@ SIGN_IN_TITLE: Final = "Band"
 SIGN_IN_PROMPT: Final = "Press Enter to sign in"
 SIGN_IN_PENDING: Final = "Waiting for the browser to complete sign-in…"
 SIGN_IN_HINT: Final = (
-    "Sign-in opens your browser. The Control tab stays open while you finish."
+    "Sign-in opens your browser. Press Esc to cancel and try again."
 )
 
 
@@ -26,6 +26,7 @@ class SignInScreen(ControlScreen):
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("enter", "sign_in", "Sign in"),
+        Binding("escape", "cancel_sign_in", "Cancel", show=False),
         Binding("ctrl+q", "quit_host", "Quit host"),
     ]
 
@@ -56,6 +57,10 @@ class SignInScreen(ControlScreen):
 
     def action_quit_host(self) -> None:
         self.control.exit()
+
+    def action_cancel_sign_in(self) -> None:
+        if self.busy:
+            self.control.host_auth.cancel_sign_in()
 
     @work(exclusive=True)
     async def _sign_in(self) -> None:

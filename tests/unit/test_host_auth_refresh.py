@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+from threading import Event, Thread
+from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
 
 import pytest
 
+import band_wezterm.auth.host_auth as host_auth_module
 from band_wezterm.auth.credentials import NoApiKeyError, TokenStore, UserTokens
-from band_wezterm.auth.host_auth import HostAuth, TokenExchangeError
+from band_wezterm.auth.host_auth import (
+    SIGN_IN_CANCELLED_MESSAGE,
+    HostAuth,
+    TokenExchangeError,
+)
 from band_wezterm.config import Settings
 
 
@@ -124,3 +132,76 @@ async def test_concurrent_access_token_requests_share_one_refresh(
 
     assert await asyncio.gather(first, second) == ["new-at", "new-at"]
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_sign_in_unblocks_the_callback_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = HostAuth(Settings(band_oauth_client_id="client"), _MemoryStore())
+    server_started = Event()
+
+    async def discover() -> object:
+        class Metadata:
+            authorization_endpoint = "https://auth.band.ai/authorize"
+            token_endpoint = "https://auth.band.ai/token"
+
+        return Metadata()
+
+    monkeypatch.setattr(auth, "_discover", discover)
+    monkeypatch.setattr(auth, "_open_browser", lambda _url: True)
+    original_start = host_auth_module._start_loopback_server
+
+    def start_server(state: str):
+        result = original_start(state)
+        server_started.set()
+        return result
+
+    monkeypatch.setattr("band_wezterm.auth.host_auth._start_loopback_server", start_server)
+
+    sign_in = asyncio.create_task(auth.sign_in())
+    assert await asyncio.to_thread(server_started.wait, 1)
+    auth.cancel_sign_in()
+
+    with pytest.raises(RuntimeError, match=SIGN_IN_CANCELLED_MESSAGE):
+        await sign_in
+
+
+@pytest.mark.asyncio
+async def test_sign_in_returns_after_the_browser_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _MemoryStore()
+
+    def complete_callback(authorization_url: str) -> bool:
+        parsed = urlparse(authorization_url)
+        parameters = parse_qs(parsed.query)
+        callback = urlparse(parameters["redirect_uri"][0])
+        query = f"code=authorization-code&state={parameters['state'][0]}"
+        redirect = callback._replace(query=query).geturl()
+        Thread(target=lambda: urlopen(redirect, timeout=2).read()).start()
+        return True
+
+    auth = HostAuth(
+        Settings(band_oauth_client_id="client"), store, open_browser=complete_callback
+    )
+
+    async def discover() -> object:
+        class Metadata:
+            authorization_endpoint = "https://auth.band.ai/authorize"
+            token_endpoint = "https://auth.band.ai/token"
+
+        return Metadata()
+
+    async def exchange(
+        _endpoint: str, form: dict[str, str], **_kwargs: object
+    ) -> UserTokens:
+        assert form["code"] == "authorization-code"
+        return UserTokens(access_token="access", refresh_token="refresh", expires_at=1)
+
+    monkeypatch.setattr(auth, "_discover", discover)
+    monkeypatch.setattr(auth, "_exchange", exchange)
+
+    await asyncio.wait_for(auth.sign_in(), timeout=2)
+
+    assert store.get_user_tokens() is not None

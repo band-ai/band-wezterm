@@ -222,6 +222,8 @@ class AgentsScreen(ControlScreen):
 
     def on_screen_resume(self) -> None:
         """A draft never survives leaving the screen — reopen it from scratch."""
+        if not self.is_mounted:
+            return
         self._close_draft()
 
     async def watch_store(self, store: AgentsStore) -> None:

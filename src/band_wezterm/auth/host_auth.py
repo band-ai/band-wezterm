@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 import webbrowser
 from collections.abc import Callable
+from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -26,6 +28,8 @@ DEFAULT_TOKEN_LIFETIME_SECONDS = 3_600
 MINIMUM_TOKEN_LIFETIME_SECONDS = 1
 INVALID_GRANT_ERROR = "invalid_grant"
 SIGN_IN_TIMEOUT_S = 10 * 60
+LOOPBACK_POLL_SECONDS = 0.2
+SIGN_IN_CANCELLED_MESSAGE = "Band sign-in was cancelled."
 
 
 class OidcMetadata(BaseModel):
@@ -71,6 +75,7 @@ class HostAuth:
         self._refresh_generation: int | None = None
         self._lock = asyncio.Lock()
         self._oidc_metadata: OidcMetadata | None = None
+        self._authorization_cancel: threading.Event | None = None
 
     @property
     def token_generation(self) -> int:
@@ -99,28 +104,36 @@ class HostAuth:
             raise RuntimeError(
                 "Band sign-in is unavailable because the OAuth client id is empty."
             )
+        self.cancel_sign_in()
         generation = self._bump_generation()
         metadata = await self._discover()
         if generation != self._token_generation:
             raise RuntimeError("Band sign-in was superseded by a newer sign-in.")
 
+        cancellation = threading.Event()
+        self._authorization_cancel = cancellation
         verifier = code_verifier()
         state = random_base64url()
-        server, port = await asyncio.to_thread(_start_loopback_server, state)
-        redirect_uri = f"http://127.0.0.1:{port}{CALLBACK_PATH}"
-        authorize_url = _build_authorize_url(
-            metadata.authorization_endpoint,
-            client_id=self._settings.band_oauth_client_id,
-            redirect_uri=redirect_uri,
-            state=state,
-            challenge=code_challenge(verifier),
-        )
+        server: _LoopbackServer | None = None
+        callback_wait: asyncio.Task[str] | None = None
         try:
+            server, port = await asyncio.to_thread(_start_loopback_server, state)
+            redirect_uri = f"http://127.0.0.1:{port}{CALLBACK_PATH}"
+            authorize_url = _build_authorize_url(
+                metadata.authorization_endpoint,
+                client_id=self._settings.band_oauth_client_id,
+                redirect_uri=redirect_uri,
+                state=state,
+                challenge=code_challenge(verifier),
+            )
             opened = self._open_browser(authorize_url)
             if not opened:
                 raise RuntimeError("Could not open the sign-in browser.")
+            callback_wait = asyncio.create_task(
+                asyncio.to_thread(_wait_for_code, server, cancellation)
+            )
             code = await asyncio.wait_for(
-                asyncio.to_thread(_wait_for_code, server),
+                asyncio.shield(callback_wait),
                 timeout=SIGN_IN_TIMEOUT_S,
             )
             tokens = await self._exchange(
@@ -136,7 +149,19 @@ class HostAuth:
             if not await self._store_user_tokens(tokens, generation):
                 raise RuntimeError("Band sign-in was superseded by a newer sign-in.")
         finally:
-            await asyncio.to_thread(server.shutdown)
+            cancellation.set()
+            if callback_wait is not None:
+                with suppress(Exception):
+                    await callback_wait
+            if server is not None:
+                await asyncio.to_thread(server.server_close)
+            if self._authorization_cancel is cancellation:
+                self._authorization_cancel = None
+
+    def cancel_sign_in(self) -> None:
+        """End the active browser sign-in, if any."""
+        if self._authorization_cancel is not None:
+            self._authorization_cancel.set()
 
     async def sign_out(self) -> None:
         self._bump_generation()
@@ -320,6 +345,7 @@ class _LoopbackServer(HTTPServer):
     def __init__(self, expected_state: str) -> None:
         super().__init__(("127.0.0.1", 0), _CallbackHandler)
         self.expected_state = expected_state
+        self.timeout = LOOPBACK_POLL_SECONDS
         self.authorization_code: str | None = None
         self.error: str | None = None
 
@@ -329,9 +355,17 @@ def _start_loopback_server(state: str) -> tuple[_LoopbackServer, int]:
     return server, int(server.server_address[1])
 
 
-def _wait_for_code(server: _LoopbackServer) -> str:
-    while server.authorization_code is None and server.error is None:
+def _wait_for_code(
+    server: _LoopbackServer, cancellation: threading.Event
+) -> str:
+    while (
+        server.authorization_code is None
+        and server.error is None
+        and not cancellation.is_set()
+    ):
         server.handle_request()
+    if cancellation.is_set():
+        raise RuntimeError(SIGN_IN_CANCELLED_MESSAGE)
     if server.error:
         raise RuntimeError(server.error)
     assert server.authorization_code is not None
