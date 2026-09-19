@@ -55,9 +55,11 @@ def announce(agent_id: str, name: str, harness: str | None) -> None:
 
 def _read_api_key(key_file: Path | None) -> str:
     if key_file is not None:
-        key = key_file.read_text(encoding="utf-8").strip()
-        with contextlib.suppress(OSError):
-            key_file.unlink(missing_ok=True)
+        try:
+            key = key_file.read_text(encoding="utf-8").strip()
+        finally:
+            with contextlib.suppress(OSError):
+                key_file.unlink(missing_ok=True)
         if key:
             return key
     env_key = os.environ.get(AGENT_API_KEY_ENV, "").strip()

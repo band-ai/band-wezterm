@@ -188,6 +188,24 @@ async def test_opening_a_room_loads_message_history(
     )
 
 
+async def test_candidate_load_failure_is_not_shown_as_an_empty_directory(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    failure = "directory unavailable"
+    band_client.list_my_agents.side_effect = RuntimeError(failure)
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(room(ROOM_ID, "Core"))
+        await settle(pilot)
+        await pilot.press("a")
+        await settle(pilot)
+        status = control_app.screen.query_one(
+            room_selector(RoomId.DETAIL_STATUS), Static
+        )
+        assert str(status.render()) == failure
+
+
 async def test_room_roster_shows_local_agent_runtime(
     control_app: ControlApp, band_client: MagicMock
 ) -> None:

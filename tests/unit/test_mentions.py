@@ -12,6 +12,7 @@ from band_wezterm.tui.widgets import MarkdownComposer, MentionSuggester
 
 PARTICIPANT_ID = "0f5d0b7c-1a3e-4c5b-9d2f-6a7b8c9d0e1f"
 HANDLE_WITH_SPACES = "Developer 6753"
+NAMESPACED_HANDLE = "alexander.zaikman/qqq"
 
 
 class ComposerApp(App[None]):
@@ -51,6 +52,20 @@ def test_resolve_mention_prefers_the_longest_matching_handle() -> None:
     assert resolved == (participant(), "hello")
 
 
+def test_resolve_mention_accepts_the_visible_roster_name() -> None:
+    recipient = ParticipantRecord(
+        id=PARTICIPANT_ID,
+        name="qqq",
+        handle=NAMESPACED_HANDLE,
+        kind=AvatarKind.AGENT,
+        color="#7ee787",
+    )
+
+    resolved = resolve_mention("@qqq hello", [recipient])
+
+    assert resolved == (recipient, "hello")
+
+
 @pytest.mark.asyncio
 async def test_mention_suggester_completes_a_multiword_handle() -> None:
     suggestion = await MentionSuggester(lambda: (HANDLE_WITH_SPACES,)).get_suggestion(
@@ -58,6 +73,15 @@ async def test_mention_suggester_completes_a_multiword_handle() -> None:
     )
 
     assert suggestion == "hello @Developer 6753 "
+
+
+@pytest.mark.asyncio
+async def test_mention_suggester_completes_visible_roster_name() -> None:
+    suggestion = await MentionSuggester(lambda: (NAMESPACED_HANDLE, "qqq")).get_suggestion(
+        "@q"
+    )
+
+    assert suggestion == "@qqq "
 
 
 @pytest.mark.asyncio

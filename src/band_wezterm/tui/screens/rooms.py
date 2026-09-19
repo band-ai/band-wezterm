@@ -102,23 +102,32 @@ def selector(widget_id: Id) -> str:
     return f"#{widget_id.value}"
 
 
-def mention_handle(participant: ParticipantRecord) -> str:
-    """The canonical composer key, with a display-name fallback for legacy data."""
-    return participant.handle or participant.name
+def mention_keys(participant: ParticipantRecord) -> tuple[str, ...]:
+    """Accepted composer keys: the true handle and the visible roster name."""
+    keys = (participant.handle, participant.name)
+    return tuple(dict.fromkeys(key for key in keys if key))
 
 
 def resolve_mention(
     body: str, participants: Iterable[ParticipantRecord]
 ) -> tuple[ParticipantRecord, str] | None:
     """First canonical `@handle` that names a participant, plus the remaining body."""
-    roster = sorted(participants, key=lambda person: len(mention_handle(person)), reverse=True)
-    for participant in roster:
-        token = re.escape(mention_handle(participant))
-        match = re.search(rf"(?<!\S)@{token}(?=\s|$)", body, flags=re.IGNORECASE)
-        if match is None:
-            continue
-        remainder = f"{body[: match.start()]} {body[match.end() :]}".strip()
-        return participant, remainder
+    candidates = sorted(
+        (
+            (key, participant)
+            for participant in participants
+            for key in mention_keys(participant)
+        ),
+        key=lambda candidate: len(candidate[0]),
+        reverse=True,
+    )
+    for key, participant in candidates:
+        match = re.search(
+            rf"(?<!\S)@{re.escape(key)}(?=\s|$)", body, flags=re.IGNORECASE
+        )
+        if match is not None:
+            remainder = f"{body[: match.start()]} {body[match.end() :]}".strip()
+            return participant, remainder
     return None
 
 
@@ -589,7 +598,7 @@ class RoomDetailScreen(ControlScreen):
     async def _render_roster(self, store: RoomsStore) -> None:
         running_ids = self.control.agents_store.running_ids
         self.query_one(selector(Id.COMPOSER), MarkdownComposer).set_mention_handles(
-            mention_handle(participant) for participant in store.participants
+            key for participant in store.participants for key in mention_keys(participant)
         )
         await refill(
             self._roster_view(),
@@ -714,8 +723,10 @@ class RoomDetailScreen(ControlScreen):
             store.candidates = await self.control.client.list_my_agents()
         except Exception as error:
             store.status = format_platform_error(error)
-        if not store.addable_candidates():
-            store.status = EMPTY_CANDIDATES
+        else:
+            store.status = (
+                "" if store.addable_candidates() else EMPTY_CANDIDATES
+            )
         self.mutate_reactive(RoomDetailScreen.store)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:

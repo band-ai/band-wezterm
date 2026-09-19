@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from band_wezterm.auth.credentials import NoApiKeyError, TokenStore, UserTokens
@@ -90,3 +92,35 @@ async def test_invalid_refresh_token_clears_the_local_session(
         await auth.get_access_token()
 
     assert store.get_user_tokens() is None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_access_token_requests_share_one_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _MemoryStore()
+    store.set_user_tokens(
+        UserTokens(access_token="old-at", refresh_token="refresh", expires_at=0)
+    )
+    auth = HostAuth(Settings(band_oauth_client_id="client"), store)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def refresh(*_args: object, **_kwargs: object) -> str:
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        return "new-at"
+
+    monkeypatch.setattr(auth, "_refresh", refresh)
+
+    first = asyncio.create_task(auth.get_access_token())
+    await started.wait()
+    second = asyncio.create_task(auth.get_access_token())
+    await asyncio.sleep(0)
+    release.set()
+
+    assert await asyncio.gather(first, second) == ["new-at", "new-at"]
+    assert calls == 1

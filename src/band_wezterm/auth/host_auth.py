@@ -148,17 +148,17 @@ class HostAuth:
 
     async def _refresh_access_token(self, tokens: UserTokens, generation: int) -> str:
         async with self._lock:
-            if (
+            if not (
                 self._refresh_flight is not None
                 and self._refresh_generation == generation
                 and not self._refresh_flight.done()
             ):
-                return await self._refresh_flight
-            self._refresh_generation = generation
-            self._refresh_flight = asyncio.create_task(
-                self._refresh(tokens, generation)
-            )
+                self._refresh_generation = generation
+                self._refresh_flight = asyncio.create_task(
+                    self._refresh(tokens, generation)
+                )
             flight = self._refresh_flight
+        assert flight is not None
         try:
             return await flight
         finally:
