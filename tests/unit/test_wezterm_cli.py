@@ -20,11 +20,12 @@ from band_wezterm.wezterm_cli import (
 def test_first_spawn_uses_new_window_without_hidden_workspace() -> None:
     """Visible Control window: omit --workspace (wezterm#3542 has no switch CLI)."""
     command = ["python", "-m", "band_wezterm.tui"]
-    args = first_spawn_args(Path("/tmp/work"), command)
+    cwd = Path("/tmp/work")
+    args = first_spawn_args(cwd, command)
     assert args[:3] == ["cli", "spawn", "--new-window"]
     assert "--workspace" not in args
     assert "--window-id" not in args
-    assert args[args.index("--cwd") + 1] == "/tmp/work"
+    assert args[args.index("--cwd") + 1] == str(cwd)
     assert args[args.index("--") + 1 :] == command
 
 
