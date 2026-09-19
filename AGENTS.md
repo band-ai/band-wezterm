@@ -17,6 +17,7 @@
 - **No Magic Numbers or Strings**: Replace raw inline literals and string
   values with descriptive, well-named constants, enums, or configuration
   parameters.
+- **Top-level imports**: Put every `import` / `from` at module top-level (never inside a function body). Enforced by ruff `PLC0415` in CI (`uv run ruff check`). Use `TYPE_CHECKING` for circular-type-only imports; reserve `# noqa: PLC0415` only for genuinely optional extras with a reason on the same line.
 - **Strong Types**: Prefer typed models and enums over bare `dict`/`str`
   payloads. Use Pydantic for structured data (config, API shapes, persisted
   state). Prefer `StrEnum` (or other enums) for closed string sets instead of

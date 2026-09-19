@@ -9,6 +9,19 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv lock --check
+      - run: uv sync --locked
+      - run: uv run ruff check
+
   unit:
     name: unit + pilot (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

@@ -10,7 +10,7 @@ from typing import Callable
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from band_wezterm.auth.credentials import NoApiKeyError, TokenStore, UserTokens
 from band_wezterm.auth.pkce import code_challenge, code_verifier, random_base64url

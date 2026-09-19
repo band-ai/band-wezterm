@@ -13,6 +13,8 @@ import sys
 import httpx
 import pytest
 
+from band_wezterm.client import BandClient
+from band_wezterm.config import load_settings
 from tests.live_settings import pinned_agent_id, user_api_key
 from tests.paths import REPO_ROOT
 
@@ -48,9 +50,6 @@ def _display_text(display: object) -> str:
 
 def test_live_room_participant_flow_with_user_api_key() -> None:
     """create_room → add_participant → @mention → remove_participant."""
-    from band_wezterm.client import BandClient
-    from band_wezterm.config import load_settings
-
     api_key = user_api_key()
     if not api_key:
         pytest.skip("BAND_API_KEY_USER not set (see .env.test)")

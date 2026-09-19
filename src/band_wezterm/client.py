@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 from collections.abc import Callable, Mapping
 from enum import StrEnum

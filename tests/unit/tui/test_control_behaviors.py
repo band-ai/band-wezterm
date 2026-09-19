@@ -8,6 +8,7 @@ import pytest
 from textual.containers import Vertical
 from textual.widgets import Input, ListView
 
+from band_wezterm.client import MessageRecord
 from band_wezterm.tui.control_app import ControlApp
 from band_wezterm.tui.screens.agents import OPEN_CLASS, AgentRow, AgentsScreen
 from band_wezterm.tui.screens.agents import Id as AgentId
@@ -142,8 +143,6 @@ async def test_opening_a_room_loads_message_history(
     control_app: ControlApp, band_client: MagicMock
 ) -> None:
     """Room enter must REST-fetch history — realtime alone is not enough."""
-    from band_wezterm.client import MessageRecord
-
     history = [
         MessageRecord(id="m1", content="@omp hello", author_name="user1 ci"),
         MessageRecord(id="m2", content="hi back", author_name="omp"),
