@@ -70,6 +70,7 @@ class HostAuth:
         self._refresh_flight: asyncio.Task[str] | None = None
         self._refresh_generation: int | None = None
         self._lock = asyncio.Lock()
+        self._oidc_metadata: OidcMetadata | None = None
 
     @property
     def token_generation(self) -> int:
@@ -179,13 +180,14 @@ class HostAuth:
         )
         if generation != self._token_generation:
             raise NoApiKeyError()
-        # Bump so BandClient realtime can detect credential rotation.
-        self._token_generation += 1
-        if not await self._store_user_tokens(refreshed, self._token_generation):
+        new_generation = self._bump_generation()
+        if not await self._store_user_tokens(refreshed, new_generation):
             raise NoApiKeyError()
         return refreshed.access_token
 
     async def _discover(self) -> OidcMetadata:
+        if self._oidc_metadata is not None:
+            return self._oidc_metadata
         issuer = self._settings.band_oauth_issuer.rstrip("/")
         url = f"{issuer}/.well-known/openid-configuration"
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -196,6 +198,7 @@ class HostAuth:
             issuer, metadata.authorization_endpoint, "authorization_endpoint"
         )
         _validate_endpoint(issuer, metadata.token_endpoint, "token_endpoint")
+        self._oidc_metadata = metadata
         return metadata
 
     async def _exchange(

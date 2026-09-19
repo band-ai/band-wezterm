@@ -24,7 +24,7 @@ from band_wezterm.identity import (
     harness_badge,
     initials,
 )
-from band_wezterm.osc import OscKey, emit
+from band_wezterm.osc import OscKey, emit_many
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.stores import (
     AGENT_FILTER_LABELS,
@@ -33,7 +33,13 @@ from band_wezterm.tui.stores import (
     AgentsStore,
 )
 from band_wezterm.tui.widgets import AvatarChip, Chip, FilterChips
-from band_wezterm.wezterm_cli import PaneId, kill_pane, list_panes, spawn_additional_tab
+from band_wezterm.wezterm_cli import (
+    PaneId,
+    WezTermCliError,
+    kill_pane,
+    list_panes,
+    spawn_additional_tab,
+)
 
 NO_BADGE: Final = "  "
 
@@ -111,8 +117,7 @@ def announce_agent(pane_id: PaneId, agent: AgentRecord) -> None:
     badge = badge_for(agent)
     if badge is not None:
         fields[OscKey.AGENT_HARNESS] = badge.value
-    for key, value in fields.items():
-        emit(pane_id, key, value)
+    emit_many(pane_id, fields)
 
 
 class AgentRow(ListItem):
@@ -414,9 +419,9 @@ class AgentsScreen(ControlScreen):
                 spawn_additional_tab, window_id, Path.cwd(), AGENT_POC_COMMAND
             )
             await asyncio.to_thread(announce_agent, pane_id, agent)
-        except Exception as error:
+        except (WezTermCliError, OSError) as error:
             if pane_id is not None:
-                with suppress(Exception):
+                with suppress(WezTermCliError, OSError):
                     await asyncio.to_thread(kill_pane, pane_id)
             self._set_status(str(error))
             return
@@ -430,7 +435,7 @@ class AgentsScreen(ControlScreen):
     ) -> None:
         try:
             await asyncio.to_thread(kill_pane, pane_id)
-        except Exception as error:
+        except (WezTermCliError, OSError) as error:
             self._set_status(str(error))
             return
         self.store.mark_stopped(agent_id)
@@ -445,7 +450,7 @@ class AgentsScreen(ControlScreen):
             return
         try:
             panes = await asyncio.to_thread(list_panes)
-        except Exception:
+        except (WezTermCliError, OSError):
             return
         stopped = store.prune_running(pane.pane_id for pane in panes)
         if stopped:

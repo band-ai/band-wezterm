@@ -20,13 +20,14 @@ from band_wezterm.client import BandClient, RoomRecord
 from band_wezterm.config import CONTROL_TAB_TITLE, Settings, load_settings
 from band_wezterm.identity import AgentStatus, AvatarKind, agent_accent, initials
 from band_wezterm.local_state import StarredRooms
-from band_wezterm.osc import OscKey, emit_to_stdout
+from band_wezterm.osc import OscKey, emit_many_to_stdout
 from band_wezterm.tui.screens.agents import AgentsScreen
 from band_wezterm.tui.screens.rooms import RoomDetailScreen, RoomsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
 from band_wezterm.tui.stores import AgentsStore, RoomsStore
 from band_wezterm.wezterm_cli import (
     PaneId,
+    WezTermCliError,
     WindowId,
     kill_pane,
     window_id_for_pane,
@@ -112,7 +113,7 @@ class ControlApp(App[None]):
     async def on_unmount(self) -> None:
         """Host shutdown: every agent tab this host started goes with it."""
         for pane_id in list(self.agents_store.running.values()):
-            with suppress(Exception):
+            with suppress(WezTermCliError, OSError):
                 kill_pane(pane_id)
         self.agents_store.running.clear()
         await self.client.aclose()
@@ -170,8 +171,7 @@ def announce_human(user_id: str) -> None:
         OscKey.AGENT_KIND: AvatarKind.HUMAN.value,
         OscKey.AGENT_STATUS: AgentStatus.ONLINE.value,
     }
-    for key, value in fields.items():
-        emit_to_stdout(key, value)
+    emit_many_to_stdout(fields)
 
 
 def run_control_app() -> int:

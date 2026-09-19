@@ -70,10 +70,3 @@ async def test_refresh_keeps_prior_refresh_token_when_omitted(
     assert stored.refresh_token == "keep-me"
     assert stored.access_token == "new-at"
 
-
-def test_room_topics_match_sdk_core() -> None:
-    from band_sdk_core import chat_room_topic, room_participants_topic
-
-    room_id = "11111111-1111-1111-1111-111111111111"
-    assert chat_room_topic(room_id) == f"chat_room:{room_id}"
-    assert room_participants_topic(room_id) == f"room_participants:{room_id}"

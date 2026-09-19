@@ -40,11 +40,11 @@ class PaneInfo(BaseModel):
     cwd: str | None = None
 
 
-class WezTermNotFoundError(RuntimeError):
-    pass
-
-
 class WezTermCliError(RuntimeError):
+    """Base for wezterm CLI failures (missing binary or nonzero exit)."""
+
+
+class WezTermNotFoundError(WezTermCliError):
     pass
 
 

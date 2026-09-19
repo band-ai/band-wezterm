@@ -169,9 +169,13 @@ class RoomsStore:
     participants: list[ParticipantRecord] = field(default_factory=list)
     candidates: list[AgentRecord] = field(default_factory=list)
     picker_open: bool = False
-    messages: list[MessageRecord] = field(default_factory=list)
+    _messages: dict[str, MessageRecord] = field(default_factory=dict)
     loading: bool = False
     status: str = ""
+
+    @property
+    def messages(self) -> list[MessageRecord]:
+        return list(self._messages.values())
 
     @property
     def visible(self) -> list[RoomRecord]:
@@ -210,7 +214,7 @@ class RoomsStore:
         self.selected_id = room_id
         self.participants = []
         self.candidates = []
-        self.messages = []
+        self._messages = {}
         self.picker_open = False
 
     def replace_participants(
@@ -233,9 +237,8 @@ class RoomsStore:
         ]
 
     def append_message(self, message: MessageRecord) -> None:
-        if any(existing.id == message.id for existing in self.messages):
-            return
-        self.messages = [*self.messages, message]
+        """Insert or replace by id (plugin upsertMessage — covers message_updated)."""
+        self._messages[message.id] = message
 
     def find_participant(self, participant_id: str) -> ParticipantRecord | None:
         return next(

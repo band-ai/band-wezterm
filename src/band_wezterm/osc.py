@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import sys
 from enum import StrEnum
+from collections.abc import Mapping
 from typing import Final
 
 from band_wezterm.wezterm_cli import PaneId, send_text
@@ -57,11 +58,27 @@ def format_sequence(key: OscKey | str, value: str) -> str:
 
 def emit(pane_id: PaneId, key: OscKey | str, value: str) -> None:
     """Write an allowlisted user-var to a pane. Raises on a disallowed key."""
-    sequence = format_sequence(key, value)
-    send_text(pane_id, sequence)
+    emit_many(pane_id, {key: value})
+
+
+def emit_many(pane_id: PaneId, fields: Mapping[OscKey | str, str]) -> None:
+    """Write several allowlisted user-vars in one ``wezterm cli send-text``."""
+    payload = _joined_sequences(fields)
+    if payload:
+        send_text(pane_id, payload)
 
 
 def emit_to_stdout(key: OscKey | str, value: str) -> None:
     """Emit into the current pane's own stdout (Control/agent self-announce)."""
-    sys.stdout.write(format_sequence(key, value))
-    sys.stdout.flush()
+    emit_many_to_stdout({key: value})
+
+
+def emit_many_to_stdout(fields: Mapping[OscKey | str, str]) -> None:
+    payload = _joined_sequences(fields)
+    if payload:
+        sys.stdout.write(payload)
+        sys.stdout.flush()
+
+
+def _joined_sequences(fields: Mapping[OscKey | str, str]) -> str:
+    return "".join(format_sequence(key, value) for key, value in fields.items())

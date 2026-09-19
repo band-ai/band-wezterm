@@ -182,7 +182,7 @@ class BandClient:
         self._wrapper = AsyncClientWrapper(
             api_key=api_key or "",
             base_url=self._settings.band_base_url.rstrip("/"),
-            async_token=None if api_key is not None else host_auth.get_access_token,  # type: ignore[union-attr]
+            async_token=None if api_key is not None else self._bearer_token,
             httpx_client=self._http,
         )
         self._agents = AsyncHumanApiAgentsClient(client_wrapper=self._wrapper)
@@ -202,11 +202,15 @@ class BandClient:
             return 0
         return self._host_auth.token_generation
 
-    async def _access_credential(self) -> str:
+    async def _fetch_token(self) -> str:
         if self._api_key is not None:
             return self._api_key
         assert self._host_auth is not None
-        token = await self._host_auth.get_access_token()
+        return await self._host_auth.get_access_token()
+
+    async def _bearer_token(self) -> str:
+        """OAuth token for REST; reconnects realtime when generation rotates."""
+        token = await self._fetch_token()
         if self._phx is not None and self._phx_generation != self._token_generation:
             await self.reset_realtime_after_credential_change()
         return token
@@ -347,7 +351,7 @@ class BandClient:
 
     async def list_directory(self) -> list[AgentRecord]:
         """Public opt-in Discover directory — distinct from Agents search."""
-        credential = await self._access_credential()
+        credential = await self._bearer_token()
         url = f"{self._settings.band_base_url.rstrip('/')}/api/v1/me/directory"
         headers = (
             {"X-API-Key": credential}
@@ -380,20 +384,13 @@ class BandClient:
 
         return unsubscribe
 
-    async def ensure_realtime(self) -> None:
-        await self._ensure_realtime()
-
     async def _ensure_realtime(self) -> None:
-        generation = self._token_generation
-        if self._phx is not None and self._phx_generation == generation:
+        if self._phx is not None and self._phx_generation == self._token_generation:
             return
         await self._disconnect_realtime()
-        token = await self._host_auth.get_access_token() if self._host_auth else self._api_key
-        assert token is not None
+        token = await self._fetch_token()
+        generation = self._token_generation
         ws_url = self._settings.band_ws_url.rstrip("/")
-        # Match plugin (x-auth-token) / sdk (x-api-key): auth on the handshake,
-        # not a bespoke `token=` query. PHXChannelsClient still places `api_key`
-        # in the query (library requirement); header is authoritative for users.
         headers = (
             {"x-api-key": token}
             if self._api_key is not None
@@ -423,12 +420,11 @@ class BandClient:
             for listener in list(self._realtime_listeners):
                 listener(event)
 
-        # Plugin joins both topics as one transaction.
         await self._phx.subscribe_to_topic(chat_room_topic(room_id), handler)
         await self._phx.subscribe_to_topic(room_participants_topic(room_id), handler)
 
     async def reset_realtime_after_credential_change(self) -> None:
-        """Mirror chatViewModel.refreshAfterCredentialChange realtime reset."""
+        """Reconnect the socket after HostAuth rotation (listeners stay registered)."""
         await self._disconnect_realtime()
         if self._realtime_listeners:
             await self._ensure_realtime()
@@ -436,12 +432,14 @@ class BandClient:
     async def _disconnect_realtime(self) -> None:
         if self._phx is None:
             return
-        try:
-            await self._phx.shutdown("credential change or client close")
-        except Exception:
-            pass
+        client = self._phx
         self._phx = None
         self._phx_generation = None
+        try:
+            await client.shutdown("credential change or client close")
+        except Exception:
+            # Teardown is best-effort; socket/supervisor may already be gone.
+            pass
 
 
 def avatar_label(name: str) -> str:
