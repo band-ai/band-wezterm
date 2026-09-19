@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import shutil
+import stat
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
 from pathlib import Path
@@ -47,6 +49,13 @@ LOCK_HOLDER_SLEEP_SECONDS = 60
 
 def _materialize_plugin_repo(home: Path) -> Path:
     return materialize_plugin_repo(home=home)
+
+
+def _remove_readonly_path(
+    function: Callable[[str], object], path: str, _error: BaseException
+) -> None:
+    Path(path).chmod(stat.S_IWRITE)
+    function(path)
 
 
 @pytest.fixture(autouse=True)
@@ -887,7 +896,7 @@ def test_materialize_recreates_git_when_missing(tmp_path: Path) -> None:
     home.mkdir()
     root = materialize_plugin_repo(home=home)
     init_text = (root / PLUGIN_DIRNAME / PLUGIN_INIT_NAME).read_text(encoding="utf-8")
-    shutil.rmtree(root / ".git")
+    shutil.rmtree(root / ".git", onexc=_remove_readonly_path)
     assert not (root / ".git").exists()
 
     materialize_plugin_repo(home=home)
