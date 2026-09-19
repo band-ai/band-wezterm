@@ -32,6 +32,7 @@ from phoenix_channels_python_client.client import (
 )
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from band_wezterm.auth.credentials import ManagedAgentKeyStore
 from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.config import CHAT_MESSAGES_LIMIT, Settings, load_settings
 from band_wezterm.identity import (
@@ -191,18 +192,32 @@ class BandClient:
         self,
         host_auth: HostAuth,
         settings: Settings | None = None,
+        *,
+        agent_keys: ManagedAgentKeyStore | None = None,
     ) -> None:
-        self._configure(host_auth=host_auth, api_key=None, settings=settings)
+        self._configure(
+            host_auth=host_auth,
+            api_key=None,
+            settings=settings,
+            agent_keys=agent_keys,
+        )
 
     @classmethod
     def from_user_api_key(
         cls,
         api_key: str,
         settings: Settings | None = None,
+        *,
+        agent_keys: ManagedAgentKeyStore | None = None,
     ) -> BandClient:
         """Live-test / harness path — ``X-API-Key`` like sdk-python fixtures."""
         client = cls.__new__(cls)
-        client._configure(host_auth=None, api_key=api_key, settings=settings)
+        client._configure(
+            host_auth=None,
+            api_key=api_key,
+            settings=settings,
+            agent_keys=agent_keys,
+        )
         return client
 
     def _configure(
@@ -211,9 +226,11 @@ class BandClient:
         host_auth: HostAuth | None,
         api_key: str | None,
         settings: Settings | None,
+        agent_keys: ManagedAgentKeyStore | None = None,
     ) -> None:
         self._host_auth = host_auth
         self._api_key = api_key
+        self._agent_keys = agent_keys or ManagedAgentKeyStore()
         self._settings = settings or load_settings()
         self._http = httpx.AsyncClient(timeout=60.0)
         self._wrapper = AsyncClientWrapper(
@@ -269,15 +286,18 @@ class BandClient:
             harness_raw = getattr(agent, "harness", None) or getattr(
                 agent, "runtime", None
             )
+            harness = parse_harness(
+                str(harness_raw) if harness_raw is not None else None
+            )
+            if harness is None:
+                harness = self._agent_keys.get_harness(agent_id)
             records.append(
                 AgentRecord(
                     id=agent_id,
                     name=agent_name,
                     kind=AvatarKind.AGENT,
                     color=agent_accent(agent_id),
-                    harness=parse_harness(
-                        str(harness_raw) if harness_raw is not None else None
-                    ),
+                    harness=harness,
                 )
             )
         return records
@@ -289,13 +309,20 @@ class BandClient:
         description: str,
         harness: HarnessId = HarnessId.CLAUDE_SDK,
     ) -> AgentRecord:
-        """Registration-only — does not spawn a WezTerm tab."""
+        """Registration-only — persists the one-time managed API key (INT-1484)."""
         response = await self._agents.register_my_agent(
             agent=AgentRegisterRequest(name=name, description=description)
         )
-        agent = getattr(response.data, "agent", None) or response.data
+        agent = response.data.agent
+        credentials = response.data.credentials
         agent_id = str(agent.id)
         agent_name = getattr(agent, "name", None) or name
+        api_key = str(credentials.api_key)
+        try:
+            self._agent_keys.set(agent_id, api_key, harness=harness)
+        except Exception:
+            await self._rollback_agent_registration(agent_id)
+            raise
         return AgentRecord(
             id=agent_id,
             name=agent_name,
@@ -303,6 +330,20 @@ class BandClient:
             color=agent_accent(agent_id),
             harness=harness,
         )
+
+    async def _rollback_agent_registration(self, agent_id: str) -> None:
+        try:
+            await self._agents.delete_my_agent(agent_id, force=True)
+        except Exception:
+            pass
+
+    def managed_agent_api_key(self, agent_id: str) -> str | None:
+        return self._agent_keys.get(agent_id)
+
+    async def delete_agent(self, agent_id: str, *, force: bool = True) -> None:
+        """Unregister a managed agent and drop its stored API key."""
+        await self._agents.delete_my_agent(agent_id, force=force)
+        self._agent_keys.delete(agent_id)
 
     async def list_my_chats(self) -> list[RoomRecord]:
         response = await self._chats.list_my_chats()

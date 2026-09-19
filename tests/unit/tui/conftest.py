@@ -15,7 +15,7 @@ from textual.pilot import Pilot
 from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.client import AgentRecord, BandClient, ParticipantRecord, RoomRecord
 from band_wezterm.config import Settings
-from band_wezterm.identity import AvatarKind, agent_accent
+from band_wezterm.identity import AvatarKind, HarnessId, agent_accent, parse_harness
 from band_wezterm.local_state import StarredRooms
 from band_wezterm.room_color import room_accent
 from band_wezterm.tui.control_app import ControlApp
@@ -24,13 +24,18 @@ HOST_USER_ID = "b1c0f6f4-0f6e-4a2f-9a5e-2f9f0d2b7c11"
 ACCESS_TOKEN = "access-token"
 
 
-def agent(agent_id: str, name: str, harness: str | None = None) -> AgentRecord:
+def agent(
+    agent_id: str,
+    name: str,
+    harness: HarnessId | str | None = None,
+) -> AgentRecord:
+    resolved = harness if isinstance(harness, HarnessId) else parse_harness(harness)
     return AgentRecord(
         id=agent_id,
         name=name,
         kind=AvatarKind.AGENT,
         color=agent_accent(agent_id),
-        harness=harness,
+        harness=resolved,
     )
 
 

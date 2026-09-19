@@ -21,6 +21,19 @@ dependencies = [
     "phoenix-channels-python-client>=0.2.4",
 ]
 
+
+[project.optional-dependencies]
+claude_sdk = ["band-sdk[claude-sdk]>=3.1.1"]
+codex = ["band-sdk[codex]>=3.1.1"]
+copilot_sdk = ["band-sdk[copilot-sdk]>=3.1.1"]
+opencode = ["band-sdk[opencode]>=3.1.1"]
+agents = [
+    "band-sdk[claude-sdk]>=3.1.1",
+    "band-sdk[codex]>=3.1.1",
+    "band-sdk[copilot-sdk]>=3.1.1",
+    "band-sdk[opencode]>=3.1.1",
+]
+
 [project.scripts]
 band-wezterm = "band_wezterm.__main__:main"
 

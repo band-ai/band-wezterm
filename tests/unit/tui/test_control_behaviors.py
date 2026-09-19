@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -71,12 +72,12 @@ async def test_switching_screens_discards_the_open_draft(
         await settle(pilot)
         assert control_app.agents_store.draft_open is True
 
-        await pilot.press("f2")
+        await pilot.press("ctrl+o")
         await settle(pilot)
         assert isinstance(control_app.screen, RoomsScreen)
         assert control_app.agents_store.draft_open is False
 
-        await pilot.press("f1")
+        await pilot.press("ctrl+a")
         await settle(pilot)
         draft = control_app.screen.query_one(agent_selector(AgentId.DRAFT), Vertical)
         draft_name = control_app.screen.query_one(
@@ -159,3 +160,82 @@ async def test_opening_a_room_loads_message_history(
         assert [m.id for m in control_app.rooms_store.messages] == ["m1", "m2"]
 
     band_client.list_messages.assert_awaited_once_with(ROOM_ID)
+
+
+async def test_start_agent_spawns_agent_module_pane(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Start must spawn ``python -m band_wezterm.agent``, not a PoC cat tab."""
+    from band_wezterm.identity import HarnessId
+
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+    band_client.managed_agent_api_key.return_value = "band_a_managed"
+    control_app.window_id = 42
+
+    spawned: list[tuple[object, ...]] = []
+
+    def fake_spawn(window_id: object, cwd: object, command: list[str]) -> PaneId:
+        spawned.append((window_id, cwd, command))
+        return PaneId(99)
+
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.spawn_additional_tab", fake_spawn
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.set_tab_title", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.preflight_harness", lambda _h: None
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.write_api_key_file",
+        lambda _key: Path("/tmp/band-wezterm-test.key"),
+    )
+
+    class _Pane:
+        pane_id = 99
+
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.list_panes",
+        lambda: [_Pane()],
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await settle(pilot)
+        assert control_app.agents_store.is_running(IDLE_AGENT_ID)
+        assert "codex" in (control_app.agents_store.status or "")
+
+    assert len(spawned) == 1
+    window_id, _cwd, command = spawned[0]
+    assert window_id == 42
+    assert "-m" in command and "band_wezterm.agent" in command
+    assert "band_a_managed" not in " ".join(command)
+
+
+async def test_start_agent_requires_managed_key(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from band_wezterm.identity import HarnessId
+    from band_wezterm.tui.screens.agents import NO_MANAGED_KEY_MESSAGE
+
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+    band_client.managed_agent_api_key.return_value = None
+    control_app.window_id = 42
+    spawn = MagicMock()
+    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawn)
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await settle(pilot)
+
+    spawn.assert_not_called()
+    assert control_app.agents_store.status == NO_MANAGED_KEY_MESSAGE

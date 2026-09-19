@@ -16,6 +16,7 @@ from textual.binding import Binding
 from textual.screen import Screen
 
 from band_wezterm.auth.host_auth import HostAuth
+from band_wezterm.errors import format_platform_error
 from band_wezterm.client import BandClient, RoomRecord
 from band_wezterm.config import CONTROL_TAB_TITLE, Settings, load_settings
 from band_wezterm.identity import AgentStatus, AvatarKind, agent_accent, initials
@@ -57,6 +58,20 @@ def is_control_process() -> bool:
 
 def mark_control_process() -> None:
     os.environ[CONTROL_PROCESS_ENV] = CONTROL_PROCESS_FLAG
+
+
+def ensure_terminal_color() -> None:
+    """Drop NO_COLOR so Textual keeps truecolor (room dots, chips, avatars).
+
+    Launchers (CI, Cursor agent shells) often export NO_COLOR=1; WezTerm panes
+    can inherit it and Textual then installs a Monochrome/NoColor filter.
+    """
+    os.environ.pop("NO_COLOR", None)
+    if os.environ.get("FORCE_COLOR") == "0":
+        os.environ.pop("FORCE_COLOR", None)
+    os.environ.setdefault("COLORTERM", "truecolor")
+    if os.environ.get("TERM") in (None, "", "dumb"):
+        os.environ["TERM"] = "xterm-256color"
 
 
 def current_pane_id() -> PaneId | None:
@@ -101,8 +116,13 @@ class ControlApp(App[None]):
     }
 
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding("f1", "show_agents", "Agents"),
-        Binding("f2", "show_rooms", "Rooms"),
+        # Ctrl+letter (not Ctrl+Shift): terminals collapse Shift on control
+        # chords, so ctrl+shift+a never arrives. Avoid Ctrl+digit (macOS Spaces)
+        # and F-keys (Fn). Ctrl+A/O are unbound in WezTerm defaults.
+        Binding("ctrl+a", "show_agents", "Agents"),
+        Binding("ctrl+o", "show_rooms", "Rooms"),
+        Binding("f1", "show_agents", "Agents", show=False),
+        Binding("f2", "show_rooms", "Rooms", show=False),
         Binding("ctrl+q", "quit", "Quit host"),
     ]
 
@@ -144,7 +164,7 @@ class ControlApp(App[None]):
         try:
             self.user_id = await self.client.whoami()
         except Exception as error:
-            self.notify(str(error), severity="error")
+            self.notify(format_platform_error(error), severity="error")
             return
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
         announce_human(self.user_id)
@@ -198,5 +218,6 @@ def announce_human(user_id: str) -> None:
 def run_control_app() -> int:
     """Run the Control tab in this process; returns the host exit code."""
     mark_control_process()
+    ensure_terminal_color()
     ControlApp().run()
     return 0

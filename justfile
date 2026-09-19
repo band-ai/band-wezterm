@@ -8,6 +8,10 @@ default:
 sync:
     uv sync
 
+# Install core + all agent harness extras
+sync-agents:
+    uv sync --extra agents
+
 # Open Control, or attach + raise if already running
 start:
     uv run band-wezterm
