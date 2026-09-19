@@ -40,6 +40,7 @@ async def test_create_agent_persists_managed_api_key() -> None:
     assert record.id == "a1"
     assert record.harness is HarnessId.CODEX
     assert keys.get("a1") == "band_a_once"
+    assert keys.get_harness("a1") is HarnessId.CODEX
     assert client.managed_agent_api_key("a1") == "band_a_once"
 
 
@@ -61,3 +62,19 @@ async def test_create_agent_rolls_back_when_keyring_fails() -> None:
 
     client._agents.delete_my_agent.assert_awaited_once_with("a2", force=True)
     assert keys.get("a2") is None
+
+
+@pytest.mark.asyncio
+async def test_list_my_agents_merges_stored_harness() -> None:
+    keys = MemoryAgentKeyStore()
+    keys.set("a3", "band_a_key", harness=HarnessId.OPENCODE)
+    client = BandClient.from_user_api_key("user-key", Settings(), agent_keys=keys)
+    client._agents = MagicMock()
+    client._agents.list_my_agents = AsyncMock(
+        return_value=SimpleNamespace(
+            data=[SimpleNamespace(id="a3", name="Gamma", harness=None, runtime=None)]
+        )
+    )
+
+    agents = await client.list_my_agents()
+    assert agents[0].harness is HarnessId.OPENCODE

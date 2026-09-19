@@ -59,7 +59,7 @@ def _read_api_key(key_file: Path | None) -> str:
             return key
     env_key = os.environ.get(AGENT_API_KEY_ENV, "").strip()
     if not env_key:
-        raise SystemExit(
+        raise RuntimeError(
             "Managed agent API key missing — re-register the agent from Control."
         )
     return env_key
@@ -84,30 +84,33 @@ async def run(args: argparse.Namespace) -> int:
         return 2
 
     announce(agent_id, name, harness)
-    api_key = _read_api_key(args.key_file)
-    settings = load_settings()
-    adapter = build_adapter(harness, cwd=args.cwd)
-    config = AgentConfig(auto_subscribe_existing_rooms=True, single_instance=True)
-
-    agent = Agent.create(
-        adapter=adapter,
-        agent_id=agent_id,
-        api_key=api_key,
-        rest_url=settings.band_base_url,
-        ws_url=settings.band_ws_url,
-        config=config,
-    )
-    emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.RUNNING.value)
+    failed = False
     try:
+        api_key = _read_api_key(args.key_file)
+        settings = load_settings()
+        adapter = build_adapter(harness, cwd=args.cwd)
+        config = AgentConfig(auto_subscribe_existing_rooms=True, single_instance=True)
+        agent = Agent.create(
+            adapter=adapter,
+            agent_id=agent_id,
+            api_key=api_key,
+            rest_url=settings.band_base_url,
+            ws_url=settings.band_ws_url,
+            config=config,
+        )
+        emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.RUNNING.value)
         async with agent:
             await agent.run_forever()
     except Exception as error:
+        failed = True
         emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.ERROR.value)
+        emit_to_stdout(OscKey.AGENT_STATUS, AgentStatus.OFFLINE.value)
         print(f"Agent runtime failed: {error}", file=sys.stderr)
         return 1
     finally:
-        emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.STOPPING.value)
-        emit_to_stdout(OscKey.AGENT_STATUS, AgentStatus.OFFLINE.value)
+        if not failed:
+            emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.STOPPING.value)
+            emit_to_stdout(OscKey.AGENT_STATUS, AgentStatus.OFFLINE.value)
     return 0
 
 

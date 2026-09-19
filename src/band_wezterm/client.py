@@ -286,15 +286,18 @@ class BandClient:
             harness_raw = getattr(agent, "harness", None) or getattr(
                 agent, "runtime", None
             )
+            harness = parse_harness(
+                str(harness_raw) if harness_raw is not None else None
+            )
+            if harness is None:
+                harness = self._agent_keys.get_harness(agent_id)
             records.append(
                 AgentRecord(
                     id=agent_id,
                     name=agent_name,
                     kind=AvatarKind.AGENT,
                     color=agent_accent(agent_id),
-                    harness=parse_harness(
-                        str(harness_raw) if harness_raw is not None else None
-                    ),
+                    harness=harness,
                 )
             )
         return records
@@ -316,7 +319,7 @@ class BandClient:
         agent_name = getattr(agent, "name", None) or name
         api_key = str(credentials.api_key)
         try:
-            self._agent_keys.set(agent_id, api_key)
+            self._agent_keys.set(agent_id, api_key, harness=harness)
         except Exception:
             await self._rollback_agent_registration(agent_id)
             raise

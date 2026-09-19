@@ -390,7 +390,7 @@ class AgentsScreen(ControlScreen):
             return
         self._stop_agent(agent.id, agent.name, pane_id)
 
-    @work(group="agents-spawn")
+    @work(exclusive=True, group="agents-spawn")
     async def _start_agent(self, agent: AgentRecord) -> None:
         window_id = self.control.window_id
         if window_id is None:
@@ -406,6 +406,8 @@ class AgentsScreen(ControlScreen):
             self._set_status(str(error))
             return
         store = self.store
+        if store.is_running(agent.id):
+            return
         cwd = Path.cwd()
         key_file = write_api_key_file(api_key)
         pane_id: PaneId | None = None
@@ -429,7 +431,7 @@ class AgentsScreen(ControlScreen):
         )
         self.mutate_reactive(AgentsScreen.store)
 
-    @work(group="agents-spawn")
+    @work(exclusive=True, group="agents-spawn")
     async def _stop_agent(
         self, agent_id: str, agent_name: str, pane_id: PaneId
     ) -> None:

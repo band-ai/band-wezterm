@@ -10,6 +10,7 @@ from band_wezterm.config import (
     KEYRING_SERVICE,
     KEYRING_USER_TOKENS,
 )
+from band_wezterm.identity import HarnessId, parse_harness
 
 
 class UserTokens(BaseModel):
@@ -20,6 +21,15 @@ class UserTokens(BaseModel):
     access_token: str = Field(alias="accessToken")
     refresh_token: str = Field(alias="refreshToken")
     expires_at: int = Field(alias="expiresAt")  # epoch ms
+
+
+class ManagedAgentCredentials(BaseModel):
+    """One-time agent API key plus local harness (platform register has no harness field)."""
+
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    api_key: str = Field(alias="apiKey")
+    harness: HarnessId | None = None
 
 
 class NoApiKeyError(Exception):
@@ -70,7 +80,7 @@ class TokenStore:
 
 
 class ManagedAgentKeyStore:
-    """One-time agent API keys from registerMyAgent — INT-1484 managed namespace."""
+    """Managed agent secrets — INT-1484 keyring namespace, plus local harness."""
 
     def __init__(self, *, service: str = KEYRING_SERVICE) -> None:
         self._service = service
@@ -78,11 +88,39 @@ class ManagedAgentKeyStore:
     def _username(self, agent_id: str) -> str:
         return f"{KEYRING_MANAGED_AGENT_KEY_PREFIX}{agent_id}"
 
-    def get(self, agent_id: str) -> str | None:
-        return keyring.get_password(self._service, self._username(agent_id))
+    def get_credentials(self, agent_id: str) -> ManagedAgentCredentials | None:
+        raw = keyring.get_password(self._service, self._username(agent_id))
+        if not raw:
+            return None
+        try:
+            return ManagedAgentCredentials.model_validate_json(raw)
+        except ValidationError:
+            # Pre-JSON entries were a bare API key string.
+            return ManagedAgentCredentials(api_key=raw)
 
-    def set(self, agent_id: str, api_key: str) -> None:
-        keyring.set_password(self._service, self._username(agent_id), api_key)
+    def get(self, agent_id: str) -> str | None:
+        credentials = self.get_credentials(agent_id)
+        return None if credentials is None else credentials.api_key
+
+    def get_harness(self, agent_id: str) -> HarnessId | None:
+        credentials = self.get_credentials(agent_id)
+        return None if credentials is None else credentials.harness
+
+    def set(
+        self,
+        agent_id: str,
+        api_key: str,
+        *,
+        harness: HarnessId | str | None = None,
+    ) -> None:
+        record = ManagedAgentCredentials(
+            api_key=api_key, harness=parse_harness(harness)
+        )
+        keyring.set_password(
+            self._service,
+            self._username(agent_id),
+            record.model_dump_json(by_alias=True),
+        )
 
     def delete(self, agent_id: str) -> None:
         try:
