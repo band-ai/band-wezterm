@@ -20,7 +20,9 @@ from band_wezterm.agent.spawn_cmd import agent_pane_command, write_api_key_file
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
+from band_wezterm.role_library import open_role_library
 from band_wezterm.tui.screens import ControlScreen
+from band_wezterm.tui.screens.new_role import NewRoleScreen
 from band_wezterm.tui.screens.register_agent import RegisterAgentScreen
 from band_wezterm.tui.stores import (
     AGENT_FILTER_LABELS,
@@ -59,6 +61,13 @@ NO_MANAGED_KEY_MESSAGE: Final = (
     "(keys are one-time at registration)."
 )
 DRAFT_INCOMPLETE_MESSAGE: Final = "Name and description are both required."
+DELETE_CONFIRM_MESSAGE: Final = (
+    "Press Delete again to permanently remove {name}."
+)
+NO_MANAGED_PROFILE_MESSAGE: Final = (
+    "No local profile — register or reconfigure after upgrade."
+)
+NEW_ROLE_PROMPT: Final = "New role name"
 
 
 class Id(StrEnum):
@@ -140,8 +149,13 @@ class AgentsScreen(ControlScreen):
         Binding("slash", "focus_search", "Search"),
         Binding("f", "focus_filters", "Filters"),
         Binding("n", "new_agent", "Register"),
+        Binding("c", "reconfigure_agent", "Reconfigure"),
+        Binding("delete", "delete_agent", "Delete"),
+        Binding("backspace", "delete_agent", "Delete", show=False),
         Binding("s", "start_agent", "Start"),
         Binding("x", "stop_agent", "Stop"),
+        Binding("o", "open_role_library", "Roles"),
+        Binding("w", "new_role", "New role"),
         Binding("d", "toggle_discover", "Discover"),
         Binding("r", "reload", "Reload"),
         Binding("escape", "cancel", "Cancel", show=False),
@@ -196,6 +210,7 @@ class AgentsScreen(ControlScreen):
 
     def on_mount(self) -> None:
         self.store = self.control.agents_store
+        self._pending_delete_id: str | None = None
         self.query_one(selector(Id.LIST), ListView).focus()
         self.set_interval(PANE_POLL_SECONDS, self._reconcile_panes)
         self._load_agents()
@@ -318,7 +333,42 @@ class AgentsScreen(ControlScreen):
     # --- registration draft (transient overlay) ----------------------------
 
     def action_new_agent(self) -> None:
+        self._pending_delete_id = None
         self.app.push_screen(RegisterAgentScreen())
+
+    def action_reconfigure_agent(self) -> None:
+        self._pending_delete_id = None
+        agent = self._highlighted_agent()
+        if agent is None:
+            self._set_status(NO_SELECTION_MESSAGE)
+            return
+        self.app.push_screen(RegisterAgentScreen(agent=agent, reconfigure=True))
+
+    def action_open_role_library(self) -> None:
+        self._pending_delete_id = None
+        try:
+            path = open_role_library()
+        except OSError as error:
+            self._set_status(str(error))
+            return
+        self._set_status(f"Opened role library at {path}")
+
+    def action_new_role(self) -> None:
+        self._pending_delete_id = None
+        self.app.push_screen(NewRoleScreen())
+
+    def action_delete_agent(self) -> None:
+        agent = self._highlighted_agent()
+        if agent is None:
+            self._set_status(NO_SELECTION_MESSAGE)
+            return
+        if self._pending_delete_id != agent.id:
+            self._pending_delete_id = agent.id
+            self._set_status(DELETE_CONFIRM_MESSAGE.format(name=agent.name))
+            return
+        self._pending_delete_id = None
+        self._delete_agent(agent)
+
 
     def action_cancel(self) -> None:
         if self.store.draft_open:
@@ -458,6 +508,22 @@ class AgentsScreen(ControlScreen):
         stopped = store.prune_running(pane.pane_id for pane in panes)
         if stopped:
             self._set_status(f"{len(stopped)} agent tab(s) closed — marked stopped.")
+
+    @work(exclusive=True, group="agents-delete")
+    async def _delete_agent(self, agent: AgentRecord) -> None:
+        pane_id = self.store.running.get(agent.id)
+        if pane_id is not None:
+            with suppress(WezTermCliError, OSError):
+                await asyncio.to_thread(kill_pane, pane_id)
+            self.store.mark_stopped(agent.id)
+        try:
+            await self.control.client.delete_agent(agent.id)
+        except Exception as error:
+            self._set_status(format_platform_error(error))
+            return
+        self.control.managed_agents.remove(agent.id)
+        self.store.remove_agent(agent.id)
+        self._set_status(f"Deleted {agent.name}.")
 
     def _set_status(self, status: str) -> None:
         self.store.status = status

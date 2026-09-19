@@ -129,6 +129,7 @@ class ControlApp(App[None]):
         Binding("f1", "show_agents", "Agents", show=False),
         Binding("f2", "show_rooms", "Rooms", show=False),
         Binding("ctrl+comma", "show_settings", "Settings"),
+        Binding("ctrl+l", "sign_out", "Sign out"),
         Binding("ctrl+q", "quit", "Quit host"),
     ]
 
@@ -190,6 +191,24 @@ class ControlApp(App[None]):
 
     def action_show_settings(self) -> None:
         self.push_screen(SETTINGS_SCREEN)
+
+    def action_sign_out(self) -> None:
+        self.run_worker(self._sign_out(), group="auth")
+
+    async def _sign_out(self) -> None:
+        """Clear tokens, stop agent panes, return to Sign In."""
+        for pane_id in list(self.agents_store.running.values()):
+            with suppress(WezTermCliError, OSError):
+                kill_pane(pane_id)
+        self.agents_store.running.clear()
+        await self.host_auth.sign_out()
+        self.user_id = None
+        self.agents_store = AgentsStore()
+        self.rooms_store = RoomsStore()
+        while len(self.screen_stack) > 1:
+            self.pop_screen()
+        self.push_screen(SIGN_IN_SCREEN)
+        self.notify("Signed out.")
 
     def _show(self, screen_name: str) -> None:
         """Switching top-level screens discards any in-progress draft."""

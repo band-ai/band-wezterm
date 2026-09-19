@@ -1,4 +1,4 @@
-"""Multi-step register agent wizard — harness, role, name, model/reasoning."""
+"""Multi-step register / reconfigure agent wizard (VSC parity)."""
 
 from __future__ import annotations
 
@@ -18,14 +18,17 @@ from band_wezterm.agent_draft import (
     apply_draft_patch,
     create_default_draft,
     description_error,
+    draft_from_profile,
     draft_name,
 )
 from band_wezterm.backends import (
     TUNING_DEFAULT_OPTION_ID,
+    AgentTuning,
     TuningDimensionId,
     list_backends,
     resolve_backend,
 )
+from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import profile_from_registration
@@ -34,6 +37,7 @@ from band_wezterm.tui.screens import ControlScreen
 
 NO_ROLE_ID: Final = ""
 CUSTOM_MODEL_SENTINEL: Final = "__custom__"
+OPEN_CLASS: Final = "open"
 
 
 class WizardStep(StrEnum):
@@ -58,16 +62,21 @@ def selector(widget_id: Id) -> str:
     return f"#{widget_id.value}"
 
 
-STEP_ORDER_BASE: Final[tuple[WizardStep, ...]] = (
+REGISTER_STEPS: Final[tuple[WizardStep, ...]] = (
     WizardStep.HARNESS,
     WizardStep.ROLE,
     WizardStep.NAME,
     WizardStep.DESCRIPTION,
 )
 
+RECONFIGURE_STEPS: Final[tuple[WizardStep, ...]] = (
+    WizardStep.HARNESS,
+    WizardStep.ROLE,
+)
+
 
 class RegisterAgentScreen(ControlScreen):
-    """VSC create-agent wizard parity — keyboard OptionList + Input steps."""
+    """Create or reconfigure — reconfigure skips name/description (platform can't rename)."""
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "cancel", "Cancel", show=False),
@@ -100,16 +109,24 @@ class RegisterAgentScreen(ControlScreen):
     }
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        agent: AgentRecord | None = None,
+        reconfigure: bool = False,
+    ) -> None:
         super().__init__()
+        self.reconfigure = reconfigure
+        self.agent = agent
         self.draft: AgentDraft = create_default_draft()
         self.step: WizardStep = WizardStep.HARNESS
         self._roles: list[Role] = []
 
     def compose(self) -> ComposeResult:
+        heading = "Reconfigure agent" if self.reconfigure else "Register agent"
         yield Header()
         with Vertical():
-            yield Label("Register agent", id=Id.TITLE.value)
+            yield Label(heading, id=Id.TITLE.value)
             yield Static("", id=Id.HINT.value)
             yield OptionList(id=Id.OPTIONS.value)
             yield Input(id=Id.TEXT.value)
@@ -118,6 +135,19 @@ class RegisterAgentScreen(ControlScreen):
 
     def on_mount(self) -> None:
         self._roles = list_roles()
+        if self.reconfigure and self.agent is not None:
+            profile = self.control.managed_agents.get(self.agent.id)
+            harness = (
+                profile.harness
+                if profile is not None
+                else self.agent.harness or HarnessId.CLAUDE_SDK
+            )
+            self.draft = draft_from_profile(
+                name=self.agent.name,
+                harness=harness,
+                persona=None if profile is None else profile.persona,
+                tuning=AgentTuning() if profile is None else profile.tuning,
+            )
         self._render_step()
 
     def action_cancel(self) -> None:
@@ -198,7 +228,8 @@ class RegisterAgentScreen(ControlScreen):
 
     def _steps_for_draft(self) -> tuple[WizardStep, ...]:
         backend = resolve_backend(self.draft.harness)
-        steps: list[WizardStep] = list(STEP_ORDER_BASE)
+        base = RECONFIGURE_STEPS if self.reconfigure else REGISTER_STEPS
+        steps: list[WizardStep] = list(base)
         dimension_ids = {dimension.id for dimension in backend.tuning}
         if TuningDimensionId.MODEL in dimension_ids:
             steps.append(WizardStep.MODEL)
@@ -211,7 +242,6 @@ class RegisterAgentScreen(ControlScreen):
         try:
             index = steps.index(self.step)
         except ValueError:
-            # Coming from CUSTOM_MODEL — treat as after MODEL.
             index = steps.index(WizardStep.MODEL)
         next_index = index + 1
         if next_index >= len(steps):
@@ -220,6 +250,9 @@ class RegisterAgentScreen(ControlScreen):
         self.step = steps[next_index]
         self._render_step()
 
+    def _verb(self) -> str:
+        return "Reconfigure" if self.reconfigure else "Register"
+
     def _render_step(self) -> None:
         title = self.query_one(selector(Id.TITLE), Label)
         hint = self.query_one(selector(Id.HINT), Static)
@@ -227,11 +260,12 @@ class RegisterAgentScreen(ControlScreen):
         text = self.query_one(selector(Id.TEXT), Input)
         self._set_status("")
         options.clear_options()
-        text.remove_class("open")
+        text.remove_class(OPEN_CLASS)
         text.value = ""
+        verb = self._verb()
         match self.step:
             case WizardStep.HARNESS:
-                title.update("Register agent — runtime")
+                title.update(f"{verb} agent — runtime")
                 hint.update("Which agent runtime should run locally?")
                 for backend in list_backends():
                     options.add_option(
@@ -242,7 +276,7 @@ class RegisterAgentScreen(ControlScreen):
                     )
                 options.focus()
             case WizardStep.ROLE:
-                title.update("Register agent — role")
+                title.update(f"{verb} agent — role")
                 hint.update("Give the agent a role? (from ~/.band/roles)")
                 options.add_option(Option("No specific role", id=NO_ROLE_ID))
                 for role in self._roles:
@@ -250,21 +284,21 @@ class RegisterAgentScreen(ControlScreen):
                     options.add_option(Option(f"{role.label}{detail}", id=role.id))
                 options.focus()
             case WizardStep.NAME:
-                title.update("Register agent — name")
+                title.update(f"{verb} agent — name")
                 hint.update("Agent name")
-                text.add_class("open")
+                text.add_class(OPEN_CLASS)
                 text.value = draft_name(self.draft)
                 text.placeholder = "Agent name"
                 text.focus()
             case WizardStep.DESCRIPTION:
-                title.update("Register agent — description")
+                title.update(f"{verb} agent — description")
                 hint.update("What this agent does (platform requires ≥10 chars)")
-                text.add_class("open")
+                text.add_class(OPEN_CLASS)
                 text.value = self.draft.description
                 text.placeholder = "What this agent does"
                 text.focus()
             case WizardStep.MODEL:
-                title.update("Register agent — model")
+                title.update(f"{verb} agent — model")
                 hint.update("Model for this runtime (Enter to accept)")
                 backend = resolve_backend(self.draft.harness)
                 model_dim = next(
@@ -279,13 +313,13 @@ class RegisterAgentScreen(ControlScreen):
                     options.add_option(Option("Custom model id…", id=CUSTOM_MODEL_SENTINEL))
                 options.focus()
             case WizardStep.CUSTOM_MODEL:
-                title.update("Register agent — custom model")
+                title.update(f"{verb} agent — custom model")
                 hint.update("Enter a model id this runtime accepts")
-                text.add_class("open")
+                text.add_class(OPEN_CLASS)
                 text.placeholder = "model id"
                 text.focus()
             case WizardStep.REASONING:
-                title.update("Register agent — reasoning")
+                title.update(f"{verb} agent — reasoning")
                 hint.update("Reasoning / thinking control")
                 backend = resolve_backend(self.draft.harness)
                 reasoning_dim = next(
@@ -297,6 +331,9 @@ class RegisterAgentScreen(ControlScreen):
 
     @work(exclusive=True, group="agents-register")
     async def _submit(self) -> None:
+        if self.reconfigure:
+            self._submit_reconfigure()
+            return
         draft = self.draft
         name = draft_name(draft)
         try:
@@ -321,6 +358,34 @@ class RegisterAgentScreen(ControlScreen):
         self.control.agents_store.add_agent(agent)
         self.control.agents_store.status = (
             f"Registered {agent.name} ({draft.harness.value}) — not started."
+        )
+        self.app.pop_screen()
+
+    def _submit_reconfigure(self) -> None:
+        agent = self.agent
+        if agent is None:
+            self._set_status("No agent to reconfigure.")
+            return
+        draft = self.draft
+        persona = draft.role.content if draft.role is not None else None
+        try:
+            self.control.client.update_managed_harness(agent.id, draft.harness)
+        except Exception as error:
+            self._set_status(str(error))
+            return
+        self.control.managed_agents.record(
+            profile_from_registration(
+                agent_id=agent.id,
+                name=agent.name,
+                harness=draft.harness,
+                persona=persona,
+                tuning=draft.tuning,
+            )
+        )
+        updated = agent.model_copy(update={"harness": draft.harness})
+        self.control.agents_store.update_agent(updated)
+        self.control.agents_store.status = (
+            f"Reconfigured {agent.name} ({draft.harness.value}) — restart to apply."
         )
         self.app.pop_screen()
 

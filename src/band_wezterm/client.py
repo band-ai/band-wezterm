@@ -338,6 +338,17 @@ class BandClient:
     def managed_agent_api_key(self, agent_id: str) -> str | None:
         return self._agent_keys.get(agent_id)
 
+    def update_managed_harness(
+        self, agent_id: str, harness: HarnessId | str
+    ) -> None:
+        """Persist a reconfigured harness beside the existing managed API key."""
+        api_key = self._agent_keys.get(agent_id)
+        if not api_key:
+            raise RuntimeError(
+                "No managed API key for this agent — re-register it from Control."
+            )
+        self._agent_keys.set(agent_id, api_key, harness=harness)
+
     async def delete_agent(self, agent_id: str, *, force: bool = True) -> None:
         """Unregister a managed agent and drop its stored API key."""
         await self._agents.delete_my_agent(agent_id, force=force)

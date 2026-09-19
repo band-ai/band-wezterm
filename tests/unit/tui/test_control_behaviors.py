@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from textual.widgets import ListView
@@ -22,6 +22,7 @@ from band_wezterm.tui.screens.register_agent import RegisterAgentScreen
 from band_wezterm.tui.screens.rooms import Id as RoomId
 from band_wezterm.tui.screens.rooms import IdentityRow, RoomDetailScreen
 from band_wezterm.tui.screens.rooms import selector as room_selector
+from band_wezterm.tui.screens.sign_in import SignInScreen
 from band_wezterm.wezterm_cli import PaneId
 
 from .conftest import agent, participant, room, settle
@@ -233,3 +234,49 @@ async def test_start_agent_requires_managed_key(
 
     spawn.assert_not_called()
     assert control_app.agents_store.status == NO_MANAGED_KEY_MESSAGE
+
+
+async def test_sign_out_returns_to_sign_in(
+    control_app: ControlApp, host_auth: MagicMock
+) -> None:
+    """Ctrl+L clears the session and shows Sign In."""
+    host_auth.sign_out = AsyncMock()
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        assert isinstance(control_app.screen, AgentsScreen)
+        await pilot.press("ctrl+l")
+        await settle(pilot)
+        assert isinstance(control_app.screen, SignInScreen)
+        assert control_app.user_id is None
+        host_auth.sign_out.assert_awaited_once()
+
+
+async def test_reconfigure_opens_wizard(control_app: ControlApp, band_client: MagicMock) -> None:
+    band_client.list_my_agents.return_value = [
+        agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX),
+    ]
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("c")
+        await settle(pilot)
+        assert isinstance(control_app.screen, RegisterAgentScreen)
+        assert control_app.screen.reconfigure is True
+
+
+async def test_delete_requires_confirmation(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    band_client.list_my_agents.return_value = [
+        agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX),
+    ]
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("delete")
+        await settle(pilot)
+        assert "Press Delete again" in (control_app.agents_store.status or "")
+        band_client.delete_agent.assert_not_called()
+        await pilot.press("delete")
+        await settle(pilot)
+        band_client.delete_agent.assert_awaited()
+        assert band_client.delete_agent.await_args.args[0] == IDLE_AGENT_ID

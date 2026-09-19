@@ -136,6 +136,17 @@ class AgentsStore:
         self.agents = [agent, *self.agents]
         self.selected_id = agent.id
 
+    def update_agent(self, agent: AgentRecord) -> None:
+        self.agents = [
+            agent if existing.id == agent.id else existing for existing in self.agents
+        ]
+
+    def remove_agent(self, agent_id: str) -> None:
+        self.agents = [agent for agent in self.agents if agent.id != agent_id]
+        self.mark_stopped(agent_id)
+        if self.selected_id == agent_id:
+            self.selected_id = self.agents[0].id if self.agents else None
+
     def select_filter(self, chip: AgentFilter) -> None:
         self.filter = chip
 

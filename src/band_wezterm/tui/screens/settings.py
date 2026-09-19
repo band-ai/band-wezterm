@@ -18,7 +18,7 @@ from band_wezterm.preferences import (
 )
 from band_wezterm.tui.screens import ControlScreen
 
-SAVE_HINT: Final = "Enter on a field saves it. Esc returns."
+SAVE_HINT: Final = "Enter on a field saves it. Esc returns. Ctrl+L signs out."
 
 
 class Id(StrEnum):
@@ -40,6 +40,7 @@ class SettingsScreen(ControlScreen):
         Binding("escape", "back", "Back", show=False),
         Binding("ctrl+a", "app.show_agents", "Agents", show=False),
         Binding("ctrl+o", "app.show_rooms", "Rooms", show=False),
+        Binding("ctrl+l", "sign_out", "Sign out"),
     ]
 
     DEFAULT_CSS = """
@@ -88,6 +89,10 @@ class SettingsScreen(ControlScreen):
 
     def action_back(self) -> None:
         self.app.pop_screen()
+
+    def action_sign_out(self) -> None:
+        self.app.pop_screen()
+        self.control.action_sign_out()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self._save_numbers()
