@@ -100,7 +100,7 @@ class ControlApp(App[None]):
         ROOMS_SCREEN: RoomsScreen,
     }
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("f1", "show_agents", "Agents"),
         Binding("f2", "show_rooms", "Rooms"),
         Binding("ctrl+q", "quit", "Quit host"),

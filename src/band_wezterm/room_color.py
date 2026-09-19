@@ -28,7 +28,7 @@ def _hsl_to_hex(hue: float, saturation: float, lightness: float) -> str:
 
     def channel(n: float) -> str:
         k = (n + hue / 30.0) % 12.0
-        value = lightness - chroma * max(-1.0, min(k - 3.0, min(9.0 - k, 1.0)))
+        value = lightness - chroma * max(-1.0, min(k - 3.0, 9.0 - k, 1.0))
         return f"{round(255 * value):02x}"
 
     return f"#{channel(0)}{channel(8)}{channel(4)}"

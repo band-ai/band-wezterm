@@ -52,7 +52,29 @@ dev = [
 default-groups = ["dev"]
 
 [tool.ruff.lint]
-# Same closed set as band-sdk-python's documented baseline (E4/E7/E9/F) plus
-# PLC0415. Use an explicit `select` (not extend-select): ruff 0.16 expanded
-# its built-in defaults beyond that set.
-select = ["E4", "E7", "E9", "F", "PLC0415"]
+# Stricter than band-sdk-python's documented baseline: pycodestyle, pyflakes,
+# isort, bugbear, pyupgrade, simplify, ruff, async, pylint (incl. PLC0415),
+# pie, pytest-style, return, comprehensions, perf. E501 left to readability /
+# formatter rather than hard-failing CI on wrap style.
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "UP",
+    "B",
+    "SIM",
+    "RUF",
+    "ASYNC",
+    "PLC",
+    "PLE",
+    "PLW",
+    "PIE",
+    "PT",
+    "RET",
+    "C4",
+    "PERF",
+]
+ignore = [
+    "E501",
+]

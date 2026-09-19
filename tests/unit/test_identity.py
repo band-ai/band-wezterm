@@ -44,5 +44,5 @@ def test_harness_badge_table() -> None:
     assert harness_badge(HarnessId.COPILOT_SDK) is HarnessBadge.CP
     assert harness_badge(HarnessId.OPENCODE) is HarnessBadge.OM
     assert HARNESS_BADGES[HarnessId.OPENCODE] is HarnessBadge.OM
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"not a valid HarnessId"):
         harness_badge("unknown-harness")

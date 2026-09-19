@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import time
 import webbrowser
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Callable
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
@@ -290,9 +290,9 @@ def _build_authorize_url(
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
-    server: "_LoopbackServer"
+    server: _LoopbackServer
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path != CALLBACK_PATH:
             self.send_response(404)
@@ -312,7 +312,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"Sign-in complete. You can close this tab.")
 
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+    def log_message(self, format: str, *args: object) -> None:
         return
 
 

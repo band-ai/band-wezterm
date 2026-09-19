@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 from collections.abc import Callable, Mapping
 from enum import StrEnum
@@ -26,8 +27,8 @@ from band_rest.types.chat_message_request_mentions_item import (
 from band_rest.types.participant_request import ParticipantRequest
 from band_sdk_core import chat_room_topic, room_participants_topic
 from phoenix_channels_python_client.client import (
-    PHXChannelsClient,
     PhoenixChannelsProtocolVersion,
+    PHXChannelsClient,
 )
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -124,7 +125,7 @@ def message_record_from_api(message: object) -> MessageRecord:
     sender_name = getattr(message, "sender_name", None)
     sender_id = getattr(message, "sender_id", None)
     return MessageRecord(
-        id=str(getattr(message, "id")),
+        id=str(message.id),
         content=display_message_content(content, meta),
         author_name=str(sender_name or sender_id or "unknown"),
     )
@@ -481,11 +482,9 @@ class BandClient:
         client = self._phx
         self._phx = None
         self._phx_generation = None
-        try:
+        # Teardown is best-effort; socket/supervisor may already be gone.
+        with contextlib.suppress(Exception):
             await client.shutdown("credential change or client close")
-        except Exception:
-            # Teardown is best-effort; socket/supervisor may already be gone.
-            pass
 
 
 def avatar_label(name: str) -> str:

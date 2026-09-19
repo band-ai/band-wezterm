@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final, Protocol, runtime_checkable
+from typing import ClassVar, Final, Protocol, runtime_checkable
 
 from rich.highlighter import Highlighter
 from rich.style import Style
@@ -154,7 +154,7 @@ class FilterChips(Widget):
     }
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("left", "move(-1)", "Prev chip", show=False),
         Binding("right", "move(1)", "Next chip", show=False),
         Binding("space", "toggle", "Toggle chip", show=False),

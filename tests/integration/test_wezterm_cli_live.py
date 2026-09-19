@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import os
+import contextlib
 import shutil
-import signal
 import subprocess
 import tempfile
 import time
@@ -73,7 +72,7 @@ def mux_server() -> Path:
         time.sleep(0.05)
     if not DEFAULT_MUX_SOCK.exists():
         pytest.skip("wezterm-mux-server socket never appeared")
-    yield DEFAULT_MUX_SOCK
+    return DEFAULT_MUX_SOCK
 
 
 def test_live_spawn_list_kill(mux_server: Path) -> None:
@@ -81,7 +80,7 @@ def test_live_spawn_list_kill(mux_server: Path) -> None:
     cwd = Path(tempfile.mkdtemp(prefix="band-wezterm-cli-"))
     try:
         first = spawn_first_tab(cwd, ["bash", "-lc", "exec sleep 30"])
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         pytest.skip(f"wezterm spawn unavailable: {exc}")
     try:
         panes = list_panes()
@@ -93,7 +92,5 @@ def test_live_spawn_list_kill(mux_server: Path) -> None:
         assert any(p.pane_id == second.root for p in panes)
         kill_pane(second)
     finally:
-        try:
+        with contextlib.suppress(Exception):
             kill_pane(first.pane_id)
-        except Exception:
-            pass

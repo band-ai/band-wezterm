@@ -11,8 +11,8 @@ from band_wezterm.osc import (
     ALLOWED_KEYS,
     DisallowedOscKeyError,
     OscKey,
-    encode_payload,
     emit,
+    encode_payload,
     format_sequence,
 )
 from band_wezterm.wezterm_cli import PaneId

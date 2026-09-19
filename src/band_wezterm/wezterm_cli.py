@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Final, Mapping
+from typing import Final
 
 from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
 
@@ -290,7 +292,7 @@ def request_workspace_focus(*, control_pane: PaneId) -> None:
         relay = find_focus_relay_pane()
         if relay is not None:
             # Pass OSC via env so shell quoting cannot corrupt the escape bytes.
-            try:
+            with contextlib.suppress(WezTermCliError):
                 _run(
                     [
                         "cli",
@@ -304,12 +306,8 @@ def request_workspace_focus(*, control_pane: PaneId) -> None:
                     ],
                     env={**os.environ, "BAND_FOCUS_OSC": format_focus_sequence()},
                 )
-            except WezTermCliError:
-                pass
-    try:
+    with contextlib.suppress(WezTermCliError):
         activate_pane(control_pane)
-    except WezTermCliError:
-        pass
     raise_gui()
 
 

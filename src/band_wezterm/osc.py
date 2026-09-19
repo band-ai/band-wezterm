@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import base64
 import sys
-from enum import StrEnum
 from collections.abc import Mapping
+from enum import StrEnum
 from typing import Final
 
 from band_wezterm.wezterm_cli import PaneId, send_text

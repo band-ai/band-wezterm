@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
-
 import asyncio
+from contextlib import suppress
 from enum import StrEnum
 from pathlib import Path
-from typing import Final
+from typing import ClassVar, Final
 
 from textual import work
 from textual.app import ComposeResult
@@ -160,7 +159,7 @@ class AgentRow(ListItem):
 class AgentsScreen(ControlScreen):
     """Keyboard-first agents catalog projected from ``AgentsStore``."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("slash", "focus_search", "Search"),
         Binding("f", "focus_filters", "Filters"),
         Binding("n", "new_agent", "Register"),

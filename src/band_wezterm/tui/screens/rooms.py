@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Sequence
 from enum import StrEnum
-from typing import Final
+from typing import ClassVar, Final
 
 from rich.style import Style
 from rich.text import Text
@@ -224,7 +224,7 @@ class IdentityRow(ListItem):
 class RoomsScreen(ControlScreen):
     """Rooms list: client-side search, starring, creation."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("slash", "focus_search", "Search"),
         Binding("f", "focus_filters", "Filters"),
         Binding("n", "new_room", "New room"),
@@ -416,7 +416,7 @@ class RoomsScreen(ControlScreen):
 class RoomDetailScreen(ControlScreen):
     """One room: roster, add-only participant picker, chat."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("a", "add_participant", "Add participant"),
         Binding("x", "remove_participant", "Remove"),
         Binding("m", "focus_composer", "Compose"),

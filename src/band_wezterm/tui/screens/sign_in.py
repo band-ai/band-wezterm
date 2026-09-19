@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import ClassVar, Final
 
 from textual import work
 from textual.app import ComposeResult
@@ -24,7 +24,7 @@ SIGN_IN_HINT: Final = (
 class SignInScreen(ControlScreen):
     """Blocking gate: no platform call happens until sign-in succeeds."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("enter", "sign_in", "Sign in"),
         Binding("ctrl+q", "quit_host", "Quit host"),
     ]
