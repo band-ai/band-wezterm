@@ -7,27 +7,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from band_wezterm.auth.credentials import ManagedAgentKeyStore
 from band_wezterm.client import BandClient
 from band_wezterm.config import Settings
 from band_wezterm.identity import HarnessId
-
-
-class _MemoryAgentKeys(ManagedAgentKeyStore):
-    def __init__(self) -> None:
-        self._keys: dict[str, str] = {}
-        self.fail_on_set = False
-
-    def get(self, agent_id: str) -> str | None:
-        return self._keys.get(agent_id)
-
-    def set(self, agent_id: str, api_key: str) -> None:
-        if self.fail_on_set:
-            raise RuntimeError("keyring unavailable")
-        self._keys[agent_id] = api_key
-
-    def delete(self, agent_id: str) -> None:
-        self._keys.pop(agent_id, None)
+from tests.memory_agent_keys import MemoryAgentKeyStore
 
 
 def _register_response(*, agent_id: str, name: str, api_key: str) -> SimpleNamespace:
@@ -41,10 +24,8 @@ def _register_response(*, agent_id: str, name: str, api_key: str) -> SimpleNames
 
 @pytest.mark.asyncio
 async def test_create_agent_persists_managed_api_key() -> None:
-    keys = _MemoryAgentKeys()
-    client = BandClient.from_user_api_key(
-        "user-key", Settings(), agent_keys=keys
-    )
+    keys = MemoryAgentKeyStore()
+    client = BandClient.from_user_api_key("user-key", Settings(), agent_keys=keys)
     client._agents = MagicMock()
     client._agents.register_my_agent = AsyncMock(
         return_value=_register_response(
@@ -64,11 +45,9 @@ async def test_create_agent_persists_managed_api_key() -> None:
 
 @pytest.mark.asyncio
 async def test_create_agent_rolls_back_when_keyring_fails() -> None:
-    keys = _MemoryAgentKeys()
+    keys = MemoryAgentKeyStore()
     keys.fail_on_set = True
-    client = BandClient.from_user_api_key(
-        "user-key", Settings(), agent_keys=keys
-    )
+    client = BandClient.from_user_api_key("user-key", Settings(), agent_keys=keys)
     client._agents = MagicMock()
     client._agents.register_my_agent = AsyncMock(
         return_value=_register_response(

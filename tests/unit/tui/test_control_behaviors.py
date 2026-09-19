@@ -186,7 +186,7 @@ async def test_start_agent_spawns_agent_module_pane(
         "band_wezterm.tui.screens.agents.spawn_additional_tab", fake_spawn
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.announce_agent", lambda *_a, **_k: None
+        "band_wezterm.tui.screens.agents.set_tab_title", lambda *_a, **_k: None
     )
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.preflight_harness", lambda _h: None

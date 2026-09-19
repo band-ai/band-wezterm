@@ -20,14 +20,7 @@ from band_wezterm.agent.adapters import HarnessUnavailableError, preflight_harne
 from band_wezterm.agent.spawn_cmd import agent_pane_command, write_api_key_file
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
-from band_wezterm.identity import (
-    AgentRuntime,
-    AgentStatus,
-    HarnessBadge,
-    harness_badge,
-    initials,
-)
-from band_wezterm.osc import OscKey, emit_many
+from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.stores import (
     AGENT_FILTER_LABELS,
@@ -65,7 +58,6 @@ NO_MANAGED_KEY_MESSAGE: Final = (
     "No managed API key for this agent — re-register it from Control "
     "(keys are one-time at registration)."
 )
-NO_HARNESS_MESSAGE: Final = "Agent has no harness — re-register with a harness."
 DRAFT_INCOMPLETE_MESSAGE: Final = "Name and description are both required."
 
 
@@ -102,24 +94,6 @@ def badge_for(agent: AgentRecord) -> HarnessBadge | None:
 def badge_label(agent: AgentRecord) -> str:
     badge = badge_for(agent)
     return badge.value if badge is not None else NO_BADGE
-
-
-def announce_agent(pane_id: PaneId, agent: AgentRecord) -> None:
-    """Publish the agent's display identity into its own pane as user-vars."""
-    fields: dict[OscKey, str] = {
-        OscKey.AGENT_ID: agent.id,
-        OscKey.AGENT_NAME: agent.name,
-        OscKey.AGENT_INITIALS: initials(agent.name),
-        OscKey.AGENT_COLOR: agent.color,
-        OscKey.AGENT_KIND: agent.kind.value,
-        OscKey.AGENT_STATUS: AgentStatus.ONLINE.value,
-        OscKey.AGENT_RUNTIME: AgentRuntime.STARTING.value,
-    }
-    badge = badge_for(agent)
-    if badge is not None:
-        fields[OscKey.AGENT_HARNESS] = badge.value
-    emit_many(pane_id, fields)
-    set_tab_title(pane_id, agent.name)
 
 
 class AgentRow(ListItem):
@@ -427,9 +401,9 @@ class AgentsScreen(ControlScreen):
             self._set_status(NO_MANAGED_KEY_MESSAGE)
             return
         try:
-            preflight_harness(agent.harness)
+            await asyncio.to_thread(preflight_harness, agent.harness)
         except HarnessUnavailableError as error:
-            self._set_status(format_platform_error(error))
+            self._set_status(str(error))
             return
         store = self.store
         cwd = Path.cwd()
@@ -440,7 +414,7 @@ class AgentsScreen(ControlScreen):
             pane_id = await asyncio.to_thread(
                 spawn_additional_tab, window_id, cwd, command
             )
-            await asyncio.to_thread(announce_agent, pane_id, agent)
+            await asyncio.to_thread(set_tab_title, pane_id, agent.name)
         except (WezTermCliError, OSError) as error:
             key_file.unlink(missing_ok=True)
             if pane_id is not None:

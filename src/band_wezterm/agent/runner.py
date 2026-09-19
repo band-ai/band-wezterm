@@ -28,25 +28,24 @@ from band_wezterm.identity import (
     initials,
     parse_harness,
 )
-from band_wezterm.osc import OscKey, emit_to_stdout
+from band_wezterm.osc import OscKey, emit_many_to_stdout, emit_to_stdout
 
 
 def announce(agent_id: str, name: str, harness: str | None) -> None:
     """OSC identity into this pane (stdout = WezTerm PTY)."""
-    color = agent_accent(agent_id)
-    emit_to_stdout(OscKey.AGENT_ID, agent_id)
-    emit_to_stdout(OscKey.AGENT_NAME, name)
-    emit_to_stdout(OscKey.AGENT_INITIALS, initials(name))
-    emit_to_stdout(OscKey.AGENT_COLOR, color)
-    emit_to_stdout(OscKey.AGENT_KIND, AvatarKind.AGENT.value)
-    emit_to_stdout(OscKey.AGENT_STATUS, AgentStatus.ONLINE.value)
-    emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.STARTING.value)
+    fields: dict[OscKey, str] = {
+        OscKey.AGENT_ID: agent_id,
+        OscKey.AGENT_NAME: name,
+        OscKey.AGENT_INITIALS: initials(name),
+        OscKey.AGENT_COLOR: agent_accent(agent_id),
+        OscKey.AGENT_KIND: AvatarKind.AGENT.value,
+        OscKey.AGENT_STATUS: AgentStatus.ONLINE.value,
+        OscKey.AGENT_RUNTIME: AgentRuntime.STARTING.value,
+    }
     parsed = parse_harness(harness)
     if parsed is not None:
-        try:
-            emit_to_stdout(OscKey.AGENT_HARNESS, harness_badge(parsed).value)
-        except ValueError:
-            pass
+        fields[OscKey.AGENT_HARNESS] = harness_badge(parsed).value
+    emit_many_to_stdout(fields)
 
 
 def _read_api_key(key_file: Path | None) -> str:

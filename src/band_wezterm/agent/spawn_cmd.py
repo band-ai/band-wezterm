@@ -7,7 +7,6 @@ import tempfile
 from pathlib import Path
 
 from band_wezterm.client import AgentRecord
-from band_wezterm.identity import HarnessId
 
 
 def write_api_key_file(api_key: str) -> Path:
@@ -32,7 +31,8 @@ def agent_pane_command(
     key_file: Path,
     cwd: Path,
 ) -> list[str]:
-    harness = agent.harness or HarnessId.CLAUDE_SDK
+    if agent.harness is None:
+        raise ValueError("Agent has no harness — re-register with one.")
     return [
         sys.executable,
         "-m",
@@ -40,7 +40,7 @@ def agent_pane_command(
         "--agent-id",
         agent.id,
         "--harness",
-        harness.value,
+        agent.harness.value,
         "--name",
         agent.name,
         "--key-file",
