@@ -16,9 +16,9 @@ from textual.binding import Binding
 from textual.screen import Screen
 
 from band_wezterm.auth.host_auth import HostAuth
-from band_wezterm.errors import format_platform_error
 from band_wezterm.client import BandClient, RoomRecord
 from band_wezterm.config import CONTROL_TAB_TITLE, Settings, load_settings
+from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentStatus, AvatarKind, agent_accent, initials
 from band_wezterm.local_state import StarredRooms
 from band_wezterm.osc import OscKey, emit_many_to_stdout

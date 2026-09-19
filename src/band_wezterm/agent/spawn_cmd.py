@@ -11,14 +11,13 @@ from band_wezterm.client import AgentRecord
 
 def write_api_key_file(api_key: str) -> Path:
     """0600 temp file; the agent pane deletes it after reading."""
-    handle = tempfile.NamedTemporaryFile(
+    with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
         prefix="band-wezterm-agent-",
         suffix=".key",
         delete=False,
-    )
-    with handle:
+    ) as handle:
         path = Path(handle.name)
         path.chmod(0o600)
         handle.write(api_key)

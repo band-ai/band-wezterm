@@ -7,7 +7,8 @@ raw HTTP metadata. Format like the extension instead.
 
 from __future__ import annotations
 
-from typing import Any, Final, Mapping
+from collections.abc import Mapping
+from typing import Any, Final
 
 from band_rest.core.api_error import ApiError
 
@@ -41,7 +42,7 @@ def _error_payload(body: Any) -> Mapping[str, Any] | None:
 
 
 def _field_label(field: str) -> str:
-    leaf = field.split(".")[-1]
+    leaf = field.rsplit(".", 1)[-1]
     words = leaf.replace("_", " ")
     return words[:1].upper() + words[1:] if words else field
 

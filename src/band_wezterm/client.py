@@ -332,10 +332,8 @@ class BandClient:
         )
 
     async def _rollback_agent_registration(self, agent_id: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             await self._agents.delete_my_agent(agent_id, force=True)
-        except Exception:
-            pass
 
     def managed_agent_api_key(self, agent_id: str) -> str | None:
         return self._agent_keys.get(agent_id)

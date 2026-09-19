@@ -8,7 +8,14 @@ from collections.abc import Sequence
 from contextlib import suppress
 from typing import Any
 
-from band_wezterm.agent.adapters import HarnessUnavailableError, preflight_harness
+from band import Agent
+from band.runtime.types import AgentConfig
+
+from band_wezterm.agent.adapters import (
+    HarnessUnavailableError,
+    build_adapter,
+    preflight_harness,
+)
 from band_wezterm.client import BandClient, MessageRecord
 from band_wezterm.identity import HarnessId
 
@@ -71,11 +78,6 @@ async def start_agent_runtime(
     rest_url: str,
     ws_url: str,
 ) -> tuple[Any, asyncio.Task[None]]:
-    from band import Agent
-    from band.runtime.types import AgentConfig
-
-    from band_wezterm.agent.adapters import build_adapter
-
     adapter = build_adapter(harness)
     runtime = Agent.create(
         adapter=adapter,

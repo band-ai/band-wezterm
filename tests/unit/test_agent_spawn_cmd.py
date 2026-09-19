@@ -31,7 +31,11 @@ def test_agent_pane_command_has_no_api_key_in_argv(tmp_path: Path) -> None:
     argv = agent_pane_command(agent, key_file=key_file, cwd=tmp_path)
     joined = " ".join(argv)
     assert "band_a_secret" not in joined
-    assert "-m" in argv and "band_wezterm.agent" in argv
-    assert "--agent-id" in argv and "agent-9" in argv
-    assert "--harness" in argv and "codex" in argv
-    assert "--key-file" in argv and str(key_file) in argv
+    assert "-m" in argv
+    assert "band_wezterm.agent" in argv
+    assert "--agent-id" in argv
+    assert "agent-9" in argv
+    assert "--harness" in argv
+    assert "codex" in argv
+    assert "--key-file" in argv
+    assert str(key_file) in argv

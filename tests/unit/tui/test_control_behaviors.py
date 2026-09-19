@@ -10,8 +10,14 @@ from textual.containers import Vertical
 from textual.widgets import Input, ListView
 
 from band_wezterm.client import MessageRecord
+from band_wezterm.identity import HarnessId
 from band_wezterm.tui.control_app import ControlApp
-from band_wezterm.tui.screens.agents import OPEN_CLASS, AgentRow, AgentsScreen
+from band_wezterm.tui.screens.agents import (
+    NO_MANAGED_KEY_MESSAGE,
+    OPEN_CLASS,
+    AgentRow,
+    AgentsScreen,
+)
 from band_wezterm.tui.screens.agents import Id as AgentId
 from band_wezterm.tui.screens.agents import selector as agent_selector
 from band_wezterm.tui.screens.rooms import Id as RoomId
@@ -168,8 +174,6 @@ async def test_start_agent_spawns_agent_module_pane(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Start must spawn ``python -m band_wezterm.agent``, not a PoC cat tab."""
-    from band_wezterm.identity import HarnessId
-
     target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
     band_client.list_my_agents.return_value = [target]
     band_client.managed_agent_api_key.return_value = "band_a_managed"
@@ -213,7 +217,8 @@ async def test_start_agent_spawns_agent_module_pane(
     assert len(spawned) == 1
     window_id, _cwd, command = spawned[0]
     assert window_id == 42
-    assert "-m" in command and "band_wezterm.agent" in command
+    assert "-m" in command
+    assert "band_wezterm.agent" in command
     assert "band_a_managed" not in " ".join(command)
 
 
@@ -222,9 +227,6 @@ async def test_start_agent_requires_managed_key(
     band_client: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from band_wezterm.identity import HarnessId
-    from band_wezterm.tui.screens.agents import NO_MANAGED_KEY_MESSAGE
-
     target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
     band_client.list_my_agents.return_value = [target]
     band_client.managed_agent_api_key.return_value = None

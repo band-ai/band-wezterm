@@ -7,6 +7,8 @@ from contextlib import suppress
 
 import pytest
 
+from band_wezterm.client import BandClient
+from band_wezterm.config import load_settings
 from tests.live_harness import (
     message_has_token,
     pick_harness,
@@ -26,9 +28,6 @@ TURN_TWO_TOKEN = "band-wezterm-turn-two"
 
 @pytest.mark.asyncio
 async def test_live_full_chat_agent_and_human_round_trips() -> None:
-    from band_wezterm.client import BandClient
-    from band_wezterm.config import load_settings
-
     api_key = user_api_key()
     if not api_key:
         pytest.skip("BAND_API_KEY_USER not set (see .env.test)")

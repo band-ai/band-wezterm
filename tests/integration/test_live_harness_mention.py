@@ -7,6 +7,8 @@ from contextlib import suppress
 
 import pytest
 
+from band_wezterm.client import BandClient
+from band_wezterm.config import load_settings
 from tests.live_harness import (
     message_has_token,
     pick_harness,
@@ -24,9 +26,6 @@ REPLY_TOKEN = "band-wezterm-harness-ok"
 
 @pytest.mark.asyncio
 async def test_live_harness_mention_gets_reply() -> None:
-    from band_wezterm.client import BandClient
-    from band_wezterm.config import load_settings
-
     api_key = user_api_key()
     if not api_key:
         pytest.skip("BAND_API_KEY_USER not set (see .env.test)")

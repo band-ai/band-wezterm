@@ -75,7 +75,7 @@ def _missing(key: HarnessId, error: Exception) -> HarnessUnavailableError:
 
 def _claude(cwd: str | None) -> Any:
     try:
-        from band.adapters import ClaudeSDKAdapter
+        from band.adapters import ClaudeSDKAdapter  # noqa: PLC0415
 
         return ClaudeSDKAdapter(cwd=cwd)
     except ImportError as error:
@@ -84,7 +84,7 @@ def _claude(cwd: str | None) -> Any:
 
 def _codex() -> Any:
     try:
-        from band.adapters import CodexAdapter
+        from band.adapters import CodexAdapter  # noqa: PLC0415
 
         return CodexAdapter()
     except ImportError as error:
@@ -93,7 +93,7 @@ def _codex() -> Any:
 
 def _copilot() -> Any:
     try:
-        from band.adapters import CopilotSDKAdapter
+        from band.adapters import CopilotSDKAdapter  # noqa: PLC0415
 
         return CopilotSDKAdapter()
     except ImportError as error:
@@ -102,7 +102,7 @@ def _copilot() -> Any:
 
 def _opencode() -> Any:
     try:
-        from band.adapters import OpencodeAdapter
+        from band.adapters import OpencodeAdapter  # noqa: PLC0415
 
         return OpencodeAdapter()
     except ImportError as error:
