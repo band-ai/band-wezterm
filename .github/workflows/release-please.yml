@@ -69,20 +69,19 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # actions/checkout persists the default GITHUB_TOKEN as a git
-          # http.https://github.com/.extraheader (host-scoped, so it applies
-          # to any github.com remote). That config-based header wins over any
-          # token embedded in a remote URL, so the App-token push below was
-          # silently authenticating as github-actions[bot] instead of the
-          # App. A github-actions[bot] push re-triggers the PR's CI as a
-          # bot-authored run, which this org requires a human to approve
-          # before it starts — the actual cause of the "stuck" release-PR
-          # runs. Drop it so the App token is what really authenticates.
-          for key in $(git config --local --get-regexp '\.extraheader$' | cut -d' ' -f1); do
-            git config --local --unset-all "$key"
-          done
-          git fetch "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "$PR_BRANCH"
-          git checkout -B "$PR_BRANCH" FETCH_HEAD
+          # The `actions/checkout` step above wires the default GITHUB_TOKEN
+          # into this working tree's git credentials (via an includeIf'd
+          # config file, not a plain key `git config --unset` can reach), and
+          # that silently overrides any other token on a push made from here.
+          # Such a push is then attributed to github-actions[bot] instead of
+          # the App, and that identity's re-triggered PR run needs a human to
+          # approve it before CI starts — the actual cause of the "stuck"
+          # release-PR runs. Clone fresh elsewhere instead of reusing this
+          # tree, so the App token below is the only credential in play.
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          WORKDIR="${RUNNER_TEMP}/release-pr"
+          git clone --branch "$PR_BRANCH" --single-branch --depth 1 "$REMOTE" "$WORKDIR"
+          cd "$WORKDIR"
           uv lock
           if git diff --quiet -- uv.lock; then
             echo "uv.lock already matches the release version."
@@ -92,6 +91,4 @@ jobs:
           git config user.email "release-bot@band.ai"
           git add uv.lock
           git commit -m "chore: sync uv.lock to the release version"
-          # Push with the App token (not the default GITHUB_TOKEN) so the PR's CI
-          # re-runs and the `uv lock --check` gate sees the now-consistent lock.
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "HEAD:${PR_BRANCH}"
+          git push "$REMOTE" "HEAD:${PR_BRANCH}"
