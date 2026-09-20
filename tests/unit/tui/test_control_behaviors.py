@@ -31,11 +31,13 @@ from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.roles import Role
 from band_wezterm.tui.control_app import ControlApp
-from band_wezterm.tui.screens.agents import (
+from band_wezterm.tui.managed_agent_actions import (
     NO_MANAGED_KEY_MESSAGE,
     NO_MANAGED_PROFILE_MESSAGE,
     PANE_CLEANUP_FAILED_MESSAGE,
     PROFILE_HARNESS_UNSTABLE_MESSAGE,
+)
+from band_wezterm.tui.screens.agents import (
     AgentRow,
     AgentsScreen,
 )
@@ -53,6 +55,7 @@ from band_wezterm.tui.screens.rooms import (
 from band_wezterm.tui.screens.rooms import selector as room_selector
 from band_wezterm.tui.screens.settings import SettingsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
+from band_wezterm.tui.stores import AgentPanes
 from band_wezterm.tui.widgets import MarkdownComposer
 from band_wezterm.wezterm_cli import PaneId
 
@@ -88,7 +91,7 @@ def highlighted_option_id(screen: RegisterAgentScreen) -> str | None:
 def native_console_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep UI tests independent of locally installed harness executables."""
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.preflight_managed_agent",
+        "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
         lambda _harness: None,
     )
     monkeypatch.setattr(
@@ -469,6 +472,73 @@ async def test_room_roster_shows_local_agent_runtime(
         assert str(indicator.render()) == "●"
 
 
+async def test_room_roster_starts_selected_managed_agent(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    member = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_participants.return_value = [participant(member)]
+    band_client.managed_agent_api_key.return_value = "band_a_managed"
+    control_app.window_id = 42
+    control_app.managed_agents.record(
+        ManagedAgentProfile(agent_id=IDLE_AGENT_ID, name="Beta", harness=HarnessId.CODEX)
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.managed_agent_actions.prepare_agent_launch",
+        lambda _context: object(),
+    )
+
+    async def spawn(_context: object, _resources: object) -> AgentPanes:
+        return AgentPanes(console=PaneId(99), bridge=PaneId(100))
+
+    monkeypatch.setattr("band_wezterm.tui.managed_agent_actions.spawn_agent_panes", spawn)
+    target = room(ROOM_ID, "Core")
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target)
+        await settle(pilot)
+        await pilot.press("s")
+        await settle(pilot)
+
+    assert control_app.agents_store.is_running(IDLE_AGENT_ID)
+    assert "Started Beta" in control_app.rooms_store.status
+
+
+async def test_room_roster_stops_selected_managed_agent(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    member = agent(RUNNING_AGENT_ID, "Alpha")
+    band_client.list_participants.return_value = [participant(member)]
+    control_app.agents_store.mark_running(
+        RUNNING_AGENT_ID, bridge=PaneId(100), console=PaneId(99)
+    )
+    stopped: list[tuple[PaneId, ...]] = []
+
+    def kill(panes: tuple[PaneId, ...]) -> None:
+        stopped.append(panes)
+
+    monkeypatch.setattr(
+        "band_wezterm.tui.managed_agent_actions.kill_panes",
+        kill,
+    )
+    target = room(ROOM_ID, "Core")
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target)
+        await settle(pilot)
+        await pilot.press("t")
+        await settle(pilot)
+
+    assert stopped == [(PaneId(99), PaneId(100))]
+    assert not control_app.agents_store.is_running(RUNNING_AGENT_ID)
+    assert control_app.rooms_store.status == "Stopped Alpha."
+
+
 async def test_start_agent_spawns_private_console_and_band_bridge(
     control_app: ControlApp,
     band_client: MagicMock,
@@ -512,7 +582,7 @@ async def test_start_agent_spawns_private_console_and_band_bridge(
         "band_wezterm.agent.launch.activate_pane", activated.append
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.preflight_managed_agent",
+        "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
         preflighted.append,
     )
     monkeypatch.setattr(
@@ -582,7 +652,7 @@ async def test_start_agent_surfaces_missing_native_console_before_spawning(
         ManagedAgentProfile(agent_id=IDLE_AGENT_ID, name="Beta", harness=HarnessId.CODEX)
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.preflight_managed_agent",
+        "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
         lambda _harness: (_ for _ in ()).throw(NativeConsoleUnavailableError("codex CLI not found")),
     )
     spawned = MagicMock()
@@ -719,7 +789,7 @@ async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
         "band_wezterm.agent.launch.activate_pane", lambda _pane: None
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.preflight_managed_agent",
+        "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
         fake_preflight,
     )
     monkeypatch.setattr(
@@ -1405,7 +1475,7 @@ async def test_start_agent_surfaces_harness_unavailable(
         raise HarnessUnavailableError(unavailable)
 
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
-    monkeypatch.setattr("band_wezterm.tui.screens.agents.preflight_managed_agent", boom)
+    monkeypatch.setattr("band_wezterm.tui.managed_agent_actions.preflight_managed_agent", boom)
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
@@ -1439,7 +1509,7 @@ async def test_start_agent_aborts_when_profile_removed_mid_preflight(
 
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.preflight_managed_agent",
+        "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
         remove_during_preflight,
     )
 
@@ -1482,7 +1552,7 @@ async def test_start_agent_aborts_when_harness_never_settles(
 
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.preflight_managed_agent",
+        "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
         never_settle,
     )
 
@@ -1531,7 +1601,7 @@ async def test_start_agent_aborts_when_harness_changes_after_preflight(
     monkeypatch.setattr(AgentsScreen, "_preflight_launch_profile", drift_after_preflight)
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.preflight_managed_agent",
+        "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
         lambda _h: None,
     )
 
@@ -1573,7 +1643,7 @@ async def test_start_agent_aborts_when_profile_removed_after_preflight(
     monkeypatch.setattr(AgentsScreen, "_preflight_launch_profile", remove_after_preflight)
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.preflight_managed_agent",
+        "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
         lambda _h: None,
     )
 

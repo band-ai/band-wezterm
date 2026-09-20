@@ -123,6 +123,7 @@ class AgentsStore:
     search: str = ""
     filter: AgentFilter = AgentFilter.ALL
     running: dict[str, AgentPanes] = field(default_factory=dict)
+    starting_ids: set[str] = field(default_factory=set)
     selected_id: str | None = None
     loading: bool = False
     deleting_ids: set[str] = field(default_factory=set)
@@ -228,6 +229,15 @@ class AgentsStore:
 
     def is_running(self, agent_id: str) -> bool:
         return agent_id in self.running
+
+    def is_starting(self, agent_id: str) -> bool:
+        return agent_id in self.starting_ids
+
+    def begin_start(self, agent_id: str) -> None:
+        self.starting_ids.add(agent_id)
+
+    def finish_start(self, agent_id: str) -> None:
+        self.starting_ids.discard(agent_id)
 
     def mark_running(
         self,

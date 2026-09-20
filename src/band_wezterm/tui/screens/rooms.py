@@ -39,6 +39,7 @@ from band_wezterm.client import (
 )
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, AvatarKind
+from band_wezterm.tui.managed_agent_actions import ManagedAgentActions
 from band_wezterm.tui.refresh import CATALOG_POLL_SECONDS
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.stores import (
@@ -75,6 +76,7 @@ EMPTY_CANDIDATES: Final = "Every one of your agents is already in this room."
 ROSTER_UPDATING_MESSAGE: Final = "Updating room roster…"
 NO_SELECTION_MESSAGE: Final = "Select a room first."
 NO_PARTICIPANT_MESSAGE: Final = "Select a participant first."
+NO_AGENT_PARTICIPANT_MESSAGE: Final = "Select an agent participant first."
 MENTION_REQUIRED_MESSAGE: Final = "Messages must @mention a room participant."
 EMPTY_TITLE_MESSAGE: Final = "A room title is required."
 DELETE_CONFIRM_MESSAGE: Final = (
@@ -506,7 +508,7 @@ class RoomsScreen(ControlScreen):
         self.mutate_reactive(RoomsScreen.store)
 
 
-class RoomDetailScreen(ControlScreen):
+class RoomDetailScreen(ManagedAgentActions, ControlScreen):
     """One room: roster, add-only participant picker, chat."""
 
     BINDINGS: ClassVar[list[Binding]] = [
@@ -517,6 +519,8 @@ class RoomDetailScreen(ControlScreen):
         Binding("delete", "delete_room", "Delete"),
         Binding("backspace", "delete_room", "Delete", show=False),
         Binding("m", "focus_composer", "Compose"),
+        Binding("s", "start_participant", "Start"),
+        Binding("t", "stop_participant", "Stop"),
         Binding("r", "reload", "Reload"),
         Binding("escape", "back", "Back"),
     ]
@@ -713,6 +717,43 @@ class RoomDetailScreen(ControlScreen):
     def _highlighted_identity_id(self, list_view: ListView) -> str | None:
         row = list_view.highlighted_child
         return row.identity_id if isinstance(row, IdentityRow) else None
+
+    def _highlighted_agent_participant(self) -> ParticipantRecord | None:
+        row = self._roster_view().highlighted_child
+        if not isinstance(row, IdentityRow) or not isinstance(
+            row.identity, ParticipantRecord
+        ):
+            return None
+        return row.identity if row.identity.kind is AvatarKind.AGENT else None
+
+    def action_start_participant(self) -> None:
+        participant = self._highlighted_agent_participant()
+        if participant is None:
+            self._set_status(NO_AGENT_PARTICIPANT_MESSAGE)
+            return
+        profile = self.control.managed_agents.get(participant.id)
+        self.start_managed_agent(
+            AgentRecord(
+                id=participant.id,
+                name=participant.name,
+                kind=participant.kind,
+                color=participant.color,
+                harness=profile.harness if profile is not None else None,
+            )
+        )
+
+    def action_stop_participant(self) -> None:
+        participant = self._highlighted_agent_participant()
+        if participant is None:
+            self._set_status(NO_AGENT_PARTICIPANT_MESSAGE)
+            return
+        self.stop_managed_agent(participant.id, participant.name)
+
+    def _set_agent_operation_status(self, status: str) -> None:
+        self._set_status(status)
+
+    def _refresh_agent_operation_view(self) -> None:
+        self.mutate_reactive(RoomDetailScreen.store)
 
     def action_remove_participant(self) -> None:
         """Instant removal — no confirmation step by design."""
