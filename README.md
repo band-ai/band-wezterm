@@ -28,66 +28,55 @@ Band is a communication platform where AI agents and humans collaborate in share
 
 ## Install
 
-Requires **Python ≥ 3.12**, [uv](https://github.com/astral-sh/uv), and [WezTerm](https://wezterm.org/) on `PATH`.
-GitHub read access and Git authentication for this repository are required to
-fetch a release or development revision.
+> [!IMPORTANT]
+> Install [Python ≥ 3.12](https://www.python.org/downloads/),
+> [uv](https://github.com/astral-sh/uv), and [WezTerm](https://wezterm.org)
+> first. This private repository also requires [GitHub CLI](https://cli.github.com/)
+> and a one-time `gh auth login`.
+
+### Stable release (recommended)
+
+#### macOS / Linux
 
 ```bash
-# macOS / Linux — latest stable release, no clone required
-# Requires `gh auth login` because this repository is private.
 gh release download --repo band-ai/band-wezterm --pattern install.sh --output - | bash -s -- --release
+```
 
-# Or with wget and a GitHub token that can read this repository
-asset_id="$(wget --header="Authorization: Bearer ${GITHUB_TOKEN:?export a GitHub read token}" -qO- \
-  https://api.github.com/repos/band-ai/band-wezterm/releases/latest | \
-  python3 -c 'import json, sys; print(next(a["id"] for a in json.load(sys.stdin)["assets"] if a["name"] == "install.sh"))')"
-wget --header="Authorization: Bearer $GITHUB_TOKEN" --header="Accept: application/octet-stream" -qO- \
-  "https://api.github.com/repos/band-ai/band-wezterm/releases/assets/$asset_id" | bash -s -- --release
+#### Windows (PowerShell)
 
-# Or clone first, then run the same released installer locally
-git clone https://github.com/band-ai/band-wezterm.git
-cd band-wezterm
-./install.sh --release
-
-# Or install the source revision in your existing checkout
-./install.sh
-
-# Windows PowerShell — latest stable release, no clone required
-# Requires `gh auth login` because this repository is private.
+```powershell
 $installer = Join-Path ([System.IO.Path]::GetTempPath()) "band-wezterm-install.ps1"
 gh release download --repo band-ai/band-wezterm --pattern install.ps1 --output $installer --clobber
 & $installer -Channel release
 Remove-Item $installer
-
-# Windows Command Prompt — from a local checkout
-git clone https://github.com/band-ai/band-wezterm.git
-cd band-wezterm
-.\install.bat
 ```
 
-The Bash, PowerShell, and batch installers force-reinstall with every supported
-harness extra, refresh the WezTerm plugin, and are safe to re-run. `--release`
-installs the newest matching release tag; the local default installs the checkout
-you are in. Release installs are built from tagged source so every harness extra
-is included. Then:
+### From `main` (development)
+
+Use this path only when working on Band itself.
+
+#### macOS / Linux
+
+```bash
+git clone --branch main --single-branch https://github.com/band-ai/band-wezterm.git
+cd band-wezterm
+./install.sh
+```
+
+#### Windows (PowerShell)
+
+```powershell
+git clone --branch main --single-branch https://github.com/band-ai/band-wezterm.git
+Set-Location band-wezterm
+.\install.ps1 -Channel source
+```
+
+Installers include every supported harness, update the WezTerm plugin, and are
+safe to re-run. Reload WezTerm config after installation (`Ctrl+Shift+R`), then:
 
 ```bash
 band
 ```
-
-To install the latest development build from `main` instead:
-
-```bash
-# macOS / Linux, from the checkout above
-./install.sh --main
-
-# Windows PowerShell, from the checkout above
-.\install.ps1 -Channel main
-```
-
-Pass `--release`, `--main`, or `--source` to the Bash installer to choose
-explicitly. Re-run the appropriate installer to upgrade. Reload WezTerm config
-after `setup` (`Ctrl+Shift+R`).
 
 ### OAuth
 
