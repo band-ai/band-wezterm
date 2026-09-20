@@ -40,22 +40,31 @@ def profile(
 
 
 def test_codex_console_uses_normalized_profile_without_band_bridge() -> None:
+    configured = profile(HarnessId.CODEX, model="gpt-5.6", reasoning="high")
     launch = build_native_console(
-        profile(HarnessId.CODEX, model="gpt-5.6", reasoning="high"),
+        configured,
         cwd=Path("/workspace"),
     )
 
     assert launch.command[:3] == ("codex", "--cd", str(Path("/workspace")))
     assert CODEX_DEFAULT_MODEL in launch.command
     assert "model_reasoning_effort=\"high\"" in launch.command
-    assert "developer_instructions=\"You are concise.\"" in launch.command
+    instruction_option = next(
+        option
+        for option in launch.command
+        if option.startswith("developer_instructions=")
+    )
+    assert json.loads(instruction_option.partition("=")[2]) == (
+        configured.runtime_instructions()
+    )
     assert "band_wezterm.agent" not in launch.command
     assert launch.environment == {}
 
 
 def test_claude_console_leaves_unsupported_reasoning_to_native_default() -> None:
+    configured = profile(HarnessId.CLAUDE_SDK, model="sonnet", reasoning="on")
     launch = build_native_console(
-        profile(HarnessId.CLAUDE_SDK, model="sonnet", reasoning="on"),
+        configured,
         cwd=Path("/workspace"),
     )
 
@@ -64,7 +73,7 @@ def test_claude_console_leaves_unsupported_reasoning_to_native_default() -> None
         "--model",
         "sonnet",
         "--append-system-prompt",
-        "You are concise.",
+        configured.runtime_instructions(),
     )
 
 

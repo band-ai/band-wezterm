@@ -100,6 +100,20 @@ private CLI receives the managed profile's working directory, persona, model,
 and supported reasoning setting, but no `BAND_*` environment variables. Room
 messages remain available in Control exactly as before.
 
+Each managed agent has one durable profile: its Band identity, harness, role
+snapshot, tuning, and working directory. Start applies that same profile to
+both panes. The selected role is bound to the agent's name, so the agent should
+introduce itself by its Band identity and role rather than as only the underlying
+harness. Editing a role file affects newly configured agents; use Reconfigure
+to update an existing agent's saved role snapshot.
+
+The panes deliberately keep conversation context separate. The native CLI is a
+private, direct harness session; it never reads or sends Band room messages.
+The Band bridge is the platform agent: each room gets its own harness thread,
+while all rooms retain the same managed-agent profile. `Model: automatic` lets
+each runtime use its provider default; select an explicit model in Reconfigure
+when the native tab and Band bridge must use the same model identifier.
+
 ```bash
 # All four harnesses
 uv sync --extra agents

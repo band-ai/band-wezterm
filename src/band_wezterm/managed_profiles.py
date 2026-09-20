@@ -16,6 +16,10 @@ from band_wezterm.identity import HarnessId, parse_harness
 
 _PROFILE_SAVE_TMP_PREFIX: Final = ".managed_agents."
 _PROFILE_SAVE_TMP_SUFFIX: Final = ".tmp"
+_RUNTIME_INSTRUCTIONS_TEMPLATE: Final = """You are {name}, a Band-managed agent.
+Apply the role specification below to every response and action. When asked who you are, introduce yourself using your Band agent name and the role described below; do not describe yourself only as the underlying harness.
+
+{persona}"""
 
 
 class ManagedAgentProfile(BaseModel):
@@ -26,6 +30,15 @@ class ManagedAgentProfile(BaseModel):
     harness: HarnessId
     persona: str | None = None
     tuning: AgentTuning = Field(default_factory=AgentTuning)
+
+    def runtime_instructions(self) -> str | None:
+        """The role snapshot with the managed agent identity bound to it."""
+        if self.persona is None:
+            return None
+        return _RUNTIME_INSTRUCTIONS_TEMPLATE.format(
+            name=self.name,
+            persona=self.persona,
+        )
 
 
 class _ProfilesFile(BaseModel):

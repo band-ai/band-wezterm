@@ -14,6 +14,24 @@ from band_wezterm.managed_profiles import ManagedAgentStore, profile_from_regist
 SAVE_FAILURE_MESSAGE = "disk full"
 
 
+def test_runtime_instructions_bind_identity_to_the_role_snapshot() -> None:
+    profile = profile_from_registration(
+        agent_id="a1",
+        name="Alpha",
+        harness=HarnessId.CODEX,
+        persona="# Product Manager\nPrioritize user outcomes.\n",
+        tuning=AgentTuning(),
+    )
+
+    assert profile.runtime_instructions() == (
+        "You are Alpha, a Band-managed agent.\n"
+        "Apply the role specification below to every response and action. When asked "
+        "who you are, introduce yourself using your Band agent name and the role "
+        "described below; do not describe yourself only as the underlying harness.\n"
+        "\n# Product Manager\nPrioritize user outcomes.\n"
+    )
+
+
 def test_record_get_and_persona_update(tmp_path: Path) -> None:
     store = ManagedAgentStore(tmp_path / "profiles.json")
     profile = profile_from_registration(

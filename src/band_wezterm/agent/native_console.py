@@ -169,8 +169,9 @@ def _claude_console(profile: ManagedAgentProfile, *, cwd: Path) -> NativeConsole
     model = profile.tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         command.extend(["--model", model])
-    if profile.persona:
-        command.extend(["--append-system-prompt", profile.persona])
+    instructions = profile.runtime_instructions()
+    if instructions:
+        command.extend(["--append-system-prompt", instructions])
     return NativeConsoleLaunch(tuple(command), cwd, {})
 
 
@@ -182,8 +183,11 @@ def _codex_console(profile: ManagedAgentProfile, *, cwd: Path) -> NativeConsoleL
     reasoning = profile.tuning.value_for(TuningDimensionId.REASONING)
     if reasoning is not None:
         command.extend(["--config", _toml_assignment("model_reasoning_effort", reasoning)])
-    if profile.persona:
-        command.extend(["--config", _toml_assignment("developer_instructions", profile.persona)])
+    instructions = profile.runtime_instructions()
+    if instructions:
+        command.extend(
+            ["--config", _toml_assignment("developer_instructions", instructions)]
+        )
     return NativeConsoleLaunch(tuple(command), cwd, {})
 
 
@@ -206,25 +210,27 @@ def _opencode_console(profile: ManagedAgentProfile, *, cwd: Path) -> NativeConso
 
 
 def _copilot_instruction_environment(profile: ManagedAgentProfile) -> dict[str, str]:
-    if not profile.persona:
+    instructions = profile.runtime_instructions()
+    if not instructions:
         return {}
     directory = _console_profile_directory(profile.agent_id, "copilot")
-    _write_console_profile_file(directory / "AGENTS.md", profile.persona)
+    _write_console_profile_file(directory / "AGENTS.md", instructions)
     return {"COPILOT_CUSTOM_INSTRUCTIONS_DIRS": str(directory)}
 
 
 def _opencode_environment(profile: ManagedAgentProfile) -> dict[str, str]:
-    if not profile.persona and not profile.tuning.value_for(TuningDimensionId.MODEL):
+    instructions = profile.runtime_instructions()
+    if not instructions and not profile.tuning.value_for(TuningDimensionId.MODEL):
         return {}
     directory = _console_profile_directory(profile.agent_id, "opencode")
     persona_path = directory / "persona.md"
-    if profile.persona:
-        _write_console_profile_file(persona_path, profile.persona)
+    if instructions:
+        _write_console_profile_file(persona_path, instructions)
     config: dict[str, object] = {"$schema": "https://opencode.ai/config.json"}
     model = profile.tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         config["model"] = model
-    if profile.persona:
+    if instructions:
         config["instructions"] = [str(persona_path)]
     config_path = directory / "opencode.json"
     _write_console_profile_file(config_path, json.dumps(config, indent=2) + "\n")

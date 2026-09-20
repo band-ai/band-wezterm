@@ -65,8 +65,9 @@ def prepare_agent_launch(context: AgentLaunchContext) -> AgentLaunchResources:
     resources = AgentLaunchResources()
     try:
         resources.key_file = write_api_key_file(context.api_key)
-        if context.profile.persona:
-            resources.persona_file = write_persona_file(context.profile.persona)
+        instructions = context.profile.runtime_instructions()
+        if instructions:
+            resources.persona_file = write_persona_file(instructions)
         console = build_native_console(context.profile, cwd=context.cwd)
         resources.console_launch_file = write_native_console_launch(console)
         resources.console_command = native_console_command(
