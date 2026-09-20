@@ -70,6 +70,7 @@ ROSTER_TITLE: Final = "Roster"
 EMPTY_ROOMS: Final = "No rooms match the filter."
 EMPTY_CHAT: Final = "*No messages yet.*"
 EMPTY_CANDIDATES: Final = "Every one of your agents is already in this room."
+ROSTER_UPDATING_MESSAGE: Final = "Updating room roster…"
 NO_SELECTION_MESSAGE: Final = "Select a room first."
 NO_PARTICIPANT_MESSAGE: Final = "Select a participant first."
 MENTION_REQUIRED_MESSAGE: Final = "Messages must @mention a room participant."
@@ -108,7 +109,7 @@ def selector(widget_id: Id) -> str:
 
 
 def mention_keys(participant: ParticipantRecord) -> tuple[str, ...]:
-    """Accepted composer keys: the true handle and the visible roster name."""
+    """Accepted composer keys, preferring the platform's canonical handle."""
     keys = (participant.handle, participant.name)
     return tuple(dict.fromkeys(key for key in keys if key))
 
@@ -119,14 +120,14 @@ def resolve_mention(
     """First canonical `@handle` that names a participant, plus the remaining body."""
     candidates = sorted(
         (
-            (key, participant)
+            (key, participant, key == participant.handle)
             for participant in participants
             for key in mention_keys(participant)
         ),
-        key=lambda candidate: len(candidate[0]),
+        key=lambda candidate: (candidate[2], len(candidate[0])),
         reverse=True,
     )
-    for key, participant in candidates:
+    for key, participant, _is_handle in candidates:
         match = re.search(
             rf"(?<!\S)@{re.escape(key)}(?=\s|$)", body, flags=re.IGNORECASE
         )
@@ -157,6 +158,9 @@ _MESSAGE_EVENT_KINDS = frozenset(
         RealtimeEventKind.MESSAGE_CREATED,
         RealtimeEventKind.MESSAGE_UPDATED,
     }
+)
+_ROSTER_EVENT_KINDS = frozenset(
+    {RealtimeEventKind.PARTICIPANT_JOINED, RealtimeEventKind.PARTICIPANT_LEFT}
 )
 
 
@@ -555,6 +559,8 @@ class RoomDetailScreen(ControlScreen):
         self.room = room
         self._unsubscribe: Unsubscribe | None = None
         self._pending_delete: bool = False
+        self._roster_mutation_pending = False
+        self._send_draft: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -582,9 +588,11 @@ class RoomDetailScreen(ControlScreen):
         self._load_messages()
         self._connect_realtime()
 
-    def on_unmount(self) -> None:
+    async def on_unmount(self) -> None:
         if self._unsubscribe is not None:
             self._unsubscribe()
+            self._unsubscribe = None
+        await self.control.client.unsubscribe_room(self.room.id)
 
     def _roster_view(self) -> ListView:
         return self.query_one(selector(Id.ROSTER), Vertical).query_one(ListView)
@@ -657,6 +665,7 @@ class RoomDetailScreen(ControlScreen):
         self._pending_delete = False
         self._load_roster()
         self._load_messages()
+        self._connect_realtime()
 
     def action_delete_room(self) -> None:
         if not self._pending_delete:
@@ -703,8 +712,11 @@ class RoomDetailScreen(ControlScreen):
     def action_remove_participant(self) -> None:
         """Instant removal — no confirmation step by design."""
         self._pending_delete = False
+        if not self._begin_roster_mutation():
+            return
         participant_id = self._highlighted_identity_id(self._roster_view())
         if participant_id is None:
+            self._roster_mutation_pending = False
             self._set_status(NO_PARTICIPANT_MESSAGE)
             return
         self.store.remove_participant(participant_id)
@@ -719,6 +731,8 @@ class RoomDetailScreen(ControlScreen):
             self._set_status(
                 format_platform_error(error, operation="remove participant")
             )
+        finally:
+            self._roster_mutation_pending = False
             self._load_roster()
 
     # --- add participant (select-then-act, add-only) -----------------------
@@ -756,7 +770,8 @@ class RoomDetailScreen(ControlScreen):
             event.item, IdentityRow
         ):
             return
-        self._add_participant(event.item.identity_id)
+        if self._begin_roster_mutation():
+            self._add_participant(event.item.identity_id)
 
     @work(group="room-participants")
     async def _add_participant(self, participant_id: str) -> None:
@@ -766,8 +781,17 @@ class RoomDetailScreen(ControlScreen):
         except Exception as error:
             self._set_status(format_platform_error(error, operation="add participant"))
             return
+        finally:
+            self._roster_mutation_pending = False
+            self._load_roster()
         self._set_picker_open(False)
-        self._load_roster()
+
+    def _begin_roster_mutation(self) -> bool:
+        if self._roster_mutation_pending:
+            self._set_status(ROSTER_UPDATING_MESSAGE)
+            return False
+        self._roster_mutation_pending = True
+        return True
 
     # --- chat --------------------------------------------------------------
 
@@ -797,12 +821,14 @@ class RoomDetailScreen(ControlScreen):
             self._set_status(MENTION_REQUIRED_MESSAGE)
             return
         participant, remainder = mention
-        event.input.value = ""
-        self._send_message(participant, remainder)
+        if self._send_draft is not None:
+            return
+        self._send_draft = event.input.value
+        self._send_message(participant, remainder, event.input.value)
 
     @work(group="room-send")
     async def _send_message(
-        self, participant: ParticipantRecord, body: str
+        self, participant: ParticipantRecord, body: str, draft: str
     ) -> None:
         try:
             message = await self.control.client.send_message(
@@ -814,24 +840,32 @@ class RoomDetailScreen(ControlScreen):
         except Exception as error:
             self._set_status(format_platform_error(error, operation="send message"))
             return
-        self.store.append_message(message)
-        self.store.clear_status(RoomStatusSource.ACTION)
-        self.mutate_reactive(RoomDetailScreen.store)
+        else:
+            composer = self.query_one(selector(Id.COMPOSER), MarkdownComposer)
+            if composer.value == draft:
+                composer.value = ""
+            self.store.append_message(message)
+            self.store.clear_status(RoomStatusSource.ACTION)
+            self.mutate_reactive(RoomDetailScreen.store)
+        finally:
+            self._send_draft = None
 
     # --- realtime ----------------------------------------------------------
 
     @work(exclusive=True, group="room-realtime")
     async def _connect_realtime(self) -> None:
+        unsubscribe = self.control.client.subscribe_realtime(self._on_event)
         try:
-            self._unsubscribe = self.control.client.subscribe_realtime(self._on_event)
             await self.control.client.subscribe_room(self.room.id)
         except Exception as error:
+            unsubscribe()
             self.store.set_status(
                 RoomStatusSource.REALTIME,
                 format_platform_error(error, operation="connect realtime"),
             )
             self.mutate_reactive(RoomDetailScreen.store)
         else:
+            self._unsubscribe = unsubscribe
             self.store.clear_status(RoomStatusSource.REALTIME)
             self.mutate_reactive(RoomDetailScreen.store)
 
@@ -840,6 +874,9 @@ class RoomDetailScreen(ControlScreen):
 
     def on_room_detail_screen_incoming(self, event: RoomDetailScreen.Incoming) -> None:
         if event.event.room_id != self.room.id:
+            return
+        if event.event.kind in _ROSTER_EVENT_KINDS:
+            self._load_roster()
             return
         message = message_from_event(event.event)
         if message is None:

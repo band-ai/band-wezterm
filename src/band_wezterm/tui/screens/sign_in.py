@@ -66,10 +66,11 @@ class SignInScreen(ControlScreen):
     @work(exclusive=True)
     async def _sign_in(self) -> None:
         try:
-            await self.control.host_auth.sign_in()
+            if not self.control.host_auth.has_stored_tokens():
+                await self.control.host_auth.sign_in()
+            await self.control.enter_workspace()
         except Exception as error:  # surfaced in-screen; retry with Enter
             message = format_platform_error(error, operation="sign in")
             self.status = f"{message}\n\n{SIGN_IN_PROMPT}"
+        finally:
             self.busy = False
-            return
-        await self.control.enter_workspace()

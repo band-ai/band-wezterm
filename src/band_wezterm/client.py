@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -255,6 +255,7 @@ class BandClient:
         self._phx: PHXChannelsClient | None = None
         self._phx_generation: int | None = None
         self._realtime_listeners: list[Callable[[RealtimeEvent], None]] = []
+        self._realtime_rooms: set[str] = set()
 
     @property
     def _token_generation(self) -> int:
@@ -502,9 +503,20 @@ class BandClient:
 
         return unsubscribe
 
-    async def _ensure_realtime(self) -> None:
-        if self._phx is not None and self._phx_generation == self._token_generation:
+    async def unsubscribe_room(self, room_id: str) -> None:
+        """Release a detail screen's topics when it closes."""
+        if room_id not in self._realtime_rooms:
             return
+        self._realtime_rooms.remove(room_id)
+        if self._phx is None:
+            return
+        for topic in (chat_room_topic(room_id), room_participants_topic(room_id)):
+            with contextlib.suppress(Exception):
+                await self._phx.unsubscribe_from_topic(topic)
+
+    async def _ensure_realtime(self) -> bool:
+        if self._phx is not None and self._phx_generation == self._token_generation:
+            return False
         await self._disconnect_realtime()
         token = await self._fetch_token()
         generation = self._token_generation
@@ -523,12 +535,38 @@ class BandClient:
         await client.__aenter__()
         self._phx = client
         self._phx_generation = generation
+        for room_id in self._realtime_rooms:
+            await self._subscribe_room_topics(room_id)
         log_event("realtime connected", credential_generation=generation)
+        return True
 
     async def subscribe_room(self, room_id: str) -> None:
+        """Keep one room's topics live across reconnects and detail remounts."""
+        if room_id in self._realtime_rooms:
+            return
+        self._realtime_rooms.add(room_id)
+        try:
+            if not await self._ensure_realtime():
+                await self._subscribe_room_topics(room_id)
+        except Exception:
+            self._realtime_rooms.discard(room_id)
+            raise
+
+    async def _subscribe_room_topics(self, room_id: str) -> None:
+        """Attach both room topics to the current socket exactly once."""
         await self._ensure_realtime()
         assert self._phx is not None
+        topics = (chat_room_topic(room_id), room_participants_topic(room_id))
+        try:
+            for topic in topics:
+                await self._phx.subscribe_to_topic(topic, self._realtime_handler(room_id))
+        except Exception:
+            for topic in topics:
+                with contextlib.suppress(Exception):
+                    await self._phx.unsubscribe_from_topic(topic)
+            raise
 
+    def _realtime_handler(self, room_id: str) -> Callable[[object], Awaitable[None]]:
         async def handler(message: object) -> None:
             payload = getattr(message, "payload", None)
             event = RealtimeEvent(
@@ -539,8 +577,7 @@ class BandClient:
             for listener in list(self._realtime_listeners):
                 listener(event)
 
-        await self._phx.subscribe_to_topic(chat_room_topic(room_id), handler)
-        await self._phx.subscribe_to_topic(room_participants_topic(room_id), handler)
+        return handler
 
     async def reset_realtime_after_credential_change(self) -> None:
         """Reconnect the socket after HostAuth rotation (listeners stay registered)."""

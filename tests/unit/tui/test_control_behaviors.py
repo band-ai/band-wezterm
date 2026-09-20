@@ -18,7 +18,12 @@ from band_wezterm.agent_draft import (
     apply_draft_patch,
 )
 from band_wezterm.backends import AgentTuning
-from band_wezterm.client import MessageRecord
+from band_wezterm.client import (
+    MessageRecord,
+    ParticipantRecord,
+    RealtimeEvent,
+    RealtimeEventKind,
+)
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.roles import Role
@@ -26,6 +31,7 @@ from band_wezterm.tui.control_app import ControlApp
 from band_wezterm.tui.screens.agents import (
     NO_MANAGED_KEY_MESSAGE,
     NO_MANAGED_PROFILE_MESSAGE,
+    PANE_CLEANUP_FAILED_MESSAGE,
     PROFILE_HARNESS_UNSTABLE_MESSAGE,
     AgentRow,
     AgentsScreen,
@@ -45,6 +51,7 @@ from band_wezterm.tui.screens.rooms import (
 from band_wezterm.tui.screens.rooms import selector as room_selector
 from band_wezterm.tui.screens.settings import SettingsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
+from band_wezterm.tui.widgets import MarkdownComposer
 from band_wezterm.wezterm_cli import PaneId
 
 from .conftest import agent, participant, room, settle
@@ -273,6 +280,80 @@ async def test_add_participant_only_adds(
 
     band_client.add_participant.assert_awaited_once_with(ROOM_ID, IDLE_AGENT_ID)
     band_client.remove_participant.assert_not_awaited()
+
+
+async def test_two_running_agents_can_create_a_room_and_receive_mentions(
+    control_app: ControlApp, band_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Control journey keeps roster, mentions, and both runtime states aligned."""
+    first = agent(RUNNING_AGENT_ID, "Alpha", harness=HarnessId.CODEX)
+    second = agent(IDLE_AGENT_ID, "Developer 6753", harness=HarnessId.CLAUDE)
+    created_room = room(ROOM_ID, "Pair review")
+    participants: list[ParticipantRecord] = []
+    sent: list[tuple[str, str, str]] = []
+
+    async def add_participant(_room_id: str, participant_id: str) -> None:
+        record = next(item for item in (first, second) if item.id == participant_id)
+        participants.append(
+            ParticipantRecord(
+                id=record.id,
+                name=record.name,
+                handle=record.name,
+                kind=record.kind,
+                color=record.color,
+            )
+        )
+
+    async def send_message(
+        room_id: str, body: str, *, mention_id: str, mention_name: str
+    ) -> MessageRecord:
+        sent.append((room_id, body, mention_id))
+        return MessageRecord(
+            id=f"message-{len(sent)}", content=body, author_name=mention_name
+        )
+
+    band_client.list_my_agents.return_value = [first, second]
+    band_client.create_room.return_value = created_room
+    band_client.list_participants.side_effect = lambda _room_id: list(participants)
+    band_client.add_participant.side_effect = add_participant
+    band_client.send_message.side_effect = send_message
+    monkeypatch.setattr("band_wezterm.tui.control_app.kill_panes", lambda _panes: None)
+    control_app.agents_store.mark_running(first.id, PaneId(11), console=PaneId(10))
+    control_app.agents_store.mark_running(second.id, PaneId(13), console=PaneId(12))
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("ctrl+o", "n")
+        title = control_app.screen.query_one(room_selector(RoomId.DRAFT_TITLE), Input)
+        title.value = created_room.title
+        await title.action_submit()
+        await settle(pilot)
+        assert isinstance(control_app.screen, RoomDetailScreen)
+
+        await pilot.press("a", "enter")
+        await settle(pilot)
+        await pilot.press("a", "enter")
+        await settle(pilot)
+        assert [item.name for item in control_app.rooms_store.participants] == [
+            "Alpha",
+            "Developer 6753",
+        ]
+
+        composer = control_app.screen.query_one(
+            room_selector(RoomId.COMPOSER), MarkdownComposer
+        )
+        assert tuple(composer._mention_handles) == ("Alpha", "Developer 6753")
+        composer.value = "@Alpha inspect the plan"
+        await composer.action_submit()
+        await settle(pilot)
+        composer.value = "@Developer 6753 review the implementation"
+        await composer.action_submit()
+        await settle(pilot)
+
+    assert sent == [
+        (ROOM_ID, "inspect the plan", RUNNING_AGENT_ID),
+        (ROOM_ID, "review the implementation", IDLE_AGENT_ID),
+    ]
 
 
 async def test_agents_screen_is_the_entry_point_once_signed_in(
@@ -533,6 +614,50 @@ async def test_cancelled_pane_spawn_retains_pane_for_transaction_cleanup() -> No
     assert acquired == [PaneId(99)]
 
 
+async def test_failed_start_retains_pane_ownership_when_cleanup_fails(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+    band_client.managed_agent_api_key.return_value = "band_a_managed"
+    control_app.window_id = 42
+    control_app.managed_agents.record(
+        ManagedAgentProfile(agent_id=IDLE_AGENT_ID, name="Beta", harness=HarnessId.CODEX)
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.spawn_additional_tab",
+        lambda *_args: PaneId(99),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.set_tab_title",
+        lambda *_args: (_ for _ in ()).throw(OSError("title unavailable")),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.kill_panes",
+        lambda _panes: (_ for _ in ()).throw(OSError("mux unavailable")),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.write_api_key_file",
+        lambda _key: tmp_path / "agent.key",
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.write_native_console_launch",
+        lambda _launch: tmp_path / "console.json",
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await settle(pilot)
+
+    panes = control_app.agents_store.running[IDLE_AGENT_ID]
+    assert panes.ids == (PaneId(99),)
+    assert control_app.agents_store.status == PANE_CLEANUP_FAILED_MESSAGE
+
+
 async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
     control_app: ControlApp,
     band_client: MagicMock,
@@ -681,7 +806,7 @@ async def test_sign_out_returns_to_sign_in(
     host_auth.sign_out.assert_awaited_once()
 
 
-async def test_sign_out_keeps_session_when_agent_teardown_fails(
+async def test_sign_out_reaches_sign_in_when_agent_teardown_fails(
     control_app: ControlApp,
     host_auth: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
@@ -700,10 +825,76 @@ async def test_sign_out_keeps_session_when_agent_teardown_fails(
         await settle(pilot)
         await pilot.press("ctrl+l")
         await settle(pilot)
-        assert isinstance(control_app.screen, AgentsScreen)
+        assert isinstance(control_app.screen, SignInScreen)
 
-    host_auth.sign_out.assert_not_awaited()
-    assert control_app.agents_store.is_running(RUNNING_AGENT_ID)
+    host_auth.sign_out.assert_awaited_once()
+    assert control_app.agents_store.running == {}
+
+
+async def test_workspace_failure_after_browser_sign_in_is_retryable(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    host_auth: MagicMock,
+) -> None:
+    host_auth.has_stored_tokens.return_value = False
+    band_client.whoami.side_effect = RuntimeError("platform unavailable")
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("enter")
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, SignInScreen)
+        assert not screen.busy
+        assert "platform unavailable" in screen.status
+
+    host_auth.sign_in.assert_awaited_once()
+
+
+async def test_realtime_roster_change_refreshes_participants(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    first = agent(RUNNING_AGENT_ID, "Alpha")
+    second = agent(IDLE_AGENT_ID, "Beta")
+    band_client.list_participants.side_effect = [[participant(first)], [participant(first), participant(second)]]
+    target = room(ROOM_ID, "Core")
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target)
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RoomDetailScreen)
+        screen.on_room_detail_screen_incoming(
+            RoomDetailScreen.Incoming(
+                RealtimeEvent(kind=RealtimeEventKind.PARTICIPANT_JOINED, room_id=ROOM_ID)
+            )
+        )
+        await settle(pilot)
+        assert [row.identity.name for row in screen.query(IdentityRow)] == ["Alpha", "Beta"]
+
+
+async def test_failed_send_keeps_composer_draft_for_retry(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target = room(ROOM_ID, "Core")
+    recipient = agent(IDLE_AGENT_ID, "Developer 6753")
+    band_client.list_participants.return_value = [participant(recipient)]
+    band_client.send_message.side_effect = RuntimeError("network unavailable")
+    draft = "@Developer 6753 review this"
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target)
+        await settle(pilot)
+        composer = control_app.screen.query_one(
+            room_selector(RoomId.COMPOSER), Input
+        )
+        composer.value = draft
+        await composer.action_submit()
+        await settle(pilot)
+        assert composer.value == draft
+        assert "network unavailable" in control_app.rooms_store.status
 
 
 async def test_escape_cancels_pending_browser_sign_in(

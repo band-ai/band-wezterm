@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from contextlib import suppress
 from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar, Final
@@ -78,6 +77,10 @@ DELETE_CONFIRM_MESSAGE: Final = (
 )
 NO_MANAGED_PROFILE_MESSAGE: Final = (
     "No local profile — register or reconfigure after upgrade."
+)
+AGENT_STARTING_MESSAGE: Final = "Agent is starting; wait for it to finish before deleting it."
+PANE_CLEANUP_FAILED_MESSAGE: Final = (
+    "Agent start failed and its panes could not be closed; use Stop to retry cleanup."
 )
 PREFLIGHT_HARNESS_STABILITY_ATTEMPTS: Final = 5
 PROFILE_HARNESS_UNSTABLE_MESSAGE: Final = (
@@ -384,6 +387,9 @@ class AgentsScreen(ControlScreen):
         if agent is None:
             self._set_status(NO_SELECTION_MESSAGE)
             return
+        if agent.id in self._starting_agent_ids:
+            self._set_status(AGENT_STARTING_MESSAGE)
+            return
         if self._pending_delete_id != agent.id:
             self._pending_delete_id = agent.id
             self._set_status(DELETE_CONFIRM_MESSAGE.format(name=agent.name))
@@ -543,8 +549,15 @@ class AgentsScreen(ControlScreen):
                     if path is not None:
                         path.unlink(missing_ok=True)
                 if acquired:
-                    with suppress(WezTermCliError, OSError):
+                    try:
                         await asyncio.shield(asyncio.to_thread(kill_panes, acquired))
+                    except (WezTermCliError, OSError):
+                        self.store.mark_running(
+                            agent.id,
+                            acquired[-1],
+                            console=acquired[0],
+                        )
+                        self._set_status(PANE_CLEANUP_FAILED_MESSAGE)
 
     @work(exclusive=True, group="agents-stop")
     async def _stop_agent(

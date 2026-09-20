@@ -66,6 +66,27 @@ def test_resolve_mention_accepts_the_visible_roster_name() -> None:
     assert resolved == (recipient, "hello")
 
 
+def test_resolve_mention_prefers_a_canonical_handle_over_a_name_alias() -> None:
+    alias_owner = ParticipantRecord(
+        id="alias-owner",
+        name="Dup",
+        handle="alpha",
+        kind=AvatarKind.AGENT,
+        color="#7ee787",
+    )
+    handle_owner = ParticipantRecord(
+        id="handle-owner",
+        name="Other",
+        handle="Dup",
+        kind=AvatarKind.AGENT,
+        color="#7ee787",
+    )
+
+    resolved = resolve_mention("@Dup hello", [alias_owner, handle_owner])
+
+    assert resolved == (handle_owner, "hello")
+
+
 @pytest.mark.asyncio
 async def test_mention_suggester_completes_a_multiword_handle() -> None:
     suggestion = await MentionSuggester(lambda: (HANDLE_WITH_SPACES,)).get_suggestion(
@@ -73,6 +94,15 @@ async def test_mention_suggester_completes_a_multiword_handle() -> None:
     )
 
     assert suggestion == "hello @Developer 6753 "
+
+
+@pytest.mark.asyncio
+async def test_mention_suggester_matches_the_query_case_insensitively() -> None:
+    suggestion = await MentionSuggester(lambda: (HANDLE_WITH_SPACES,)).get_suggestion(
+        "@DEV"
+    )
+
+    assert suggestion == "@Developer 6753 "
 
 
 @pytest.mark.asyncio
