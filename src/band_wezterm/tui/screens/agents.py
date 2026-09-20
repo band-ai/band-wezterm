@@ -17,6 +17,7 @@ from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error, is_missing_resource
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
 from band_wezterm.role_library import open_role_library
+from band_wezterm.tui.catalog_loaders import list_managed_agents
 from band_wezterm.tui.managed_agent_actions import (
     AGENT_STARTING_MESSAGE,
     ManagedAgentActions,
@@ -283,28 +284,22 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
             store.set_status(AgentStatusSource.LIST, REFRESHING_AGENTS_MESSAGE)
             self.mutate_reactive(AgentsScreen.store)
         try:
-            agents = await self.control.client.list_my_agents(name=store.search or None)
+            agents = await list_managed_agents(
+                self.control.client,
+                self.control.managed_agents,
+                name=store.search or None,
+            )
         except Exception as error:
             store.set_status(
                 AgentStatusSource.LIST,
                 format_platform_error(error, operation="load agents"),
             )
         else:
-            profiles = self.control.managed_agents
-            projected: list[AgentRecord] = []
-            for agent in agents:
-                harness = profiles.harness_for(agent.id)
-                row = (
-                    agent.model_copy(update={"harness": harness})
-                    if harness is not None and harness is not agent.harness
-                    else agent
-                )
-                projected.append(row)
-            store.replace_agents(projected)
+            store.replace_agents(agents)
             if announce:
                 store.set_status(
                     AgentStatusSource.LIST,
-                    REFRESHED_AGENTS_MESSAGE.format(count=len(projected)),
+                    REFRESHED_AGENTS_MESSAGE.format(count=len(agents)),
                 )
             else:
                 store.clear_status(AgentStatusSource.LIST)

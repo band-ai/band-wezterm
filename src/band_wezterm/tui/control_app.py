@@ -33,6 +33,7 @@ from band_wezterm.tui.screens.agents import AgentsScreen
 from band_wezterm.tui.screens.rooms import RoomDetailScreen, RoomsScreen
 from band_wezterm.tui.screens.settings import SettingsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
+from band_wezterm.tui.screens.workspace import WorkspaceScreen
 from band_wezterm.tui.stores import AgentsStore, RoomsStore
 from band_wezterm.wezterm_cli import (
     PaneId,
@@ -50,6 +51,7 @@ WEZTERM_PANE_ENV: Final = "WEZTERM_PANE"
 HOST_HUMAN_NAME: Final = "You"
 
 SIGN_IN_SCREEN: Final = "sign_in"
+WORKSPACE_SCREEN: Final = "workspace"
 AGENTS_SCREEN: Final = "agents"
 ROOMS_SCREEN: Final = "rooms"
 SETTINGS_SCREEN: Final = "settings"
@@ -124,6 +126,7 @@ class ControlApp(App[None]):
 
     SCREENS: ClassVar[dict[str, Callable[[], Screen[None]]]] = {
         SIGN_IN_SCREEN: SignInScreen,
+        WORKSPACE_SCREEN: WorkspaceScreen,
         AGENTS_SCREEN: AgentsScreen,
         ROOMS_SCREEN: RoomsScreen,
         SETTINGS_SCREEN: SettingsScreen,
@@ -135,6 +138,7 @@ class ControlApp(App[None]):
         # and F-keys (Fn). Ctrl+A/O are unbound in WezTerm defaults.
         Binding("ctrl+a", "show_agents", "Agents"),
         Binding("ctrl+o", "show_rooms", "Rooms"),
+        Binding("ctrl+home", "show_workspace", "Workspace", show=False),
         Binding("f1", "show_agents", "Agents", show=False),
         Binding("f2", "show_rooms", "Rooms", show=False),
         Binding("ctrl+comma", "show_settings", "Settings"),
@@ -199,12 +203,12 @@ class ControlApp(App[None]):
             self.push_screen(SIGN_IN_SCREEN)
 
     async def enter_workspace(self) -> None:
-        """Identify the signed-in human, then open the agents catalog."""
+        """Identify the signed-in human, then open the shared workspace."""
         self.user_id = await self.client.whoami()
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
         announce_human(self.user_id)
         log_event("workspace entered", user_id=self.user_id)
-        self._show(AGENTS_SCREEN)
+        self._show(WORKSPACE_SCREEN)
 
     # --- navigation ---------------------------------------------------------
 
@@ -213,6 +217,9 @@ class ControlApp(App[None]):
 
     def action_show_rooms(self) -> None:
         self._show(ROOMS_SCREEN)
+
+    def action_show_workspace(self) -> None:
+        self._show(WORKSPACE_SCREEN)
 
     def action_show_settings(self) -> None:
         self.push_screen(SETTINGS_SCREEN)

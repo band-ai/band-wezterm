@@ -54,11 +54,16 @@ from band_wezterm.tui.screens.rooms import Id as RoomId
 from band_wezterm.tui.screens.rooms import (
     IdentityRow,
     RoomDetailScreen,
+    RoomRow,
     RoomsScreen,
 )
 from band_wezterm.tui.screens.rooms import selector as room_selector
 from band_wezterm.tui.screens.settings import SettingsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
+from band_wezterm.tui.screens.workspace import (
+    AGENT_ACTION_SELECTION_MESSAGE,
+    WorkspaceScreen,
+)
 from band_wezterm.tui.stores import AgentPanes
 from band_wezterm.tui.widgets import MarkdownComposer
 from band_wezterm.wezterm_cli import PaneId
@@ -108,6 +113,10 @@ def listed_agents(app: ControlApp) -> list[str]:
     return [row.agent.name for row in app.screen.query(AgentRow)]
 
 
+def listed_rooms(app: ControlApp) -> list[str]:
+    return [row.room.title for row in app.screen.query(RoomRow)]
+
+
 def offered_candidates(app: ControlApp) -> list[str]:
     picker = app.screen.query_one(room_selector(RoomId.PICKER_LIST), ListView)
     return [row.identity.name for row in picker.query(IdentityRow)]
@@ -137,6 +146,76 @@ async def test_chips_and_search_narrow_together(control_app: ControlApp) -> None
         await pilot.press("slash", *"beta")
         await settle(pilot)
         assert listed_agents(control_app) == []
+
+
+async def test_workspace_projects_agents_and_rooms_from_shared_stores(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    band_client.list_my_agents.return_value = [agent(IDLE_AGENT_ID, "Alpha")]
+    first_room = room(ROOM_ID, "Planning")
+    second_room = room("room-2", "Delivery")
+    band_client.list_my_chats.return_value = [first_room, second_room]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+
+        assert isinstance(control_app.screen, WorkspaceScreen)
+        assert listed_agents(control_app) == ["Alpha"]
+        assert listed_rooms(control_app) == ["Planning", "Delivery"]
+        assert control_app.agents_store.selected_id == IDLE_AGENT_ID
+        assert control_app.rooms_store.selected_id == ROOM_ID
+
+
+async def test_workspace_refresh_reconciles_removed_room_selection(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    selected_room = room(ROOM_ID, "Planning")
+    replacement_room = room("room-2", "Delivery")
+    band_client.list_my_chats.return_value = [selected_room, replacement_room]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.rooms_store.selected_id = selected_room.id
+        band_client.list_my_chats.return_value = [replacement_room]
+
+        await pilot.press("r")
+        await settle(pilot)
+
+        assert listed_rooms(control_app) == ["Delivery"]
+        assert control_app.rooms_store.selected_id == replacement_room.id
+
+
+async def test_workspace_opens_selected_room(control_app: ControlApp, band_client: MagicMock) -> None:
+    selected_room = room(ROOM_ID, "Planning")
+    band_client.list_my_chats.return_value = [selected_room]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        rooms = control_app.screen.query_one(room_selector(RoomId.LIST), ListView)
+        rooms.focus()
+
+        await pilot.press("enter")
+        await settle(pilot)
+
+        assert isinstance(control_app.screen, RoomDetailScreen)
+        assert control_app.rooms_store.selected_id == selected_room.id
+
+
+async def test_workspace_room_focus_cannot_apply_agent_action(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    band_client.list_my_agents.return_value = [agent(IDLE_AGENT_ID, "Alpha")]
+    band_client.list_my_chats.return_value = [room(ROOM_ID, "Planning")]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.screen.query_one(room_selector(RoomId.LIST), ListView).focus()
+
+        await pilot.press("s")
+        await settle(pilot)
+
+        assert control_app.agents_store.starting_ids == set()
+        assert control_app.rooms_store.status == AGENT_ACTION_SELECTION_MESSAGE
 
 
 async def test_register_opens_wizard_and_escape_returns(

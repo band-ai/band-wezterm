@@ -39,6 +39,7 @@ from band_wezterm.client import (
 )
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, AvatarKind
+from band_wezterm.tui.catalog_loaders import list_rooms
 from band_wezterm.tui.managed_agent_actions import ManagedAgentActions
 from band_wezterm.tui.refresh import CATALOG_POLL_SECONDS
 from band_wezterm.tui.screens import ControlScreen
@@ -377,7 +378,7 @@ class RoomsScreen(ControlScreen):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != Id.SEARCH:
             return
-        self.store.search = event.value
+        self.store.set_search(event.value)
         self.mutate_reactive(RoomsScreen.store)
 
     def on_filter_chips_changed(self, event: FilterChips.Changed) -> None:
@@ -413,7 +414,7 @@ class RoomsScreen(ControlScreen):
         store = self.store
         store.loading = True
         try:
-            rooms = await self.control.client.list_my_chats()
+            rooms = await list_rooms(self.control.client)
         except Exception as error:
             store.set_status(
                 RoomStatusSource.LIST,

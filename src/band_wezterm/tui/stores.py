@@ -327,6 +327,7 @@ class RoomsStore:
 
     def replace_rooms(self, rooms: Sequence[RoomRecord]) -> None:
         self.rooms = list(rooms)
+        self._reconcile_selection()
 
     def add_room(self, room: RoomRecord) -> None:
         self.rooms = [room, *self.rooms]
@@ -343,9 +344,16 @@ class RoomsStore:
         self.starred_ids = frozenset(
             sid for sid in self.starred_ids if sid != room_id
         )
+        if self.selected_id is not None:
+            self._reconcile_selection()
 
     def select_filter(self, chip: RoomFilter) -> None:
         self.filter = chip
+        self._reconcile_selection()
+
+    def set_search(self, search: str) -> None:
+        self.search = search
+        self._reconcile_selection()
 
     def is_starred(self, room_id: str) -> bool:
         return room_id in self.starred_ids
@@ -399,3 +407,9 @@ class RoomsStore:
     def discard_draft(self) -> None:
         self.draft_open = False
         self.picker_open = False
+
+    def _reconcile_selection(self) -> None:
+        visible = self.visible
+        if self.selected_id in {room.id for room in visible}:
+            return
+        self.selected_id = visible[0].id if visible else None
