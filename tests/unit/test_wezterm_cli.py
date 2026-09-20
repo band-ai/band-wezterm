@@ -16,8 +16,10 @@ from band_wezterm.wezterm_cli import (
     first_start_args,
     format_focus_sequence,
     is_control_pane,
+    kill_panes,
     pane_command_env,
     set_tab_title_args,
+    split_pane_args,
     start_first_window,
 )
 
@@ -72,6 +74,49 @@ def test_additional_spawn_uses_window_id_only() -> None:
 def test_set_tab_title_targets_pane() -> None:
     args = set_tab_title_args(PaneId(42), "Control")
     assert args == ["cli", "set-tab-title", "--pane-id", "42", "Control"]
+
+
+def test_split_pane_builds_bottom_bridge_command() -> None:
+    command = ["python", "-m", "band_wezterm.agent"]
+    args = split_pane_args(PaneId(42), Path("/tmp/work"), command, percent=20)
+
+    assert args == [
+        "cli",
+        "split-pane",
+        "--pane-id",
+        "42",
+        "--bottom",
+        "--percent",
+        "20",
+        "--cwd",
+        "/tmp/work",
+        "--",
+        *command,
+    ]
+
+
+@pytest.mark.parametrize("percent", [0, 100])
+def test_split_pane_rejects_invalid_percent(percent: int) -> None:
+    with pytest.raises(ValueError, match="between 1 and 99"):
+        split_pane_args(PaneId(42), Path("/tmp/work"), ["true"], percent=percent)
+
+
+def test_kill_panes_attempts_every_pane_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    killed: list[PaneId] = []
+
+    def kill(pane_id: PaneId) -> None:
+        killed.append(pane_id)
+        if pane_id == PaneId(1):
+            raise OSError("closed")
+
+    monkeypatch.setattr("band_wezterm.wezterm_cli.kill_pane", kill)
+
+    with pytest.raises(OSError, match="closed"):
+        kill_panes((PaneId(1), PaneId(2)))
+
+    assert killed == [PaneId(1), PaneId(2)]
 
 
 def test_pane_command_env_strips_no_color() -> None:

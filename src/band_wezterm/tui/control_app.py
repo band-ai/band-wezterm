@@ -35,7 +35,7 @@ from band_wezterm.wezterm_cli import (
     PaneId,
     WezTermCliError,
     WindowId,
-    kill_pane,
+    kill_panes,
     set_tab_title,
     window_id_for_pane,
 )
@@ -176,9 +176,9 @@ class ControlApp(App[None]):
     async def on_unmount(self) -> None:
         """Host shutdown: every agent tab this host started goes with it."""
         self.client.set_authentication_rejected_handler(None)
-        for pane_id in list(self.agents_store.running.values()):
+        for panes in list(self.agents_store.running.values()):
             with suppress(WezTermCliError, OSError):
-                kill_pane(pane_id)
+                kill_panes(panes.ids)
         self.agents_store.running.clear()
         await self.client.aclose()
 
@@ -240,9 +240,9 @@ class ControlApp(App[None]):
             return False
         self._ending_session = True
         try:
-            for pane_id in list(self.agents_store.running.values()):
+            for panes in list(self.agents_store.running.values()):
                 with suppress(WezTermCliError, OSError):
-                    kill_pane(pane_id)
+                    kill_panes(panes.ids)
             self.agents_store.running.clear()
             await self.host_auth.sign_out()
             self.user_id = None

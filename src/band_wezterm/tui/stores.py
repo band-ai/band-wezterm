@@ -92,6 +92,20 @@ def _matches_search(haystack: str, needle: str) -> bool:
     return needle.strip().lower() in haystack.lower()
 
 
+@dataclass(frozen=True)
+class AgentPanes:
+    """The private console and Band bridge that form one managed agent tab."""
+
+    console: PaneId
+    bridge: PaneId
+
+    @property
+    def ids(self) -> tuple[PaneId, ...]:
+        if self.console == self.bridge:
+            return (self.console,)
+        return (self.console, self.bridge)
+
+
 @dataclass
 class AgentsStore:
     """Agents catalog: search, one exclusive chip (All = no filter), run state."""
@@ -101,7 +115,7 @@ class AgentsStore:
     source: AgentSource = AgentSource.MINE
     search: str = ""
     filter: AgentFilter = AgentFilter.ALL
-    running: dict[str, PaneId] = field(default_factory=dict)
+    running: dict[str, AgentPanes] = field(default_factory=dict)
     selected_id: str | None = None
     loading: bool = False
     status: str = ""
@@ -163,10 +177,16 @@ class AgentsStore:
     def is_running(self, agent_id: str) -> bool:
         return agent_id in self.running
 
-    def mark_running(self, agent_id: str, pane_id: PaneId) -> None:
-        self.running[agent_id] = pane_id
+    def mark_running(
+        self,
+        agent_id: str,
+        bridge: PaneId,
+        *,
+        console: PaneId | None = None,
+    ) -> None:
+        self.running[agent_id] = AgentPanes(console=console or bridge, bridge=bridge)
 
-    def mark_stopped(self, agent_id: str) -> PaneId | None:
+    def mark_stopped(self, agent_id: str) -> AgentPanes | None:
         return self.running.pop(agent_id, None)
 
     def prune_running(self, live_pane_ids: Iterable[int]) -> list[str]:
@@ -174,8 +194,8 @@ class AgentsStore:
         live = set(live_pane_ids)
         stopped = [
             agent_id
-            for agent_id, pane_id in self.running.items()
-            if pane_id.root not in live
+            for agent_id, panes in self.running.items()
+            if any(pane.root not in live for pane in panes.ids)
         ]
         for agent_id in stopped:
             del self.running[agent_id]

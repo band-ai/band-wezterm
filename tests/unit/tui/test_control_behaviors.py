@@ -72,6 +72,15 @@ def highlighted_option_id(screen: RegisterAgentScreen) -> str | None:
     return options.get_option_at_index(index).id
 
 
+@pytest.fixture(autouse=True)
+def native_console_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep UI tests independent of locally installed harness executables."""
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.preflight_native_console",
+        lambda _harness: None,
+    )
+
+
 def listed_agents(app: ControlApp) -> list[str]:
     return [row.agent.name for row in app.screen.query(AgentRow)]
 
@@ -292,13 +301,20 @@ async def test_unmount_stops_every_agent_tab_the_host_started(
     control_app: ControlApp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     killed: list[PaneId] = []
-    monkeypatch.setattr("band_wezterm.tui.control_app.kill_pane", killed.append)
-    control_app.agents_store.mark_running(RUNNING_AGENT_ID, AGENT_PANE)
+    monkeypatch.setattr(
+        "band_wezterm.tui.control_app.kill_panes",
+        killed.extend,
+    )
+    control_app.agents_store.mark_running(
+        RUNNING_AGENT_ID,
+        AGENT_PANE,
+        console=PaneId(10),
+    )
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
 
-    assert killed == [AGENT_PANE]
+    assert killed == [PaneId(10), AGENT_PANE]
     assert control_app.agents_store.running == {}
 
 
@@ -363,12 +379,12 @@ async def test_room_roster_shows_local_agent_runtime(
         assert str(indicator.render()) == "●"
 
 
-async def test_start_agent_spawns_agent_module_pane(
+async def test_start_agent_spawns_private_console_and_band_bridge(
     control_app: ControlApp,
     band_client: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    """Start must spawn ``python -m band_wezterm.agent``, not a PoC cat tab."""
     target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CLAUDE_SDK)
     band_client.list_my_agents.return_value = [target]
     band_client.managed_agent_api_key.return_value = "band_a_managed"
@@ -383,17 +399,27 @@ async def test_start_agent_spawns_agent_module_pane(
     )
 
     spawned: list[tuple[object, ...]] = []
+    split: list[tuple[object, ...]] = []
+    activated: list[PaneId] = []
     preflighted: list[object] = []
 
     def fake_spawn(window_id: object, cwd: object, command: list[str]) -> PaneId:
         spawned.append((window_id, cwd, command))
         return PaneId(99)
 
+    def fake_split(pane_id: PaneId, cwd: Path, command: list[str]) -> PaneId:
+        split.append((pane_id, cwd, command))
+        return PaneId(100)
+
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.spawn_additional_tab", fake_spawn
     )
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.set_tab_title", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr("band_wezterm.tui.screens.agents.split_pane", fake_split)
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.activate_pane", activated.append
     )
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.preflight_harness",
@@ -403,13 +429,18 @@ async def test_start_agent_spawns_agent_module_pane(
         "band_wezterm.tui.screens.agents.write_api_key_file",
         lambda _key: Path("/tmp/band-wezterm-test.key"),
     )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.write_native_console_launch",
+        lambda _launch: tmp_path / "console.json",
+    )
 
     class _Pane:
-        pane_id = 99
+        def __init__(self, pane_id: int) -> None:
+            self.pane_id = pane_id
 
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.list_panes",
-        lambda: [_Pane()],
+        lambda: [_Pane(99), _Pane(100)],
     )
 
     async with control_app.run_test() as pilot:
@@ -420,18 +451,30 @@ async def test_start_agent_spawns_agent_module_pane(
         await settle(pilot)
         assert control_app.agents_store.is_running(IDLE_AGENT_ID)
         assert HarnessId.CODEX.value in (control_app.agents_store.status or "")
+        assert control_app.agents_store.running[IDLE_AGENT_ID].console == PaneId(99)
+        assert control_app.agents_store.running[IDLE_AGENT_ID].bridge == PaneId(100)
 
     assert len(spawned) == 1
-    window_id, _cwd, command = spawned[0]
+    window_id, _cwd, console_command = spawned[0]
     assert window_id == 42
-    assert "-m" in command
-    assert "band_wezterm.agent" in command
-    assert "band_a_managed" not in " ".join(command)
-    assert "--model" in command
-    assert "o3" in command
-    assert "--reasoning" in command
-    assert "high" in command
-    assert command[command.index("--harness") + 1] == HarnessId.CODEX.value
+    assert "band_wezterm.agent.console" in console_command
+    assert "band_a_managed" not in " ".join(console_command)
+    assert console_command[console_command.index("--harness") + 1] == (
+        HarnessId.CODEX.value
+    )
+    assert len(split) == 1
+    console_pane, _cwd, bridge_command = split[0]
+    assert console_pane == PaneId(99)
+    assert "band_wezterm.agent" in bridge_command
+    assert "band_wezterm.agent.console" not in bridge_command
+    assert "--model" in bridge_command
+    assert "o3" in bridge_command
+    assert "--reasoning" in bridge_command
+    assert "high" in bridge_command
+    assert bridge_command[bridge_command.index("--harness") + 1] == (
+        HarnessId.CODEX.value
+    )
+    assert activated == [PaneId(99)]
     assert preflighted == [HarnessId.CODEX]
     assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.CODEX
 
@@ -440,6 +483,7 @@ async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
     control_app: ControlApp,
     band_client: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """A→B→C mid-flight must preflight C before spawn — not only B."""
     target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CLAUDE)
@@ -485,6 +529,13 @@ async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
         "band_wezterm.tui.screens.agents.set_tab_title", lambda *_a, **_k: None
     )
     monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.split_pane",
+        lambda _pane, _cwd, _command: PaneId(100),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.activate_pane", lambda _pane: None
+    )
+    monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.preflight_harness",
         fake_preflight,
     )
@@ -492,13 +543,18 @@ async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
         "band_wezterm.tui.screens.agents.write_api_key_file",
         lambda _key: Path("/tmp/band-wezterm-test.key"),
     )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.write_native_console_launch",
+        lambda _launch: tmp_path / "console.json",
+    )
 
     class _Pane:
-        pane_id = 99
+        def __init__(self, pane_id: int) -> None:
+            self.pane_id = pane_id
 
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.list_panes",
-        lambda: [_Pane()],
+        lambda: [_Pane(99), _Pane(100)],
     )
 
     async with control_app.run_test() as pilot:
@@ -784,11 +840,23 @@ async def test_register_deletes_agent_when_profile_record_fails(
 
 
 async def test_delete_requires_confirmation(
-    control_app: ControlApp, band_client: MagicMock
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    killed: list[PaneId] = []
     band_client.list_my_agents.return_value = [
         agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX),
     ]
+    control_app.agents_store.mark_running(
+        IDLE_AGENT_ID,
+        PaneId(100),
+        console=PaneId(99),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.kill_panes",
+        killed.extend,
+    )
     async with control_app.run_test() as pilot:
         await settle(pilot)
         await pilot.press("delete")
@@ -799,6 +867,9 @@ async def test_delete_requires_confirmation(
         await settle(pilot)
         band_client.delete_agent.assert_awaited()
         assert band_client.delete_agent.await_args.args[0] == IDLE_AGENT_ID
+
+    assert killed == [PaneId(99), PaneId(100)]
+    assert not control_app.agents_store.is_running(IDLE_AGENT_ID)
 
 
 
