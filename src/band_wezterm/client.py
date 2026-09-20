@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-import re
 from collections.abc import Awaitable, Callable, Mapping
-from enum import StrEnum
-from typing import Any
 from uuid import UUID
 
 import httpx
@@ -30,162 +27,49 @@ from phoenix_channels_python_client.client import (
     PhoenixChannelsProtocolVersion,
     PHXChannelsClient,
 )
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import ValidationError
 
 from band_wezterm.auth.credentials import ManagedAgentKeyStore, NoApiKeyError
 from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.config import CHAT_MESSAGES_LIMIT, Settings, load_settings
 from band_wezterm.diagnostics import log_event
-from band_wezterm.identity import (
-    AvatarKind,
-    HarnessId,
-    agent_accent,
-    initials,
+from band_wezterm.platform_models import (
+    AgentRecord,
+    DirectoryResponse,
+    MessageRecord,
+    ParticipantRecord,
+    ParticipantRole,
+    RealtimeEvent,
+    RealtimeEventKind,
+    RoomRecord,
+    agent_record_from_api,
+    avatar_label,
+    display_message_content,
+    message_record_from_api,
+    participant_record_from_api,
+    realtime_event_kind,
+    room_record_from_api,
 )
-from band_wezterm.room_color import room_accent
 
 Unsubscribe = Callable[[], None]
 AuthenticationRejectedHandler = Callable[[], None]
 UNAUTHORIZED_STATUS = 401
 
-
-class ParticipantRole(StrEnum):
-    MEMBER = "member"
-    ADMIN = "admin"
-
-
-class RealtimeEventKind(StrEnum):
-    MESSAGE = "message"
-    MESSAGE_CREATED = "message_created"
-    MESSAGE_UPDATED = "message_updated"
-    PARTICIPANT_JOINED = "participant_joined"
-    PARTICIPANT_LEFT = "participant_left"
-    UNKNOWN = "unknown"
-
-
-class AgentRecord(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    id: str
-    name: str
-    kind: AvatarKind
-    color: str
-    harness: HarnessId | None = None
-
-
-class RoomRecord(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    id: str
-    title: str
-    color: str
-
-
-class ParticipantRecord(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    id: str
-    name: str
-    handle: str | None = None
-    kind: AvatarKind
-    color: str
-
-
-class MessageRecord(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    id: str
-    content: str
-    author_name: str
-
-
-_MENTION_MARKUP = re.compile(r"@\[\[([0-9a-fA-F-]+)\]\]")
-
-
-def display_message_content(
-    content: str, metadata: Mapping[str, Any] | None = None
-) -> str:
-    """Turn platform `@[[uuid]]` mention markup into `@name` for the chat pane."""
-    names: dict[str, str] = {}
-    if metadata is not None:
-        for item in metadata.get("mentions") or ():
-            if not isinstance(item, Mapping):
-                continue
-            mention_id = item.get("id")
-            if mention_id is None:
-                continue
-            label = item.get("name") or item.get("handle") or mention_id
-            names[str(mention_id)] = str(label)
-    return _MENTION_MARKUP.sub(
-        lambda match: f"@{names.get(match.group(1), match.group(1))}", content
-    )
-
-
-def message_record_from_api(message: object) -> MessageRecord:
-    """Map a Fern ChatMessage (or compatible object) into the host record."""
-    metadata = getattr(message, "metadata", None)
-    meta = metadata if isinstance(metadata, Mapping) else None
-    content = str(getattr(message, "content", "") or "")
-    sender_name = getattr(message, "sender_name", None)
-    sender_id = getattr(message, "sender_id", None)
-    return MessageRecord(
-        id=str(message.id),
-        content=display_message_content(content, meta),
-        author_name=str(sender_name or sender_id or "unknown"),
-    )
-
-
-class RealtimeEvent(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    kind: RealtimeEventKind
-    room_id: str | None = None
-    payload: Mapping[str, Any] | None = None
-
-
-class DirectoryEntry(BaseModel):
-    """Loose public-directory row — only id/name are required for Discover."""
-
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    id: str | None = None
-    uuid: str | None = None
-    name: str | None = None
-
-    def as_agent(self) -> AgentRecord | None:
-        agent_id = self.id or self.uuid
-        if not agent_id:
-            return None
-        return AgentRecord(
-            id=str(agent_id),
-            name=self.name or str(agent_id),
-            kind=AvatarKind.AGENT,
-            color=agent_accent(agent_id),
-        )
-
-
-class DirectoryResponse(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    data: list[DirectoryEntry] = Field(default_factory=list)
-    agents: list[DirectoryEntry] = Field(default_factory=list)
-
-    def entries(self) -> list[DirectoryEntry]:
-        return self.data or self.agents
-
-
-def _avatar_kind_from_platform(raw: object) -> AvatarKind:
-    label = str(raw or "").lower()
-    if label in {"agent", "bot"}:
-        return AvatarKind.AGENT
-    return AvatarKind.HUMAN
-
-
-def _realtime_kind(raw: object) -> RealtimeEventKind:
-    try:
-        return RealtimeEventKind(str(raw))
-    except ValueError:
-        return RealtimeEventKind.UNKNOWN
+# Compatibility boundary: UI and integrations import stable records from here.
+__all__ = (
+    "AgentRecord",
+    "BandClient",
+    "MessageRecord",
+    "ParticipantRecord",
+    "ParticipantRole",
+    "RealtimeEvent",
+    "RealtimeEventKind",
+    "RoomRecord",
+    "Unsubscribe",
+    "avatar_label",
+    "display_message_content",
+    "message_record_from_api",
+)
 
 
 class BandClient:
@@ -304,20 +188,7 @@ class BandClient:
 
     async def list_my_agents(self, *, name: str | None = None) -> list[AgentRecord]:
         response = await self._agents.list_my_agents(name=name)
-        records: list[AgentRecord] = []
-        for agent in response.data or []:
-            agent_id = str(agent.id)
-            agent_name = getattr(agent, "name", None) or agent_id
-            records.append(
-                AgentRecord(
-                    id=agent_id,
-                    name=agent_name,
-                    kind=AvatarKind.AGENT,
-                    color=agent_accent(agent_id),
-                    harness=None,
-                )
-            )
-        return records
+        return [agent_record_from_api(agent) for agent in response.data or ()]
 
     async def create_agent(
         self,
@@ -331,21 +202,13 @@ class BandClient:
         )
         agent = response.data.agent
         credentials = response.data.credentials
-        agent_id = str(agent.id)
-        agent_name = getattr(agent, "name", None) or name
         api_key = str(credentials.api_key)
         try:
-            self._agent_keys.set(agent_id, api_key)
+            self._agent_keys.set(str(agent.id), api_key)
         except Exception:
-            await self._rollback_agent_registration(agent_id)
+            await self._rollback_agent_registration(str(agent.id))
             raise
-        return AgentRecord(
-            id=agent_id,
-            name=agent_name,
-            kind=AvatarKind.AGENT,
-            color=agent_accent(agent_id),
-            harness=None,
-        )
+        return agent_record_from_api(agent, fallback_name=name)
 
     async def _rollback_agent_registration(self, agent_id: str) -> None:
         with contextlib.suppress(Exception):
@@ -361,24 +224,13 @@ class BandClient:
 
     async def list_my_chats(self) -> list[RoomRecord]:
         response = await self._chats.list_my_chats()
-        rooms: list[RoomRecord] = []
-        for chat in response.data or []:
-            room_id = str(chat.id)
-            title = getattr(chat, "title", None) or room_id
-            rooms.append(
-                RoomRecord(id=room_id, title=title, color=room_accent(room_id))
-            )
-        return rooms
+        return [room_record_from_api(chat) for chat in response.data or ()]
 
     async def create_room(self, *, title: str | None = None) -> RoomRecord:
         response = await self._chats.create_my_chat_room(
             chat=CreateMyChatRoomRequestChat(title=title)
         )
-        room_id = str(response.data.id)
-        room_title = getattr(response.data, "title", None) or title or room_id
-        return RoomRecord(
-            id=room_id, title=room_title, color=room_accent(room_id)
-        )
+        return room_record_from_api(response.data, fallback_title=title)
 
     async def delete_room(self, room_id: UUID | str) -> None:
         """Permanently delete a chat room (not in the Fern chats client yet)."""
@@ -397,22 +249,7 @@ class BandClient:
 
     async def list_participants(self, room_id: UUID | str) -> list[ParticipantRecord]:
         response = await self._participants.list_my_chat_participants(str(room_id))
-        participants: list[ParticipantRecord] = []
-        for item in response.data or []:
-            participant_id = str(item.id)
-            name = getattr(item, "name", None) or participant_id
-            handle = getattr(item, "handle", None)
-            kind_raw = getattr(item, "type", None) or getattr(item, "kind", None)
-            participants.append(
-                ParticipantRecord(
-                    id=participant_id,
-                    name=name,
-                    handle=str(handle) if handle else None,
-                    kind=_avatar_kind_from_platform(kind_raw),
-                    color=agent_accent(participant_id),
-                )
-            )
-        return participants
+        return [participant_record_from_api(item) for item in response.data or ()]
 
     async def add_participant(
         self,
@@ -570,7 +407,7 @@ class BandClient:
         async def handler(message: object) -> None:
             payload = getattr(message, "payload", None)
             event = RealtimeEvent(
-                kind=_realtime_kind(getattr(message, "event", "message")),
+                kind=realtime_event_kind(getattr(message, "event", "message")),
                 room_id=room_id,
                 payload=payload if isinstance(payload, Mapping) else None,
             )
@@ -595,7 +432,3 @@ class BandClient:
         # Teardown is best-effort; socket/supervisor may already be gone.
         with contextlib.suppress(Exception):
             await client.shutdown("credential change or client close")
-
-
-def avatar_label(name: str) -> str:
-    return initials(name)
