@@ -8,7 +8,7 @@ if errorlevel 1 (
 )
 
 pushd "%~dp0"
-uv tool install --force --reinstall .
+uv tool install --force --reinstall ".[agents]"
 if errorlevel 1 (
     popd
     exit /b 1
