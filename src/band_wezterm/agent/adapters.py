@@ -96,14 +96,18 @@ def _claude(
     model = tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         kwargs["model"] = model
-    if persona:
-        kwargs["custom_section"] = persona
+    _apply_persona(kwargs, persona)
     reasoning = tuning.value_for(TuningDimensionId.REASONING)
     if reasoning == "off":
         kwargs["max_thinking_tokens"] = 0
     elif reasoning == "on":
         kwargs["max_thinking_tokens"] = 16_000
     return ClaudeSDKAdapter(**kwargs)
+
+
+def _apply_persona(kwargs: dict[str, Any], persona: str | None) -> None:
+    if persona:
+        kwargs["custom_section"] = persona
 
 
 def _apply_reasoning_effort(
@@ -126,8 +130,7 @@ def _codex(*, persona: str | None, tuning: AgentTuning) -> Any:
     if model is not None:
         config_kwargs["model"] = model
     _apply_reasoning_effort(config_kwargs, tuning)
-    if persona:
-        config_kwargs["custom_section"] = persona
+    _apply_persona(config_kwargs, persona)
     return CodexAdapter(CodexAdapterConfig(**config_kwargs))
 
 
@@ -143,8 +146,7 @@ def _copilot(*, persona: str | None, tuning: AgentTuning) -> Any:
     if model is not None:
         config_kwargs["model"] = model
     _apply_reasoning_effort(config_kwargs, tuning)
-    if persona:
-        config_kwargs["custom_section"] = persona
+    _apply_persona(config_kwargs, persona)
     return CopilotSDKAdapter(CopilotSDKAdapterConfig(**config_kwargs))
 
 
@@ -159,6 +161,5 @@ def _opencode(*, persona: str | None, tuning: AgentTuning) -> Any:
     model = tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         config_kwargs["model_id"] = model
-    if persona:
-        config_kwargs["custom_section"] = persona
+    _apply_persona(config_kwargs, persona)
     return OpencodeAdapter(OpencodeAdapterConfig(**config_kwargs))

@@ -1,4 +1,4 @@
-"""Multi-step register / reconfigure agent wizard (VSC parity)."""
+"""Register / reconfigure agent wizard — one step, one field, then submit."""
 
 from __future__ import annotations
 
@@ -24,23 +24,24 @@ from band_wezterm.agent_draft import (
 from band_wezterm.backends import (
     TUNING_DEFAULT_OPTION_ID,
     AgentTuning,
+    TuningDimension,
     TuningDimensionId,
     list_backends,
     resolve_backend,
 )
 from band_wezterm.client import AgentRecord
+from band_wezterm.diagnostics import log_event
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import profile_from_registration
 from band_wezterm.roles import Role, list_roles
 from band_wezterm.tui.screens import ControlScreen
 
-NO_ROLE_ID: Final = ""
+NO_ROLE_ID: Final = "__no_role__"
 KEEP_CURRENT_ROLE_ID: Final = "__keep_current_role__"
-CUSTOM_MODEL_SENTINEL: Final = "__custom__"
-REGISTER_CLEANUP_FAILED_MESSAGE: Final = (
-    "{error}; cleanup failed: {cleanup}"
-)
+CUSTOM_TUNING_ID: Final = "__custom__"
+DEFAULT_OPTION_ID: Final = "default"
+REGISTER_CLEANUP_FAILED_MESSAGE: Final = "{error}; cleanup failed: {cleanup}"
 OPEN_CLASS: Final = "open"
 
 
@@ -51,7 +52,16 @@ class WizardStep(StrEnum):
     DESCRIPTION = "description"
     MODEL = "model"
     REASONING = "reasoning"
-    CUSTOM_MODEL = "custom_model"
+
+
+_TUNING_STEPS: Final[dict[TuningDimensionId, WizardStep]] = {
+    TuningDimensionId.MODEL: WizardStep.MODEL,
+    TuningDimensionId.REASONING: WizardStep.REASONING,
+}
+
+_TEXT_STEPS: Final[frozenset[WizardStep]] = frozenset(
+    {WizardStep.NAME, WizardStep.DESCRIPTION}
+)
 
 
 class Id(StrEnum):
@@ -79,11 +89,19 @@ RECONFIGURE_STEPS: Final[tuple[WizardStep, ...]] = (
 )
 
 
+def _option_list_id(tuning_id: str) -> str:
+    return DEFAULT_OPTION_ID if tuning_id == TUNING_DEFAULT_OPTION_ID else tuning_id
+
+
+def _tuning_value(option_id: str) -> str:
+    return TUNING_DEFAULT_OPTION_ID if option_id == DEFAULT_OPTION_ID else option_id
+
+
 class RegisterAgentScreen(ControlScreen):
     """Create or reconfigure — reconfigure skips name/description (platform can't rename)."""
 
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("escape", "back", "Back"),
     ]
 
     DEFAULT_CSS = """
@@ -98,8 +116,12 @@ class RegisterAgentScreen(ControlScreen):
         color: $text-muted;
     }
     RegisterAgentScreen #register-options {
+        display: none;
         height: 12;
         border: round $accent;
+    }
+    RegisterAgentScreen #register-options.open {
+        display: block;
     }
     RegisterAgentScreen #register-text {
         display: none;
@@ -126,6 +148,7 @@ class RegisterAgentScreen(ControlScreen):
         self.step: WizardStep = WizardStep.HARNESS
         self._roles: list[Role] = []
         self._keep_current_persona = reconfigure
+        self._custom_dimension: TuningDimensionId | None = None
 
     def compose(self) -> ComposeResult:
         heading = "Reconfigure agent" if self.reconfigure else "Register agent"
@@ -155,103 +178,136 @@ class RegisterAgentScreen(ControlScreen):
             )
         self._render_step()
 
-    def action_cancel(self) -> None:
-        self.app.pop_screen()
+    def action_back(self) -> None:
+        if self._custom_dimension is not None:
+            self._custom_dimension = None
+            self._render_step()
+            return
+        steps = self._steps_for_draft()
+        try:
+            index = steps.index(self.step)
+        except ValueError:
+            self.app.pop_screen()
+            return
+        if index == 0:
+            self.app.pop_screen()
+            return
+        self.step = steps[index - 1]
+        self._render_step()
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        if self.step in {WizardStep.NAME, WizardStep.DESCRIPTION, WizardStep.CUSTOM_MODEL}:
+        if self._custom_dimension is not None or self.step in _TEXT_STEPS:
             return
         option_id = event.option.id
         if option_id is None:
             return
-        self._accept_option(str(option_id))
+        self._accept_option(option_id)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value.strip()
+        if self._custom_dimension is not None:
+            self._accept_custom_tuning(value)
+            return
         match self.step:
             case WizardStep.NAME:
-                error = agent_name_error(value)
-                if error:
-                    self._set_status(error)
-                    return
-                self.draft = apply_draft_patch(self.draft, name=value)
-                self._advance()
+                self._accept_name(value)
             case WizardStep.DESCRIPTION:
-                error = description_error(value)
-                if error:
-                    self._set_status(error)
-                    return
-                self.draft = apply_draft_patch(self.draft, description=value)
-                self._advance()
-            case WizardStep.CUSTOM_MODEL:
-                if not value:
-                    self._set_status("Model id is required.")
-                    return
-                self.draft = apply_draft_patch(
-                    self.draft,
-                    tuning=self.draft.tuning.with_dimension(TuningDimensionId.MODEL, value),
-                )
-                self._advance()
+                self._accept_description(value)
+            case _:
+                return
+
+    def _accept_name(self, value: str) -> None:
+        error = agent_name_error(value)
+        if error:
+            self._set_status(error)
+            return
+        self.draft = apply_draft_patch(self.draft, name=value)
+        self._advance()
+
+    def _accept_description(self, value: str) -> None:
+        error = description_error(value)
+        if error:
+            self._set_status(error)
+            return
+        self.draft = apply_draft_patch(self.draft, description=value)
+        self._advance()
+
+    def _accept_custom_tuning(self, value: str) -> None:
+        dimension_id = self._custom_dimension
+        if dimension_id is None:
+            return
+        dimension = self._dimension(dimension_id)
+        if not value:
+            self._set_status(f"{dimension.label} is required.")
+            return
+        self.draft = apply_draft_patch(
+            self.draft,
+            tuning=self.draft.tuning.with_dimension(dimension_id, value),
+        )
+        self._custom_dimension = None
+        self._advance()
 
     def _accept_option(self, option_id: str) -> None:
         match self.step:
             case WizardStep.HARNESS:
                 self.draft = apply_draft_patch(self.draft, harness=HarnessId(option_id))
             case WizardStep.ROLE:
-                if option_id == KEEP_CURRENT_ROLE_ID:
-                    self._keep_current_persona = True
-                elif option_id == NO_ROLE_ID:
-                    self._keep_current_persona = False
-                    self.draft = apply_draft_patch(self.draft, role=None)
-                else:
-                    self._keep_current_persona = False
-                    role = next(role for role in self._roles if role.id == option_id)
-                    self.draft = apply_draft_patch(self.draft, role=role)
-            case WizardStep.MODEL:
-                if option_id == CUSTOM_MODEL_SENTINEL:
-                    self.step = WizardStep.CUSTOM_MODEL
-                    self._render_step()
+                if not self._accept_role(option_id):
                     return
-                model_value = (
-                    TUNING_DEFAULT_OPTION_ID if option_id == "default" else option_id
-                )
-                self.draft = apply_draft_patch(
-                    self.draft,
-                    tuning=self.draft.tuning.with_dimension(
-                        TuningDimensionId.MODEL, model_value
-                    ),
-                )
-            case WizardStep.REASONING:
-                reasoning_value = (
-                    TUNING_DEFAULT_OPTION_ID if option_id == "default" else option_id
-                )
-                self.draft = apply_draft_patch(
-                    self.draft,
-                    tuning=self.draft.tuning.with_dimension(
-                        TuningDimensionId.REASONING, reasoning_value
-                    ),
-                )
+            case WizardStep.MODEL | WizardStep.REASONING:
+                if not self._accept_tuning_option(option_id):
+                    return
             case _:
                 return
         self._advance()
 
+    def _accept_role(self, option_id: str) -> bool:
+        if option_id == KEEP_CURRENT_ROLE_ID:
+            self._keep_current_persona = True
+            return True
+        self._keep_current_persona = False
+        if option_id == NO_ROLE_ID:
+            self.draft = apply_draft_patch(self.draft, role=None)
+            return True
+        role = next((item for item in self._roles if item.id == option_id), None)
+        if role is None:
+            self._set_status("That role is no longer in the library.")
+            return False
+        self.draft = apply_draft_patch(self.draft, role=role)
+        return True
+
+    def _accept_tuning_option(self, option_id: str) -> bool:
+        dimension_id = self._step_dimension()
+        if dimension_id is None:
+            return False
+        if option_id == CUSTOM_TUNING_ID:
+            self._custom_dimension = dimension_id
+            self._render_step()
+            return False
+        self.draft = apply_draft_patch(
+            self.draft,
+            tuning=self.draft.tuning.with_dimension(
+                dimension_id, _tuning_value(option_id)
+            ),
+        )
+        return True
+
     def _steps_for_draft(self) -> tuple[WizardStep, ...]:
-        backend = resolve_backend(self.draft.harness)
         base = RECONFIGURE_STEPS if self.reconfigure else REGISTER_STEPS
-        steps: list[WizardStep] = list(base)
-        dimension_ids = {dimension.id for dimension in backend.tuning}
-        if TuningDimensionId.MODEL in dimension_ids:
-            steps.append(WizardStep.MODEL)
-        if TuningDimensionId.REASONING in dimension_ids:
-            steps.append(WizardStep.REASONING)
-        return tuple(steps)
+        extra = tuple(
+            _TUNING_STEPS[dimension.id]
+            for dimension in resolve_backend(self.draft.harness).tuning
+            if dimension.id in _TUNING_STEPS
+        )
+        return (*base, *extra)
 
     def _advance(self) -> None:
         steps = self._steps_for_draft()
         try:
             index = steps.index(self.step)
         except ValueError:
-            index = steps.index(WizardStep.MODEL)
+            self._set_status("Wizard step is out of range.")
+            return
         next_index = index + 1
         if next_index >= len(steps):
             self._submit()
@@ -262,90 +318,178 @@ class RegisterAgentScreen(ControlScreen):
     def _verb(self) -> str:
         return "Reconfigure" if self.reconfigure else "Register"
 
+    def _dimension(self, dimension_id: TuningDimensionId) -> TuningDimension:
+        backend = resolve_backend(self.draft.harness)
+        return next(dim for dim in backend.tuning if dim.id is dimension_id)
+
+    def _step_dimension(self) -> TuningDimensionId | None:
+        match self.step:
+            case WizardStep.MODEL:
+                return TuningDimensionId.MODEL
+            case WizardStep.REASONING:
+                return TuningDimensionId.REASONING
+            case _:
+                return None
+
     def _render_step(self) -> None:
-        title = self.query_one(selector(Id.TITLE), Label)
-        hint = self.query_one(selector(Id.HINT), Static)
-        options = self.query_one(selector(Id.OPTIONS), OptionList)
-        text = self.query_one(selector(Id.TEXT), Input)
         self._set_status("")
-        options.clear_options()
-        text.remove_class(OPEN_CLASS)
-        text.value = ""
         verb = self._verb()
+        if self._custom_dimension is not None:
+            dimension = self._dimension(self._custom_dimension)
+            self._show_text(
+                title=f"{verb} agent — custom {dimension.label.lower()}",
+                hint=f"Enter a {dimension.label.lower()} this runtime accepts",
+                value=self._custom_prefill(dimension),
+                placeholder=dimension.label.lower(),
+            )
+            return
         match self.step:
             case WizardStep.HARNESS:
-                title.update(f"{verb} agent — runtime")
-                hint.update("Which agent runtime should run locally?")
-                for backend in list_backends():
-                    options.add_option(
-                        Option(
-                            f"{backend.label}  ({backend.badge})",
-                            id=backend.harness.value,
-                        )
-                    )
-                options.focus()
+                self._show_choices(
+                    title=f"{verb} agent — runtime",
+                    hint="Which agent runtime should run locally?",
+                    items=[
+                        (f"{backend.label}  ({backend.badge})", backend.harness.value)
+                        for backend in list_backends()
+                    ],
+                    selected_id=self.draft.harness.value,
+                )
             case WizardStep.ROLE:
-                title.update(f"{verb} agent — role")
-                hint.update("Give the agent a role? (from ~/.band/roles)")
-                if self.reconfigure:
-                    options.add_option(
-                        Option("Keep current role", id=KEEP_CURRENT_ROLE_ID)
-                    )
-                options.add_option(Option("No specific role", id=NO_ROLE_ID))
-                for role in self._roles:
-                    detail = f" — {role.description}" if role.description else ""
-                    options.add_option(Option(f"{role.label}{detail}", id=role.id))
-                options.focus()
+                self._show_choices(
+                    title=f"{verb} agent — role",
+                    hint="Give the agent a role? (from ~/.band/roles)",
+                    items=self._role_choices(),
+                    selected_id=self._selected_role_id(),
+                )
             case WizardStep.NAME:
-                title.update(f"{verb} agent — name")
-                hint.update("Agent name")
-                text.add_class(OPEN_CLASS)
-                text.value = draft_name(self.draft)
-                text.placeholder = "Agent name"
-                text.focus()
+                self._show_text(
+                    title=f"{verb} agent — name",
+                    hint="Agent name",
+                    value=draft_name(self.draft),
+                    placeholder="Agent name",
+                )
             case WizardStep.DESCRIPTION:
-                title.update(f"{verb} agent — description")
-                hint.update("What this agent does (platform requires ≥10 chars)")
-                text.add_class(OPEN_CLASS)
-                text.value = self.draft.description
-                text.placeholder = "What this agent does"
-                text.focus()
-            case WizardStep.MODEL:
-                title.update(f"{verb} agent — model")
-                hint.update("Model for this runtime (Enter to accept)")
-                backend = resolve_backend(self.draft.harness)
-                model_dim = next(
-                    dim for dim in backend.tuning if dim.id is TuningDimensionId.MODEL
+                self._show_text(
+                    title=f"{verb} agent — description",
+                    hint="What this agent does (platform requires ≥10 chars)",
+                    value=self.draft.description,
+                    placeholder="What this agent does",
                 )
-                for option in model_dim.options:
-                    label = option.label
-                    if option.description:
-                        label = f"{label} — {option.description}"
-                    options.add_option(Option(label, id=option.id or "default"))
-                if model_dim.allow_custom:
-                    options.add_option(Option("Custom model id…", id=CUSTOM_MODEL_SENTINEL))
-                options.focus()
-            case WizardStep.CUSTOM_MODEL:
-                title.update(f"{verb} agent — custom model")
-                hint.update("Enter a model id this runtime accepts")
-                text.add_class(OPEN_CLASS)
-                text.placeholder = "model id"
-                text.focus()
-            case WizardStep.REASONING:
-                title.update(f"{verb} agent — reasoning")
-                hint.update("Reasoning / thinking control")
-                backend = resolve_backend(self.draft.harness)
-                reasoning_dim = next(
-                    dim for dim in backend.tuning if dim.id is TuningDimensionId.REASONING
+            case WizardStep.MODEL | WizardStep.REASONING:
+                dimension_id = self._step_dimension()
+                if dimension_id is None:
+                    return
+                dimension = self._dimension(dimension_id)
+                self._show_choices(
+                    title=f"{verb} agent — {dimension.label.lower()}",
+                    hint=dimension.label,
+                    items=self._tuning_choices(dimension),
+                    selected_id=self._selected_tuning_id(dimension),
                 )
-                for option in reasoning_dim.options:
-                    options.add_option(Option(option.label, id=option.id or "default"))
-                options.focus()
+
+    def _role_choices(self) -> list[tuple[str, str]]:
+        items: list[tuple[str, str]] = []
+        if self.reconfigure:
+            items.append(("Keep current role", KEEP_CURRENT_ROLE_ID))
+        items.append(("No specific role", NO_ROLE_ID))
+        for role in self._roles:
+            detail = f" — {role.description}" if role.description else ""
+            items.append((f"{role.label}{detail}", role.id))
+        return items
+
+    def _selected_role_id(self) -> str:
+        if self.reconfigure and self._keep_current_persona:
+            return KEEP_CURRENT_ROLE_ID
+        if self.draft.role is None:
+            return NO_ROLE_ID
+        return self.draft.role.id or NO_ROLE_ID
+
+    def _tuning_choices(self, dimension: TuningDimension) -> list[tuple[str, str]]:
+        items: list[tuple[str, str]] = []
+        for option in dimension.options:
+            label = option.label
+            if option.description:
+                label = f"{label} — {option.description}"
+            items.append((label, _option_list_id(option.id)))
+        if dimension.allow_custom:
+            items.append(("Custom…", CUSTOM_TUNING_ID))
+        return items
+
+    def _selected_tuning_id(self, dimension: TuningDimension) -> str:
+        current = self.draft.tuning.value_for(dimension.id) or TUNING_DEFAULT_OPTION_ID
+        known = {option.id for option in dimension.options}
+        if current not in known and dimension.allow_custom:
+            return CUSTOM_TUNING_ID
+        return _option_list_id(current)
+
+    def _custom_prefill(self, dimension: TuningDimension) -> str:
+        current = self.draft.tuning.value_for(dimension.id) or ""
+        known = {option.id for option in dimension.options}
+        return "" if current in known else current
+
+    def _show_choices(
+        self,
+        *,
+        title: str,
+        hint: str,
+        items: list[tuple[str, str]],
+        selected_id: str,
+    ) -> None:
+        self.query_one(selector(Id.TITLE), Label).update(title)
+        self.query_one(selector(Id.HINT), Static).update(hint)
+        options = self.query_one(selector(Id.OPTIONS), OptionList)
+        text = self.query_one(selector(Id.TEXT), Input)
+        text.remove_class(OPEN_CLASS)
+        text.value = ""
+        options.add_class(OPEN_CLASS)
+        options.clear_options()
+        highlight = 0
+        for index, (label, option_id) in enumerate(items):
+            options.add_option(Option(label, id=option_id))
+            if option_id == selected_id:
+                highlight = index
         if options.option_count:
-            options.highlighted = 0
+            options.highlighted = highlight
+        options.focus()
+
+    def _show_text(
+        self, *, title: str, hint: str, value: str, placeholder: str
+    ) -> None:
+        self.query_one(selector(Id.TITLE), Label).update(title)
+        self.query_one(selector(Id.HINT), Static).update(hint)
+        options = self.query_one(selector(Id.OPTIONS), OptionList)
+        text = self.query_one(selector(Id.TEXT), Input)
+        options.remove_class(OPEN_CLASS)
+        options.clear_options()
+        text.add_class(OPEN_CLASS)
+        text.value = value
+        text.placeholder = placeholder
+        text.focus()
+
+    def _draft_blocking_error(self) -> tuple[WizardStep, str] | None:
+        if self.reconfigure:
+            return None
+        name_error = agent_name_error(draft_name(self.draft))
+        if name_error:
+            return WizardStep.NAME, name_error
+        desc_error = description_error(self.draft.description)
+        if desc_error:
+            return WizardStep.DESCRIPTION, desc_error
+        return None
+
+    def _go_to(self, step: WizardStep, status: str = "") -> None:
+        self.step = step
+        self._custom_dimension = None
+        self._render_step()
+        if status:
+            self._set_status(status)
 
     @work(exclusive=True, group="agents-register")
     async def _submit(self) -> None:
+        blocking = self._draft_blocking_error()
+        if blocking is not None:
+            self._go_to(*blocking)
+            return
         if self.reconfigure:
             self._submit_reconfigure()
             return
@@ -356,7 +500,11 @@ class RegisterAgentScreen(ControlScreen):
                 name=name, description=draft.description
             )
         except Exception as error:
-            self._set_status(format_platform_error(error, operation="register agent"))
+            message = format_platform_error(error, operation="register agent")
+            if message.startswith("Name "):
+                self._go_to(WizardStep.NAME, message)
+                return
+            self._set_status(message)
             return
         persona = draft.role.content if draft.role is not None else None
         try:
@@ -370,7 +518,6 @@ class RegisterAgentScreen(ControlScreen):
                 )
             )
         except Exception as error:
-            # create_agent already wrote the keyring key — delete both.
             try:
                 await self.control.client.delete_agent(agent.id)
             except Exception as cleanup_error:
@@ -389,6 +536,14 @@ class RegisterAgentScreen(ControlScreen):
         self.control.agents_store.add_agent(managed_agent)
         self.control.agents_store.status = (
             f"Registered {agent.name} ({draft.harness.value}) — not started."
+        )
+        log_event(
+            "registered agent",
+            agent_id=agent.id,
+            harness=draft.harness.value,
+            has_persona=persona is not None,
+            model=draft.tuning.model or "default",
+            reasoning=draft.tuning.reasoning or "default",
         )
         self.app.pop_screen()
 
@@ -422,6 +577,14 @@ class RegisterAgentScreen(ControlScreen):
         self.control.agents_store.update_agent(updated)
         self.control.agents_store.status = (
             f"Reconfigured {agent.name} ({draft.harness.value}) — restart to apply."
+        )
+        log_event(
+            "reconfigured agent",
+            agent_id=agent.id,
+            harness=draft.harness.value,
+            has_persona=persona is not None,
+            model=draft.tuning.model or "default",
+            reasoning=draft.tuning.reasoning or "default",
         )
         self.app.pop_screen()
 

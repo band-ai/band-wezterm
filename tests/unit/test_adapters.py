@@ -90,3 +90,75 @@ def test_copilot_passes_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> Non
         "reasoning_effort": "high",
         "custom_section": "Be terse.",
     }
+
+
+def test_claude_passes_persona_and_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeAdapter:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    adapters_pkg = types.ModuleType("band.adapters")
+    adapters_pkg.ClaudeSDKAdapter = FakeAdapter  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "band.adapters", adapters_pkg)
+
+    adapter = build_adapter(
+        HarnessId.CLAUDE_SDK,
+        cwd=Path("/tmp/work"),
+        persona="# Developer\nBe terse.\n",
+        tuning=AgentTuning(model="sonnet", reasoning="off"),
+    )
+    assert isinstance(adapter, FakeAdapter)
+    assert captured == {
+        "cwd": "/tmp/work",
+        "model": "sonnet",
+        "custom_section": "# Developer\nBe terse.\n",
+        "max_thinking_tokens": 0,
+    }
+
+
+def test_codex_passes_persona_and_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeConfig:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    class FakeAdapter:
+        def __init__(self, config: object) -> None:
+            self.config = config
+
+    adapters_pkg = types.ModuleType("band.adapters")
+    adapters_pkg.CodexAdapter = FakeAdapter  # type: ignore[attr-defined]
+    codex_mod = types.ModuleType("band.adapters.codex")
+    codex_mod.CodexAdapterConfig = FakeConfig  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "band.adapters", adapters_pkg)
+    monkeypatch.setitem(sys.modules, "band.adapters.codex", codex_mod)
+
+    adapter = build_adapter(
+        HarnessId.CODEX,
+        persona="# Developer\n",
+        tuning=AgentTuning(model="gpt-5.6-sol", reasoning="medium"),
+    )
+    assert isinstance(adapter, FakeAdapter)
+    assert captured == {
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "medium",
+        "custom_section": "# Developer\n",
+    }
+
+
+def test_persona_omitted_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeAdapter:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    adapters_pkg = types.ModuleType("band.adapters")
+    adapters_pkg.ClaudeSDKAdapter = FakeAdapter  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "band.adapters", adapters_pkg)
+
+    build_adapter(HarnessId.CLAUDE_SDK, cwd=Path("/tmp/work"))
+    assert "custom_section" not in captured

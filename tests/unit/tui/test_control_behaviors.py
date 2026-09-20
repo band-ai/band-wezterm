@@ -7,14 +7,19 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from textual.widgets import Label, ListView, Static
+from textual.widgets import Input, Label, ListView, OptionList, Static
 
 from band_wezterm.agent.adapters import HarnessUnavailableError
-from band_wezterm.agent_draft import AgentDraft, apply_draft_patch
+from band_wezterm.agent_draft import (
+    NAME_FORBIDDEN_MESSAGE,
+    AgentDraft,
+    apply_draft_patch,
+)
 from band_wezterm.backends import AgentTuning
 from band_wezterm.client import MessageRecord
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
+from band_wezterm.roles import Role
 from band_wezterm.tui.control_app import ControlApp
 from band_wezterm.tui.screens.agents import (
     NO_MANAGED_KEY_MESSAGE,
@@ -26,7 +31,7 @@ from band_wezterm.tui.screens.agents import (
 from band_wezterm.tui.screens.agents import Id as AgentId
 from band_wezterm.tui.screens.agents import selector as agent_selector
 from band_wezterm.tui.screens.register_agent import Id as RegisterId
-from band_wezterm.tui.screens.register_agent import RegisterAgentScreen
+from band_wezterm.tui.screens.register_agent import RegisterAgentScreen, WizardStep
 from band_wezterm.tui.screens.register_agent import selector as register_selector
 from band_wezterm.tui.screens.rooms import Id as RoomId
 from band_wezterm.tui.screens.rooms import (
@@ -46,6 +51,25 @@ IDLE_AGENT_ID = "3c2b1a09-8f7e-4d6c-5b4a-3928176054f3"
 ROOM_ID = "9a8b7c6d-5e4f-4a3b-2c1d-0e9f8a7b6c5d"
 AGENT_PANE = PaneId(11)
 PROFILE_RECORD_FAILURE_MESSAGE = "disk full"
+UX_ROLE = Role(
+    id="ux-ui-product-designer",
+    label="UX/UI Product Designer",
+    content="# UX/UI Product Designer\nDesign simply.\n",
+)
+
+
+def register_status(screen: RegisterAgentScreen) -> str:
+    return str(
+        screen.query_one(register_selector(RegisterId.STATUS), Static).render()
+    )
+
+
+def highlighted_option_id(screen: RegisterAgentScreen) -> str | None:
+    options = screen.query_one(register_selector(RegisterId.OPTIONS), OptionList)
+    index = options.highlighted
+    if index is None:
+        return None
+    return options.get_option_at_index(index).id
 
 
 def listed_agents(app: ControlApp) -> list[str]:
@@ -96,6 +120,119 @@ async def test_register_opens_wizard_and_escape_returns(
         await pilot.press("escape")
         await settle(pilot)
         assert isinstance(control_app.screen, AgentsScreen)
+
+
+async def test_register_records_role_model_and_effort(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.register_agent.list_roles",
+        lambda: [UX_ROLE],
+    )
+    band_client.create_agent.return_value = agent(IDLE_AGENT_ID, "Created")
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("n")
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RegisterAgentScreen)
+
+        await pilot.press("down", "enter")
+        await settle(pilot)
+        assert screen.step is WizardStep.ROLE
+
+        await pilot.press("down", "enter")
+        await settle(pilot)
+        assert screen.step is WizardStep.NAME
+        assert "/" not in screen.query_one(
+            register_selector(RegisterId.TEXT), Input
+        ).value
+
+        await pilot.press("enter")
+        await settle(pilot)
+        assert screen.step is WizardStep.DESCRIPTION
+
+        await pilot.press("enter")
+        await settle(pilot)
+        assert screen.step is WizardStep.MODEL
+
+        await pilot.press("down", "enter")
+        await settle(pilot)
+        assert screen.step is WizardStep.REASONING
+        await pilot.press("down", "down", "down", "enter")
+        await settle(pilot)
+        assert isinstance(control_app.screen, AgentsScreen)
+
+    band_client.create_agent.assert_awaited_once()
+    registered_name = band_client.create_agent.await_args.kwargs["name"]
+    assert "/" not in registered_name
+    assert "@" not in registered_name
+    stored = control_app.managed_agents.get(IDLE_AGENT_ID)
+    assert stored is not None
+    assert stored.harness is HarnessId.CODEX
+    assert stored.persona == UX_ROLE.content
+    assert stored.tuning.model == "gpt-5.6-sol"
+    assert stored.tuning.reasoning == "medium"
+
+
+async def test_register_rejects_forbidden_name_before_the_platform(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.register_agent.list_roles",
+        list,
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("n")
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RegisterAgentScreen)
+
+        await pilot.press("enter")
+        await settle(pilot)
+        await pilot.press("enter")
+        await settle(pilot)
+        assert screen.step is WizardStep.NAME
+
+        name_input = screen.query_one(register_selector(RegisterId.TEXT), Input)
+        name_input.value = "bad/name"
+        await name_input.action_submit()
+        await settle(pilot)
+
+        assert screen.step is WizardStep.NAME
+        assert NAME_FORBIDDEN_MESSAGE in register_status(screen)
+
+    band_client.create_agent.assert_not_called()
+
+
+async def test_register_submit_returns_to_name_when_draft_name_is_illegal(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("n")
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RegisterAgentScreen)
+        screen.draft = AgentDraft(
+            harness=HarnessId.CODEX,
+            name="UX/UI",
+            description="Registered for name validation coverage.",
+        )
+        screen.step = WizardStep.REASONING
+        screen._submit()
+        await settle(pilot)
+        assert screen.step is WizardStep.NAME
+        assert NAME_FORBIDDEN_MESSAGE in register_status(screen)
+
+    band_client.create_agent.assert_not_called()
 
 
 
@@ -545,8 +682,9 @@ async def test_reconfigure_completes_through_the_keyboard_wizard(
         screen = control_app.screen
         assert isinstance(screen, RegisterAgentScreen)
         assert screen.step.value == "harness"
+        assert highlighted_option_id(screen) == HarnessId.CODEX.value
 
-        await pilot.press("down", "enter")
+        await pilot.press("enter")
         await settle(pilot)
         assert screen.step.value == "role"
 
@@ -557,6 +695,7 @@ async def test_reconfigure_completes_through_the_keyboard_wizard(
         await pilot.press("enter")
         await settle(pilot)
         assert screen.step.value == "reasoning"
+        assert highlighted_option_id(screen) == "low"
 
         await pilot.press("enter")
         await settle(pilot)
@@ -566,6 +705,7 @@ async def test_reconfigure_completes_through_the_keyboard_wizard(
     assert stored is not None
     assert stored.harness is HarnessId.CODEX
     assert stored.persona == "# Existing role\n"
+    assert stored.tuning.reasoning == "low"
 
 
 async def test_reconfigure_aborts_when_profile_record_fails(
