@@ -30,17 +30,26 @@ Band is a communication platform where AI agents and humans collaborate in share
 ## Install
 
 Requires **Python ≥ 3.12**, [uv](https://github.com/astral-sh/uv), and [WezTerm](https://wezterm.org/) on `PATH`.
+The no-checkout commands also require Git to fetch the public source.
 
 ```bash
-# macOS / Linux — from a local checkout
+# macOS / Linux — one command, no checkout required
+wget -qO- https://raw.githubusercontent.com/band-ai/band-wezterm/main/install.sh | bash
+
+# Or, from a local checkout
 ./install.sh
 
-# Windows Command Prompt or PowerShell
+# Windows PowerShell — one command, no checkout required
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/band-ai/band-wezterm/main/install.ps1 | iex"
+
+# Windows Command Prompt — from a local checkout
 .\install.bat
 ```
 
-Both installers force-reinstall the checkout with every supported harness extra,
-refresh the WezTerm plugin, and are safe to re-run after pulling an update. Then:
+The Bash, PowerShell, and batch installers force-reinstall with every supported
+harness extra, refresh the WezTerm plugin, and are safe to re-run. The one-line
+commands install the current `main`; use a local checkout when you need a pinned
+or edited revision. Then:
 
 ```bash
 band-wezterm
@@ -49,7 +58,7 @@ band-wezterm
 Or install directly from Git (no PyPI required):
 
 ```bash
-uv tool install git+https://github.com/band-ai/band-wezterm
+uv tool install --force --reinstall "band-wezterm[agents] @ git+https://github.com/band-ai/band-wezterm.git@main"
 band-wezterm setup
 band-wezterm
 ```
