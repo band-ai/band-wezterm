@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/band-ai/band-wezterm/compare/v0.4.0...v0.4.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* **release:** add no-clone installers ([#10](https://github.com/band-ai/band-wezterm/issues/10)) ([250f9ce](https://github.com/band-ai/band-wezterm/commit/250f9ce0e97ed9ec4e4f210781fc8546e8a35082))
+
 ## [0.4.0](https://github.com/band-ai/band-wezterm/compare/v0.3.0...v0.4.0) (2026-09-20)
 
 
