@@ -46,13 +46,17 @@ def test_copilot_exposes_reasoning_effort() -> None:
     )
     assert [option.id for option in reasoning.options] == [
         TUNING_DEFAULT_OPTION_ID,
+        "none",
+        "minimal",
         "low",
         "medium",
         "high",
+        "xhigh",
+        "max",
     ]
 
 
-def test_codex_exposes_the_current_recommended_model() -> None:
+def test_codex_exposes_models_reported_by_the_current_runtime() -> None:
     backend = resolve_backend(HarnessId.CODEX)
     model = next(
         dimension
@@ -63,4 +67,34 @@ def test_codex_exposes_the_current_recommended_model() -> None:
     assert [option.id for option in model.options] == [
         TUNING_DEFAULT_OPTION_ID,
         "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-6-astra",
+        "gpt-5.5",
+    ]
+
+
+def test_copilot_exposes_models_reported_by_the_current_runtime() -> None:
+    backend = resolve_backend(HarnessId.COPILOT_SDK)
+    model = next(
+        dimension
+        for dimension in backend.tuning
+        if dimension.id is TuningDimensionId.MODEL
+    )
+
+    assert [option.id for option in model.options] == [
+        TUNING_DEFAULT_OPTION_ID,
+        "claude-sonnet-5",
+        "claude-haiku-4.5",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex",
+        "gpt-5-mini",
+        "mai-code-1.1-flash",
+        "grok-4.5",
+        "kimi-k3",
+        "kimi-k2.7-code",
+        "grok-4.6",
     ]

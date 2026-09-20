@@ -106,6 +106,10 @@ _CLAUDE_REASONING: Final = (
 _CODEX_MODELS: Final = (
     _DEFAULT,
     TuningOption(id=CODEX_DEFAULT_MODEL, label="GPT-5.6 Sol"),
+    TuningOption(id="gpt-5.6-terra", label="GPT-5.6 Terra"),
+    TuningOption(id="gpt-5.6-luna", label="GPT-5.6 Luna"),
+    TuningOption(id="gpt-6-astra", label="GPT-6 Astra"),
+    TuningOption(id="gpt-5.5", label="GPT-5.5"),
 )
 
 def _reasoning_effort_options(*efforts: str) -> tuple[TuningOption, ...]:
@@ -118,18 +122,28 @@ def _reasoning_effort_options(*efforts: str) -> tuple[TuningOption, ...]:
     )
 
 
-_CODEX_REASONING: Final = _reasoning_effort_options(
-    "minimal", "low", "medium", "high", "xhigh"
-)
+_CODEX_REASONING: Final = _reasoning_effort_options("low", "medium", "high", "xhigh")
 
 _COPILOT_MODELS: Final = (
     _DEFAULT,
+    TuningOption(id="claude-sonnet-5", label="Claude Sonnet 5"),
+    TuningOption(id="claude-haiku-4.5", label="Claude Haiku 4.5"),
+    TuningOption(id="gpt-5.6-terra", label="GPT-5.6 Terra"),
+    TuningOption(id="gpt-5.6-luna", label="GPT-5.6 Luna"),
     TuningOption(id="gpt-5.4", label="GPT-5.4"),
-    TuningOption(id="claude-sonnet-4", label="Claude Sonnet 4"),
-    TuningOption(id="gemini-2.5-pro", label="Gemini 2.5 Pro"),
+    TuningOption(id="gpt-5.4-mini", label="GPT-5.4 Mini"),
+    TuningOption(id="gpt-5.3-codex", label="GPT-5.3 Codex"),
+    TuningOption(id="gpt-5-mini", label="GPT-5 Mini"),
+    TuningOption(id="mai-code-1.1-flash", label="MAI-Code-1.1 Flash"),
+    TuningOption(id="grok-4.5", label="Grok 4.5"),
+    TuningOption(id="kimi-k3", label="Kimi K3"),
+    TuningOption(id="kimi-k2.7-code", label="Kimi K2.7 Code"),
+    TuningOption(id="grok-4.6", label="Grok 4.6"),
 )
 
-_COPILOT_REASONING: Final = _reasoning_effort_options("low", "medium", "high")
+_COPILOT_REASONING: Final = _reasoning_effort_options(
+    "none", "minimal", "low", "medium", "high", "xhigh", "max"
+)
 
 HARNESS_BACKENDS: Final[tuple[HarnessBackend, ...]] = (
     HarnessBackend(

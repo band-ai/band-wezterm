@@ -194,7 +194,7 @@ async def test_register_records_role_model_and_effort(
         await pilot.press("down", "enter")
         await settle(pilot)
         assert screen.step is WizardStep.REASONING
-        await pilot.press("down", "down", "down", "enter")
+        await pilot.press("down", "down", "enter")
         await settle(pilot)
         assert isinstance(control_app.screen, AgentsScreen)
 
