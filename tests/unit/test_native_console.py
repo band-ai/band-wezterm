@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -44,7 +45,7 @@ def test_codex_console_uses_normalized_profile_without_band_bridge() -> None:
         cwd=Path("/workspace"),
     )
 
-    assert launch.command[:3] == ("codex", "--cd", "/workspace")
+    assert launch.command[:3] == ("codex", "--cd", str(Path("/workspace")))
     assert CODEX_DEFAULT_MODEL in launch.command
     assert "model_reasoning_effort=\"high\"" in launch.command
     assert "developer_instructions=\"You are concise.\"" in launch.command
@@ -77,7 +78,7 @@ def test_opencode_console_starts_isolated_tui_instead_of_attaching_band_server(
         cwd=Path("/workspace"),
     )
 
-    assert launch.command == ("opencode", "--dir", "/workspace")
+    assert launch.command == ("opencode",)
     assert "attach" not in launch.command
     config_path = Path(launch.environment["OPENCODE_CONFIG"])
     assert json.loads(config_path.read_text(encoding="utf-8"))["model"] == (
@@ -90,7 +91,8 @@ def test_launch_spec_is_private_and_consumed_once(tmp_path: Path) -> None:
 
     path = write_native_console_launch(launch)
 
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
     assert read_native_console_launch(path) == launch
     assert not path.exists()
 

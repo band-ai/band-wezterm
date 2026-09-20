@@ -6,6 +6,7 @@ stops every agent tab it started.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import Callable
 from contextlib import suppress
@@ -176,10 +177,7 @@ class ControlApp(App[None]):
     async def on_unmount(self) -> None:
         """Host shutdown: every agent tab this host started goes with it."""
         self.client.set_authentication_rejected_handler(None)
-        for panes in list(self.agents_store.running.values()):
-            with suppress(WezTermCliError, OSError):
-                kill_panes(panes.ids)
-        self.agents_store.running.clear()
+        await self._stop_managed_agents()
         await self.client.aclose()
 
     async def enter_workspace(self) -> None:
@@ -240,10 +238,12 @@ class ControlApp(App[None]):
             return False
         self._ending_session = True
         try:
-            for panes in list(self.agents_store.running.values()):
-                with suppress(WezTermCliError, OSError):
-                    kill_panes(panes.ids)
-            self.agents_store.running.clear()
+            if not await self._stop_managed_agents():
+                self.notify(
+                    "Could not stop every managed agent. Retry sign out.",
+                    severity="error",
+                )
+                return False
             await self.host_auth.sign_out()
             self.user_id = None
             self.agents_store = AgentsStore()
@@ -254,6 +254,17 @@ class ControlApp(App[None]):
             return True
         finally:
             self._ending_session = False
+
+    async def _stop_managed_agents(self) -> bool:
+        """Stop every tracked pair, retaining any pair whose teardown fails."""
+        for agent_id, panes in tuple(self.agents_store.running.items()):
+            try:
+                await asyncio.to_thread(kill_panes, panes.ids)
+            except (WezTermCliError, OSError) as error:
+                format_platform_error(error, operation="stop managed agent panes")
+                continue
+            self.agents_store.mark_stopped(agent_id)
+        return not self.agents_store.running
 
     def _show(self, screen_name: str) -> None:
         """Switching top-level screens discards any in-progress draft."""

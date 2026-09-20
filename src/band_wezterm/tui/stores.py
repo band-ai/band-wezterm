@@ -189,17 +189,16 @@ class AgentsStore:
     def mark_stopped(self, agent_id: str) -> AgentPanes | None:
         return self.running.pop(agent_id, None)
 
-    def prune_running(self, live_pane_ids: Iterable[int]) -> list[str]:
-        """Drop agents whose tab was closed — closing an agent tab is a stop."""
+    def agents_with_missing_panes(
+        self, live_pane_ids: Iterable[int]
+    ) -> tuple[tuple[str, AgentPanes], ...]:
+        """Return managed agents whose coupled tab is no longer complete."""
         live = set(live_pane_ids)
-        stopped = [
-            agent_id
+        return tuple(
+            (agent_id, panes)
             for agent_id, panes in self.running.items()
             if any(pane.root not in live for pane in panes.ids)
-        ]
-        for agent_id in stopped:
-            del self.running[agent_id]
-        return stopped
+        )
 
 @dataclass
 class RoomsStore:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from contextlib import suppress
 from enum import StrEnum
 from pathlib import Path
@@ -23,7 +24,11 @@ from band_wezterm.agent.native_console import (
     preflight_native_console,
     write_native_console_launch,
 )
-from band_wezterm.agent.spawn_cmd import agent_pane_command, write_api_key_file
+from band_wezterm.agent.spawn_cmd import (
+    agent_pane_command,
+    write_api_key_file,
+    write_persona_file,
+)
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
@@ -111,6 +116,21 @@ def badge_label(agent: AgentRecord) -> str:
     return badge.value if badge is not None else NO_BADGE
 
 
+async def _spawn_pane(
+    create: Callable[[], PaneId], acquired: list[PaneId]
+) -> PaneId:
+    """Keep ownership of a thread-created pane even if the worker is cancelled."""
+    task = asyncio.create_task(asyncio.to_thread(create))
+    try:
+        pane_id = await asyncio.shield(task)
+    except asyncio.CancelledError:
+        pane_id = await task
+        acquired.append(pane_id)
+        raise
+    acquired.append(pane_id)
+    return pane_id
+
+
 class AgentRow(ListItem):
     """One catalog entry: avatar, name, harness badge, run state."""
 
@@ -179,6 +199,10 @@ class AgentsScreen(ControlScreen):
         padding: 0 1;
     }
     """
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self._starting_agent_ids: set[str] = set()
 
     store: reactive[AgentsStore] = reactive(AgentsStore, always_update=True, init=False)
 
@@ -383,6 +407,9 @@ class AgentsScreen(ControlScreen):
             return
         if self.store.is_running(agent.id):
             return
+        if agent.id in self._starting_agent_ids:
+            return
+        self._starting_agent_ids.add(agent.id)
         self._start_agent(agent)
 
     def action_stop_agent(self) -> None:
@@ -434,45 +461,48 @@ class AgentsScreen(ControlScreen):
         self._set_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
         return None
 
-    @work(exclusive=True, group="agents-spawn")
+    @work(group="agents-start")
     async def _start_agent(self, agent: AgentRecord) -> None:
-        window_id = self.control.window_id
-        if window_id is None:
-            self._set_status(NO_WINDOW_MESSAGE)
-            return
-        api_key = self.control.client.managed_agent_api_key(agent.id)
-        if not api_key:
-            self._set_status(NO_MANAGED_KEY_MESSAGE)
-            return
-        profile = self.control.managed_agents.get(agent.id)
-        if profile is None:
-            self._set_status(NO_MANAGED_PROFILE_MESSAGE)
-            return
-        agent = self._sync_agent_to_profile(agent, profile)
-        profile = await self._preflight_launch_profile(agent.id, profile)
-        if profile is None:
-            self._resync_store_to_durable_profile(agent)
-            return
-        # Re-get after preflight: another writer may have removed or retuned the profile.
-        fresh = self.control.managed_agents.get(agent.id)
-        if fresh is None:
-            self._set_status(NO_MANAGED_PROFILE_MESSAGE)
-            return
-        if fresh.harness is not profile.harness:
-            self._sync_agent_to_profile(agent, fresh)
-            self._set_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
-            return
-        profile = fresh
-        agent = self._sync_agent_to_profile(agent, profile)
-        store = self.store
-        if store.is_running(agent.id):
-            return
-        cwd = Path.cwd()
-        key_file = write_api_key_file(api_key)
-        console_pane: PaneId | None = None
-        bridge_pane: PaneId | None = None
+        key_file: Path | None = None
+        persona_file: Path | None = None
         console_launch_file: Path | None = None
+        acquired: list[PaneId] = []
+        committed = False
         try:
+            window_id = self.control.window_id
+            if window_id is None:
+                self._set_status(NO_WINDOW_MESSAGE)
+                return
+            api_key = self.control.client.managed_agent_api_key(agent.id)
+            if not api_key:
+                self._set_status(NO_MANAGED_KEY_MESSAGE)
+                return
+            profile = self.control.managed_agents.get(agent.id)
+            if profile is None:
+                self._set_status(NO_MANAGED_PROFILE_MESSAGE)
+                return
+            agent = self._sync_agent_to_profile(agent, profile)
+            profile = await self._preflight_launch_profile(agent.id, profile)
+            if profile is None:
+                self._resync_store_to_durable_profile(agent)
+                return
+            fresh = self.control.managed_agents.get(agent.id)
+            if fresh is None:
+                self._set_status(NO_MANAGED_PROFILE_MESSAGE)
+                return
+            if fresh.harness is not profile.harness:
+                self._sync_agent_to_profile(agent, fresh)
+                self._set_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
+                return
+            profile = fresh
+            agent = self._sync_agent_to_profile(agent, profile)
+            store = self.store
+            if store.is_running(agent.id):
+                return
+            cwd = Path.cwd()
+            key_file = write_api_key_file(api_key)
+            if profile.persona:
+                persona_file = write_persona_file(profile.persona)
             console_launch = build_native_console(profile, cwd=cwd)
             console_launch_file = write_native_console_launch(console_launch)
             console_command = native_console_command(
@@ -482,38 +512,41 @@ class AgentsScreen(ControlScreen):
                 launch_file=console_launch_file,
             )
             bridge_command = agent_pane_command(
-                agent, key_file=key_file, cwd=cwd, profile=profile
+                agent,
+                key_file=key_file,
+                cwd=cwd,
+                profile=profile,
+                persona_file=persona_file,
             )
-            console_pane = await asyncio.to_thread(
-                spawn_additional_tab, window_id, cwd, console_command
+            console_pane = await _spawn_pane(
+                lambda: spawn_additional_tab(window_id, cwd, console_command),
+                acquired,
             )
             await asyncio.to_thread(set_tab_title, console_pane, agent.name)
-            bridge_pane = await asyncio.to_thread(
-                split_pane, console_pane, cwd, bridge_command
+            bridge_pane = await _spawn_pane(
+                lambda: split_pane(console_pane, cwd, bridge_command),
+                acquired,
             )
             await asyncio.to_thread(activate_pane, console_pane)
-        except (WezTermCliError, OSError) as error:
-            key_file.unlink(missing_ok=True)
-            if console_launch_file is not None:
-                console_launch_file.unlink(missing_ok=True)
-            spawned_panes = tuple(
-                pane_id
-                for pane_id in (bridge_pane, console_pane)
-                if pane_id is not None
+            store.mark_running(agent.id, bridge_pane, console=console_pane)
+            committed = True
+            store.status = (
+                f"Started {agent.name} ({profile.harness.value}) with private console and Band bridge."
             )
-            with suppress(WezTermCliError, OSError):
-                await asyncio.to_thread(kill_panes, spawned_panes)
+            self.mutate_reactive(AgentsScreen.store)
+        except Exception as error:
             self._set_status(format_platform_error(error, operation="start agent"))
-            return
-        assert bridge_pane is not None
-        assert console_pane is not None
-        store.mark_running(agent.id, bridge_pane, console=console_pane)
-        store.status = (
-            f"Started {agent.name} ({profile.harness.value}) with private console and Band bridge."
-        )
-        self.mutate_reactive(AgentsScreen.store)
+        finally:
+            self._starting_agent_ids.discard(agent.id)
+            if not committed:
+                for path in (key_file, persona_file, console_launch_file):
+                    if path is not None:
+                        path.unlink(missing_ok=True)
+                if acquired:
+                    with suppress(WezTermCliError, OSError):
+                        await asyncio.shield(asyncio.to_thread(kill_panes, acquired))
 
-    @work(exclusive=True, group="agents-spawn")
+    @work(exclusive=True, group="agents-stop")
     async def _stop_agent(
         self, agent_id: str, agent_name: str, panes: AgentPanes
     ) -> None:
@@ -534,32 +567,37 @@ class AgentsScreen(ControlScreen):
             return
         try:
             panes = await asyncio.to_thread(list_panes)
-        except (WezTermCliError, OSError):
+        except (WezTermCliError, OSError) as error:
+            self._set_status(format_platform_error(error, operation="reconcile agent panes"))
             return
         live_pane_ids = {pane.pane_id for pane in panes}
-        stopped = [
-            (agent_id, agent_panes)
-            for agent_id, agent_panes in store.running.items()
-            if any(pane.root not in live_pane_ids for pane in agent_panes.ids)
-        ]
-        for agent_id, agent_panes in stopped:
+        incomplete = store.agents_with_missing_panes(live_pane_ids)
+        stopped_count = 0
+        for agent_id, agent_panes in incomplete:
             survivors = tuple(
                 pane_id
                 for pane_id in agent_panes.ids
                 if pane_id.root in live_pane_ids
             )
-            with suppress(WezTermCliError, OSError):
+            try:
                 await asyncio.to_thread(kill_panes, survivors)
+            except (WezTermCliError, OSError) as error:
+                self._set_status(format_platform_error(error, operation="reconcile agent panes"))
+                continue
             store.mark_stopped(agent_id)
-        if stopped:
-            self._set_status(f"{len(stopped)} agent tab(s) closed — marked stopped.")
+            stopped_count += 1
+        if stopped_count:
+            self._set_status(f"{stopped_count} agent tab(s) closed — marked stopped.")
 
     @work(exclusive=True, group="agents-delete")
     async def _delete_agent(self, agent: AgentRecord) -> None:
         panes = self.store.running.get(agent.id)
         if panes is not None:
-            with suppress(WezTermCliError, OSError):
+            try:
                 await asyncio.to_thread(kill_panes, panes.ids)
+            except (WezTermCliError, OSError) as error:
+                self._set_status(format_platform_error(error, operation="stop agent"))
+                return
             self.store.mark_stopped(agent.id)
         try:
             await self.control.client.delete_agent(agent.id)

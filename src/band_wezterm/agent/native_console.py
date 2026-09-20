@@ -7,11 +7,11 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from band_wezterm.agent.private_files import write_private_text
 from band_wezterm.backends import TuningDimensionId, normalize_tuning
 from band_wezterm.config import LOCAL_STATE_DIRNAME
 from band_wezterm.identity import HarnessId
@@ -30,6 +30,7 @@ _NATIVE_BINARY: Final[dict[HarnessId, str]] = {
     HarnessId.OPENCODE: "opencode",
 }
 _BAND_ENV_PREFIX: Final = "BAND_"
+_PREFLIGHT_TIMEOUT_SECONDS: Final = 10
 
 
 class NativeConsoleUnavailableError(RuntimeError):
@@ -69,7 +70,7 @@ def preflight_native_console(harness: HarnessId) -> None:
             check=False,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=_PREFLIGHT_TIMEOUT_SECONDS,
         )
     except OSError as error:
         raise NativeConsoleUnavailableError(
@@ -77,7 +78,9 @@ def preflight_native_console(harness: HarnessId) -> None:
         ) from error
     except subprocess.TimeoutExpired as error:
         raise NativeConsoleUnavailableError(
-            f"Native {binary} CLI did not answer `--version` within 10 seconds."
+            "Native "
+            f"{binary} CLI did not answer `--version` within "
+            f"{_PREFLIGHT_TIMEOUT_SECONDS} seconds."
         ) from error
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
@@ -93,17 +96,11 @@ def write_native_console_launch(launch: NativeConsoleLaunch) -> Path:
         "cwd": str(launch.cwd),
         "environment": launch.environment,
     }
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
+    return write_private_text(
+        content=json.dumps(payload),
         prefix=_LAUNCH_FILE_PREFIX,
         suffix=_LAUNCH_FILE_SUFFIX,
-        delete=False,
-    ) as handle:
-        path = Path(handle.name)
-        path.chmod(0o600)
-        json.dump(payload, handle)
-    return path
+    )
 
 
 def read_native_console_launch(path: Path) -> NativeConsoleLaunch:
@@ -168,7 +165,7 @@ def _native_console_for(
 
 
 def _claude_console(profile: ManagedAgentProfile, *, cwd: Path) -> NativeConsoleLaunch:
-    command = ["claude"]
+    command = [_NATIVE_BINARY[profile.harness]]
     model = profile.tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         command.extend(["--model", model])
@@ -178,7 +175,7 @@ def _claude_console(profile: ManagedAgentProfile, *, cwd: Path) -> NativeConsole
 
 
 def _codex_console(profile: ManagedAgentProfile, *, cwd: Path) -> NativeConsoleLaunch:
-    command = ["codex", "--cd", str(cwd)]
+    command = [_NATIVE_BINARY[profile.harness], "--cd", str(cwd)]
     model = profile.tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         command.extend(["--model", model])
@@ -191,7 +188,7 @@ def _codex_console(profile: ManagedAgentProfile, *, cwd: Path) -> NativeConsoleL
 
 
 def _copilot_console(profile: ManagedAgentProfile, *, cwd: Path) -> NativeConsoleLaunch:
-    command = ["copilot", "--context", "default"]
+    command = [_NATIVE_BINARY[profile.harness], "--context", "default"]
     model = profile.tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         command.extend(["--model", model])
@@ -204,7 +201,7 @@ def _copilot_console(profile: ManagedAgentProfile, *, cwd: Path) -> NativeConsol
 
 def _opencode_console(profile: ManagedAgentProfile, *, cwd: Path) -> NativeConsoleLaunch:
     environment = _opencode_environment(profile)
-    command = ["opencode", "--dir", str(cwd)]
+    command = [_NATIVE_BINARY[profile.harness]]
     return NativeConsoleLaunch(tuple(command), cwd, environment)
 
 
@@ -212,8 +209,7 @@ def _copilot_instruction_environment(profile: ManagedAgentProfile) -> dict[str, 
     if not profile.persona:
         return {}
     directory = _console_profile_directory(profile.agent_id, "copilot")
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "AGENTS.md").write_text(profile.persona, encoding="utf-8")
+    _write_console_profile_file(directory / "AGENTS.md", profile.persona)
     return {"COPILOT_CUSTOM_INSTRUCTIONS_DIRS": str(directory)}
 
 
@@ -221,10 +217,9 @@ def _opencode_environment(profile: ManagedAgentProfile) -> dict[str, str]:
     if not profile.persona and not profile.tuning.value_for(TuningDimensionId.MODEL):
         return {}
     directory = _console_profile_directory(profile.agent_id, "opencode")
-    directory.mkdir(parents=True, exist_ok=True)
     persona_path = directory / "persona.md"
     if profile.persona:
-        persona_path.write_text(profile.persona, encoding="utf-8")
+        _write_console_profile_file(persona_path, profile.persona)
     config: dict[str, object] = {"$schema": "https://opencode.ai/config.json"}
     model = profile.tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
@@ -232,7 +227,7 @@ def _opencode_environment(profile: ManagedAgentProfile) -> dict[str, str]:
     if profile.persona:
         config["instructions"] = [str(persona_path)]
     config_path = directory / "opencode.json"
-    config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    _write_console_profile_file(config_path, json.dumps(config, indent=2) + "\n")
     return {"OPENCODE_CONFIG": str(config_path)}
 
 
@@ -242,6 +237,13 @@ def _console_profile_directory(agent_id: str, harness: str) -> Path:
         or "agent"
     )
     return Path.home() / LOCAL_STATE_DIRNAME / _CONSOLE_STATE_DIRNAME / harness / safe_id
+
+
+def _write_console_profile_file(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o600)
 
 
 def _toml_assignment(key: str, value: str) -> str:

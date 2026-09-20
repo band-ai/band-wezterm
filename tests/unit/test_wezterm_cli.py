@@ -78,7 +78,8 @@ def test_set_tab_title_targets_pane() -> None:
 
 def test_split_pane_builds_bottom_bridge_command() -> None:
     command = ["python", "-m", "band_wezterm.agent"]
-    args = split_pane_args(PaneId(42), Path("/tmp/work"), command, percent=20)
+    cwd = Path("/tmp/work")
+    args = split_pane_args(PaneId(42), cwd, command, percent=20)
 
     assert args == [
         "cli",
@@ -89,7 +90,7 @@ def test_split_pane_builds_bottom_bridge_command() -> None:
         "--percent",
         "20",
         "--cwd",
-        "/tmp/work",
+        str(cwd),
         "--",
         *command,
     ]

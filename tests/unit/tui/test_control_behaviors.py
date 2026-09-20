@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,6 +11,7 @@ import pytest
 from textual.widgets import Input, Label, ListView, OptionList, Static
 
 from band_wezterm.agent.adapters import HarnessUnavailableError
+from band_wezterm.agent.native_console import NativeConsoleUnavailableError
 from band_wezterm.agent_draft import (
     NAME_FORBIDDEN_MESSAGE,
     AgentDraft,
@@ -27,6 +29,7 @@ from band_wezterm.tui.screens.agents import (
     PROFILE_HARNESS_UNSTABLE_MESSAGE,
     AgentRow,
     AgentsScreen,
+    _spawn_pane,
 )
 from band_wezterm.tui.screens.agents import Id as AgentId
 from band_wezterm.tui.screens.agents import selector as agent_selector
@@ -479,6 +482,57 @@ async def test_start_agent_spawns_private_console_and_band_bridge(
     assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.CODEX
 
 
+async def test_start_agent_surfaces_missing_native_console_before_spawning(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+    band_client.managed_agent_api_key.return_value = "band_a_managed"
+    control_app.window_id = 42
+    control_app.managed_agents.record(
+        ManagedAgentProfile(agent_id=IDLE_AGENT_ID, name="Beta", harness=HarnessId.CODEX)
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.screens.agents.preflight_native_console",
+        lambda _harness: (_ for _ in ()).throw(
+            NativeConsoleUnavailableError("codex CLI not found")
+        ),
+    )
+    spawned = MagicMock()
+    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawned)
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await settle(pilot)
+
+    spawned.assert_not_called()
+    assert control_app.agents_store.status == "codex CLI not found"
+
+
+async def test_cancelled_pane_spawn_retains_pane_for_transaction_cleanup() -> None:
+    started = threading.Event()
+    release = threading.Event()
+    acquired: list[PaneId] = []
+
+    def create() -> PaneId:
+        started.set()
+        release.wait()
+        return PaneId(99)
+
+    task = asyncio.create_task(_spawn_pane(create, acquired))
+    await asyncio.to_thread(started.wait)
+    task.cancel()
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert acquired == [PaneId(99)]
+
+
 async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
     control_app: ControlApp,
     band_client: MagicMock,
@@ -625,6 +679,31 @@ async def test_sign_out_returns_to_sign_in(
         assert isinstance(control_app.screen, SignInScreen)
         assert control_app.user_id is None
     host_auth.sign_out.assert_awaited_once()
+
+
+async def test_sign_out_keeps_session_when_agent_teardown_fails(
+    control_app: ControlApp,
+    host_auth: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    control_app.agents_store.mark_running(
+        RUNNING_AGENT_ID,
+        PaneId(12),
+        console=PaneId(11),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.control_app.kill_panes",
+        lambda _panes: (_ for _ in ()).throw(OSError("mux unavailable")),
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("ctrl+l")
+        await settle(pilot)
+        assert isinstance(control_app.screen, AgentsScreen)
+
+    host_auth.sign_out.assert_not_awaited()
+    assert control_app.agents_store.is_running(RUNNING_AGENT_ID)
 
 
 async def test_escape_cancels_pending_browser_sign_in(

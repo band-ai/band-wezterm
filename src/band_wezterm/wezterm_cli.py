@@ -25,6 +25,7 @@ _OSC_PREFIX: Final = "\033]1337;SetUserVar="
 _OSC_SUFFIX: Final = "\007"
 _FOCUS_USER_VAR: Final = "band.focus"
 _FOCUS_PAYLOAD: Final = "1"
+DEFAULT_BRIDGE_PANE_PERCENT: Final = 20
 
 
 class WindowId(RootModel[int]):
@@ -163,7 +164,7 @@ def split_pane(
     cwd: Path,
     command: list[str],
     *,
-    percent: int = 20,
+    percent: int = DEFAULT_BRIDGE_PANE_PERCENT,
 ) -> PaneId:
     """Add a compact bottom pane to an existing tab."""
     stdout = _run(split_pane_args(pane_id, cwd, command, percent=percent))
@@ -406,7 +407,7 @@ def split_pane_args(
     cwd: Path,
     command: list[str],
     *,
-    percent: int = 20,
+    percent: int = DEFAULT_BRIDGE_PANE_PERCENT,
 ) -> list[str]:
     """Pure split command builder for unit tests."""
     if not 1 <= percent <= 99:

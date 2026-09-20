@@ -39,6 +39,8 @@ def test_running_agent_tracks_console_and_bridge_as_one_lifecycle() -> None:
     store.mark_running("a1", bridge, console=console)
 
     assert store.running["a1"] == AgentPanes(console=console, bridge=bridge)
-    assert store.prune_running([9, 10]) == []
-    assert store.prune_running([9]) == ["a1"]
-    assert store.is_running("a1") is False
+    assert store.agents_with_missing_panes([9, 10]) == ()
+    assert store.agents_with_missing_panes([9]) == (
+        ("a1", AgentPanes(console=console, bridge=bridge)),
+    )
+    assert store.is_running("a1") is True

@@ -111,7 +111,7 @@ def test_claude_passes_persona_and_thinking(monkeypatch: pytest.MonkeyPatch) -> 
     )
     assert isinstance(adapter, FakeAdapter)
     assert captured == {
-        "cwd": "/tmp/work",
+        "cwd": str(Path("/tmp/work")),
         "model": "sonnet",
         "custom_section": "# Developer\nBe terse.\n",
         "max_thinking_tokens": 0,
