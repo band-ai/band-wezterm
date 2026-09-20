@@ -38,6 +38,13 @@ class AgentFilter(StrEnum):
     OPENCODE = "opencode"
 
 
+class AgentStatusSource(StrEnum):
+    """Independent operations that can report feedback in the agents catalog."""
+
+    ACTION = "action"
+    LIST = "list"
+
+
 class RoomFilter(StrEnum):
     ALL = "all"
     STARRED = "starred"
@@ -118,7 +125,25 @@ class AgentsStore:
     running: dict[str, AgentPanes] = field(default_factory=dict)
     selected_id: str | None = None
     loading: bool = False
-    status: str = ""
+    deleting_ids: set[str] = field(default_factory=set)
+    _status_by_source: dict[AgentStatusSource, str] = field(default_factory=dict)
+
+    @property
+    def status(self) -> str:
+        """Most recent feedback while preserving independent operation results."""
+        return next(reversed(self._status_by_source.values()), "")
+
+    @status.setter
+    def status(self, message: str) -> None:
+        self.set_status(AgentStatusSource.ACTION, message)
+
+    def set_status(self, source: AgentStatusSource, message: str) -> None:
+        self._status_by_source.pop(source, None)
+        if message:
+            self._status_by_source[source] = message
+
+    def clear_status(self, source: AgentStatusSource) -> None:
+        self._status_by_source.pop(source, None)
 
     @property
     def catalog(self) -> list[AgentRecord]:
@@ -152,9 +177,11 @@ class AgentsStore:
 
     def replace_agents(self, agents: Sequence[AgentRecord]) -> None:
         self.agents = list(agents)
+        self._reconcile_selection()
 
     def replace_directory(self, agents: Sequence[AgentRecord]) -> None:
         self.directory = list(agents)
+        self._reconcile_selection()
 
     def add_agent(self, agent: AgentRecord) -> None:
         self.agents = [agent, *self.agents]
@@ -168,11 +195,36 @@ class AgentsStore:
     def remove_agent(self, agent_id: str) -> None:
         self.agents = [agent for agent in self.agents if agent.id != agent_id]
         self.mark_stopped(agent_id)
-        if self.selected_id == agent_id:
-            self.selected_id = self.agents[0].id if self.agents else None
+        self.deleting_ids.discard(agent_id)
+        self._reconcile_selection()
 
     def select_filter(self, chip: AgentFilter) -> None:
         self.filter = chip
+        self._reconcile_selection()
+
+    def set_source(self, source: AgentSource) -> None:
+        self.source = source
+        self._reconcile_selection()
+
+    def set_search(self, search: str) -> None:
+        self.search = search
+        self._reconcile_selection()
+
+    def is_deleting(self, agent_id: str) -> bool:
+        return agent_id in self.deleting_ids
+
+    def begin_delete(self, agent_id: str) -> None:
+        self.deleting_ids.add(agent_id)
+
+    def finish_delete(self, agent_id: str) -> None:
+        self.deleting_ids.discard(agent_id)
+
+    def _reconcile_selection(self) -> None:
+        """Keep actions anchored to a visible catalog row after every projection change."""
+        visible = self.visible
+        if self.selected_id in {agent.id for agent in visible}:
+            return
+        self.selected_id = visible[0].id if visible else None
 
     def is_running(self, agent_id: str) -> bool:
         return agent_id in self.running

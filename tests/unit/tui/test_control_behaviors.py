@@ -1142,6 +1142,57 @@ async def test_delete_requires_confirmation(
     assert not control_app.agents_store.is_running(IDLE_AGENT_ID)
 
 
+async def test_delete_surfaces_in_progress_state(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    pending = asyncio.Event()
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+
+    async def delete_when_released(_: str) -> None:
+        await pending.wait()
+
+    band_client.delete_agent.side_effect = delete_when_released
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("delete", "delete")
+        await pilot.pause()
+
+        assert control_app.agents_store.is_deleting(target.id)
+        assert control_app.agents_store.status == "Deleting Beta…"
+
+        pending.set()
+        await settle(pilot)
+
+    assert control_app.agents_store.find(target.id) is None
+
+
+async def test_reload_reports_completion_and_refreshes_both_catalogs(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [target]
+    band_client.list_directory.return_value = [target]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("r")
+        await settle(pilot)
+
+        assert control_app.agents_store.status == "Refreshed 1 agents."
+
+        await pilot.press("d")
+        await settle(pilot)
+        assert control_app.agents_store.source.value == "directory"
+        assert control_app.agents_store.status == "Refreshed 1 public agents."
+
+        await pilot.press("d")
+        await settle(pilot)
+
+    assert band_client.list_my_agents.await_count == 3
+
+
 
 async def test_delete_room_requires_confirmation(
     control_app: ControlApp, band_client: MagicMock

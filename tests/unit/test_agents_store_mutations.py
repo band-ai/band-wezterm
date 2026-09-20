@@ -44,3 +44,31 @@ def test_running_agent_tracks_console_and_bridge_as_one_lifecycle() -> None:
         ("a1", AgentPanes(console=console, bridge=bridge)),
     )
     assert store.is_running("a1") is True
+
+
+def test_catalog_changes_keep_selection_on_a_visible_agent() -> None:
+    alpha = _agent("a1", "Alpha")
+    beta = _agent("b1", "Beta")
+    store = AgentsStore(agents=[alpha, beta], selected_id=beta.id)
+
+    store.set_search("Alpha")
+
+    assert store.selected_id == alpha.id
+
+    store.replace_agents([beta])
+
+    assert store.selected_id is None
+
+    store.set_search("")
+
+    assert store.selected_id == beta.id
+
+
+def test_remove_clears_in_flight_delete_state() -> None:
+    alpha = _agent("a1", "Alpha")
+    store = AgentsStore(agents=[alpha])
+    store.begin_delete(alpha.id)
+
+    store.remove_agent(alpha.id)
+
+    assert store.is_deleting(alpha.id) is False

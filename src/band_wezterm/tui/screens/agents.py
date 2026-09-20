@@ -40,6 +40,7 @@ from band_wezterm.tui.stores import (
     AgentPanes,
     AgentSource,
     AgentsStore,
+    AgentStatusSource,
 )
 from band_wezterm.tui.widgets import AvatarChip, Chip, FilterChips
 from band_wezterm.wezterm_cli import (
@@ -68,6 +69,13 @@ NO_MANAGED_KEY_MESSAGE: Final = (
 DELETE_CONFIRM_MESSAGE: Final = (
     "Press Delete again to permanently remove {name}."
 )
+REFRESHING_AGENTS_MESSAGE: Final = "Refreshing agents…"
+REFRESHED_AGENTS_MESSAGE: Final = "Refreshed {count} agents."
+REFRESHING_DIRECTORY_MESSAGE: Final = "Refreshing public directory…"
+REFRESHED_DIRECTORY_MESSAGE: Final = "Refreshed {count} public agents."
+DELETING_AGENT_MESSAGE: Final = "Deleting {name}…"
+DELETING_LABEL: Final = "deleting"
+OPERATION_IN_PROGRESS_MESSAGE: Final = "An agent operation is already in progress."
 NO_MANAGED_PROFILE_MESSAGE: Final = (
     "No local profile — register or reconfigure after upgrade."
 )
@@ -132,17 +140,24 @@ class AgentRow(ListItem):
     }
     """
 
-    def __init__(self, agent: AgentRecord, *, running: bool) -> None:
+    def __init__(
+        self, agent: AgentRecord, *, running: bool, deleting: bool = False
+    ) -> None:
         super().__init__()
         self.agent = agent
         self.running = running
+        self.deleting = deleting
 
     def compose(self) -> ComposeResult:
         yield AvatarChip(self.agent)
         yield Label(self.agent.name, classes="row-name")
         yield Label(badge_label(self.agent), classes="row-badge")
         yield Label(
-            (AgentRuntime.RUNNING if self.running else AgentRuntime.IDLE).value,
+            (
+                DELETING_LABEL
+                if self.deleting
+                else (AgentRuntime.RUNNING if self.running else AgentRuntime.IDLE).value
+            ),
             classes="row-state",
         )
 
@@ -226,7 +241,12 @@ class AgentsScreen(ControlScreen):
         list_view = self.query_one(selector(Id.LIST), ListView)
         await list_view.clear()
         await list_view.extend(
-            AgentRow(agent, running=store.is_running(agent.id)) for agent in visible
+            AgentRow(
+                agent,
+                running=store.is_running(agent.id),
+                deleting=store.is_deleting(agent.id),
+            )
+            for agent in visible
         )
         list_view.index = next(
             (
@@ -236,8 +256,13 @@ class AgentsScreen(ControlScreen):
             ),
             0 if visible else None,
         )
+        fallback_status = (
+            REFRESHING_AGENTS_MESSAGE
+            if store.loading
+            else ("" if visible else EMPTY_CATALOG)
+        )
         self.query_one(selector(Id.STATUS), Static).update(
-            store.status or ("" if visible else EMPTY_CATALOG)
+            store.status or ("" if visible else fallback_status)
         )
 
     # --- selection ---------------------------------------------------------
@@ -261,7 +286,7 @@ class AgentsScreen(ControlScreen):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != Id.SEARCH:
             return
-        self.store.search = event.value
+        self.store.set_search(event.value)
         self._load_agents()
 
     def on_filter_chips_changed(self, event: FilterChips.Changed) -> None:
@@ -272,17 +297,23 @@ class AgentsScreen(ControlScreen):
     # --- catalog loading ---------------------------------------------------
 
     @work(exclusive=True, group="agents-load")
-    async def _load_agents(self) -> None:
+    async def _load_agents(self, *, announce: bool = False) -> None:
         await asyncio.sleep(SEARCH_DEBOUNCE_SECONDS)
         store = self.store
         if store.source is AgentSource.DIRECTORY:
             self.mutate_reactive(AgentsScreen.store)
             return
         store.loading = True
+        if announce:
+            store.set_status(AgentStatusSource.LIST, REFRESHING_AGENTS_MESSAGE)
+            self.mutate_reactive(AgentsScreen.store)
         try:
             agents = await self.control.client.list_my_agents(name=store.search or None)
         except Exception as error:
-            store.status = format_platform_error(error, operation="load agents")
+            store.set_status(
+                AgentStatusSource.LIST,
+                format_platform_error(error, operation="load agents"),
+            )
         else:
             profiles = self.control.managed_agents
             projected: list[AgentRecord] = []
@@ -295,43 +326,61 @@ class AgentsScreen(ControlScreen):
                 )
                 projected.append(row)
             store.replace_agents(projected)
-            store.status = ""
+            if announce:
+                store.set_status(
+                    AgentStatusSource.LIST,
+                    REFRESHED_AGENTS_MESSAGE.format(count=len(projected)),
+                )
+            else:
+                store.clear_status(AgentStatusSource.LIST)
         finally:
             store.loading = False
             self.mutate_reactive(AgentsScreen.store)
 
     @work(exclusive=True, group="agents-directory")
-    async def _load_directory(self) -> None:
+    async def _load_directory(self, *, announce: bool = False) -> None:
         store = self.store
         store.loading = True
+        if announce:
+            store.set_status(AgentStatusSource.LIST, REFRESHING_DIRECTORY_MESSAGE)
+            self.mutate_reactive(AgentsScreen.store)
         try:
             directory = await self.control.client.list_directory()
         except Exception as error:
-            store.status = format_platform_error(error, operation="load directory")
+            store.set_status(
+                AgentStatusSource.LIST,
+                format_platform_error(error, operation="load directory"),
+            )
         else:
             store.replace_directory(directory)
-            store.status = ""
+            if announce:
+                store.set_status(
+                    AgentStatusSource.LIST,
+                    REFRESHED_DIRECTORY_MESSAGE.format(count=len(directory)),
+                )
+            else:
+                store.clear_status(AgentStatusSource.LIST)
         finally:
             store.loading = False
             self.mutate_reactive(AgentsScreen.store)
 
     def action_reload(self) -> None:
+        self._pending_delete_id = None
         match self.store.source:
             case AgentSource.MINE:
-                self._load_agents()
+                self._load_agents(announce=True)
             case AgentSource.DIRECTORY:
-                self._load_directory()
+                self._load_directory(announce=True)
 
     def action_toggle_discover(self) -> None:
         store = self.store
-        store.source = (
+        store.set_source(
             AgentSource.DIRECTORY
             if store.source is AgentSource.MINE
             else AgentSource.MINE
         )
         self.mutate_reactive(AgentsScreen.store)
-        if store.source is AgentSource.DIRECTORY:
-            self._load_directory()
+        self.action_reload()
 
     # --- registration ------------------------------------------------------
 
@@ -368,11 +417,16 @@ class AgentsScreen(ControlScreen):
         if agent.id in self._starting_agent_ids:
             self._set_status(AGENT_STARTING_MESSAGE)
             return
+        if self.store.deleting_ids:
+            self._set_status(OPERATION_IN_PROGRESS_MESSAGE)
+            return
         if self._pending_delete_id != agent.id:
             self._pending_delete_id = agent.id
             self._set_status(DELETE_CONFIRM_MESSAGE.format(name=agent.name))
             return
         self._pending_delete_id = None
+        self.store.begin_delete(agent.id)
+        self._set_status(DELETING_AGENT_MESSAGE.format(name=agent.name))
         self._delete_agent(agent)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -562,22 +616,24 @@ class AgentsScreen(ControlScreen):
 
     @work(exclusive=True, group="agents-delete")
     async def _delete_agent(self, agent: AgentRecord) -> None:
-        panes = self.store.running.get(agent.id)
-        if panes is not None:
-            try:
-                await asyncio.to_thread(kill_panes, panes.ids)
-            except (WezTermCliError, OSError) as error:
-                self._set_status(format_platform_error(error, operation="stop agent"))
-                return
-            self.store.mark_stopped(agent.id)
         try:
+            await self._stop_agent_for_delete(agent)
             await self.control.client.delete_agent(agent.id)
         except Exception as error:
             self._set_status(format_platform_error(error, operation="delete agent"))
             return
+        finally:
+            self.store.finish_delete(agent.id)
         self.control.managed_agents.remove(agent.id)
         self.store.remove_agent(agent.id)
         self._set_status(f"Deleted {agent.name}.")
+
+    async def _stop_agent_for_delete(self, agent: AgentRecord) -> None:
+        panes = self.store.running.get(agent.id)
+        if panes is None:
+            return
+        await asyncio.to_thread(kill_panes, panes.ids)
+        self.store.mark_stopped(agent.id)
 
     def _set_status(self, status: str) -> None:
         self.store.status = status
