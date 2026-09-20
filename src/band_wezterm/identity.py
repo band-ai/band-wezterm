@@ -137,17 +137,16 @@ def agent_accent(agent_id: UUID | str) -> str:
 
 
 def parse_harness(raw: str | HarnessId | None) -> HarnessId | None:
-    if raw is None:
-        return None
-    if isinstance(raw, HarnessId):
-        return raw
-    try:
-        return HarnessId(raw)
-    except ValueError:
-        return None
+    match raw:
+        case None:
+            return None
+        case _:
+            try:
+                return HarnessId(raw)
+            except ValueError:
+                return None
 
 
 def harness_badge(harness: str | HarnessId) -> HarnessBadge:
     """Lookup harness badge letters. ValueError on unknown — fail loud, never guess."""
-    key = harness if isinstance(harness, HarnessId) else HarnessId(harness)
-    return HARNESS_BADGES[key]
+    return HARNESS_BADGES[HarnessId(harness)]

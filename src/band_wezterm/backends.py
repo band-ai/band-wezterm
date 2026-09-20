@@ -195,7 +195,7 @@ def list_backends() -> tuple[HarnessBackend, ...]:
 
 
 def resolve_backend(harness: HarnessId | str) -> HarnessBackend:
-    key = harness if isinstance(harness, HarnessId) else HarnessId(harness)
+    key = HarnessId(harness)
     # Accept aliases that share a badge/runtime.
     aliases: dict[HarnessId, HarnessId] = {
         HarnessId.CLAUDE: HarnessId.CLAUDE_SDK,

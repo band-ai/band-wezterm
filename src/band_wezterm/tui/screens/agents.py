@@ -245,11 +245,16 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
 
     def _highlighted_agent(self) -> AgentRecord | None:
         row = self.query_one(selector(Id.LIST), ListView).highlighted_child
-        return row.agent if isinstance(row, AgentRow) else None
+        match row:
+            case AgentRow(agent=agent):
+                return agent
+            case _:
+                return None
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        if isinstance(event.item, AgentRow):
-            self.store.selected_id = event.item.agent.id
+        match event.item:
+            case AgentRow(agent=agent):
+                self.store.selected_id = agent.id
 
     # --- search & filters --------------------------------------------------
 

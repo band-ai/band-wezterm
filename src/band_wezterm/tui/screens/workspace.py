@@ -154,13 +154,16 @@ class WorkspaceScreen(agents.AgentsScreen):
                 self.mutate_reactive(WorkspaceScreen.rooms)
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        super().on_list_view_highlighted(event)
-        if isinstance(event.item, rooms.RoomRow):
-            self.rooms.selected_id = event.item.room.id
+        match event.item:
+            case rooms.RoomRow(room=room):
+                self.rooms.selected_id = room.id
+            case _:
+                super().on_list_view_highlighted(event)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if isinstance(event.item, rooms.RoomRow):
-            self.control.open_room(event.item.room)
+        match event.item:
+            case rooms.RoomRow(room=room):
+                self.control.open_room(room)
 
     def _agent_action_available(self) -> bool:
         focused = self.app.focused

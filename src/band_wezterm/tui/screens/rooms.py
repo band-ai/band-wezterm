@@ -390,15 +390,21 @@ class RoomsScreen(ControlScreen):
 
     def _highlighted_room(self) -> RoomRecord | None:
         row = self.query_one(selector(Id.LIST), ListView).highlighted_child
-        return row.room if isinstance(row, RoomRow) else None
+        match row:
+            case RoomRow(room=room):
+                return room
+            case _:
+                return None
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        if isinstance(event.item, RoomRow):
-            self.store.selected_id = event.item.room.id
+        match event.item:
+            case RoomRow(room=room):
+                self.store.selected_id = room.id
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if isinstance(event.item, RoomRow):
-            self.control.open_room(event.item.room)
+        match event.item:
+            case RoomRow(room=room):
+                self.control.open_room(room)
 
     def action_toggle_star(self) -> None:
         self._pending_delete_id = None
@@ -717,15 +723,21 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
 
     def _highlighted_identity_id(self, list_view: ListView) -> str | None:
         row = list_view.highlighted_child
-        return row.identity_id if isinstance(row, IdentityRow) else None
+        match row:
+            case IdentityRow(identity_id=identity_id):
+                return identity_id
+            case _:
+                return None
 
     def _highlighted_agent_participant(self) -> ParticipantRecord | None:
         row = self._roster_view().highlighted_child
-        if not isinstance(row, IdentityRow) or not isinstance(
-            row.identity, ParticipantRecord
-        ):
-            return None
-        return row.identity if row.identity.kind is AvatarKind.AGENT else None
+        match row:
+            case IdentityRow(identity=ParticipantRecord() as participant) if (
+                participant.kind is AvatarKind.AGENT
+            ):
+                return participant
+            case _:
+                return None
 
     def action_start_participant(self) -> None:
         participant = self._highlighted_agent_participant()

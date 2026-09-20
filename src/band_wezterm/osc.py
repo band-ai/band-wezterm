@@ -43,8 +43,6 @@ def encode_payload(value: str) -> str:
 
 
 def _coerce_key(key: OscKey | str) -> OscKey:
-    if isinstance(key, OscKey):
-        return key
     try:
         return OscKey(key)
     except ValueError as error:

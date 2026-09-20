@@ -32,14 +32,14 @@ class HarnessUnavailableError(RuntimeError):
 
 
 def _normalize(harness: HarnessId | str | None) -> HarnessId:
-    if harness is None:
-        raise HarnessUnavailableError("Agent has no harness — re-register with one.")
-    if isinstance(harness, HarnessId):
-        return harness
-    try:
-        return HarnessId(harness)
-    except ValueError as error:
-        raise HarnessUnavailableError(f"Unknown harness {harness!r}.") from error
+    match harness:
+        case None:
+            raise HarnessUnavailableError("Agent has no harness — re-register with one.")
+        case _:
+            try:
+                return HarnessId(harness)
+            except ValueError as error:
+                raise HarnessUnavailableError(f"Unknown harness {harness!r}.") from error
 
 
 def build_adapter(
