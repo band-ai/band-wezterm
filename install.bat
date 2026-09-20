@@ -17,9 +17,9 @@ if errorlevel 1 (
 if exist "%ProgramFiles%\WezTerm\wezterm.exe" set "PATH=%ProgramFiles%\WezTerm;%PATH%"
 if exist "%LocalAppData%\Programs\WezTerm\wezterm.exe" set "PATH=%LocalAppData%\Programs\WezTerm;%PATH%"
 
-band-wezterm setup
+band setup
 set RESULT=%ERRORLEVEL%
 popd
 if not "%RESULT%"=="0" exit /b %RESULT%
 
-echo Band WezTerm is installed. Run: band-wezterm
+echo Band WezTerm is installed. Run: band

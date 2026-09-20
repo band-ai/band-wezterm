@@ -14,19 +14,19 @@ sync-agents:
 
 # Open Control, or attach + raise if already running
 start:
-    uv run band-wezterm
+    uv run band
 
 # Same as start — find Control, activate it, raise WezTerm
 attach:
-    uv run band-wezterm
+    uv run band
 
 # Kill the Control window and open a fresh one
 restart:
-    uv run band-wezterm --restart
+    uv run band --restart
 
 # Install/update Band plugin snippet in active WezTerm config (idempotent)
 setup:
-    uv run band-wezterm setup
+    uv run band setup
 
 # Unit tests
 test:

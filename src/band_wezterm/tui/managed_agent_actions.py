@@ -29,7 +29,7 @@ from band_wezterm.wezterm_cli import WezTermCliError, kill_panes
 if TYPE_CHECKING:
     from band_wezterm.tui.screens import ControlScreen
 
-NO_WINDOW_MESSAGE: Final = "No WezTerm window — start the host with `band-wezterm`."
+NO_WINDOW_MESSAGE: Final = "No WezTerm window — start the host with `band`."
 NO_MANAGED_KEY_MESSAGE: Final = (
     "No managed API key for this agent — re-register it from Control "
     "(keys are one-time at registration)."

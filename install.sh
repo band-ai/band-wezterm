@@ -84,6 +84,6 @@ case "$install_channel" in
 esac
 
 uv tool install --force --reinstall "$package"
-band-wezterm setup
+band setup
 
-printf '%s\n' "Band WezTerm is installed. Run: band-wezterm"
+printf '%s\n' "Band WezTerm is installed. Run: band"

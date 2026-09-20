@@ -1,4 +1,4 @@
-"""CLI entrypoint parsing and setup wiring for band-wezterm."""
+"""CLI entrypoint parsing and setup wiring for band."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import pytest
 from filelock import Timeout
 
 from band_wezterm.__main__ import (
+    COMMAND_NAME,
     SETUP_COMMAND,
     _parse_args,
     _run_control,
@@ -36,6 +37,15 @@ def test_parse_default_has_no_setup_command() -> None:
     args = _parse_args([])
     assert args.command is None
     assert args.restart is False
+
+
+def test_help_uses_the_band_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exited:
+        _parse_args(["--help"])
+    assert exited.value.code == 0
+    assert f"usage: {COMMAND_NAME}" in capsys.readouterr().out
 
 
 def test_parse_restart_flag() -> None:

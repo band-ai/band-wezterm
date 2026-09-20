@@ -58,7 +58,7 @@ you are in. Release installs are built from the tagged source so every harness
 extra is included. Then:
 
 ```bash
-band-wezterm
+band
 ```
 
 To install the latest development build from `main` instead:
@@ -81,7 +81,7 @@ Sign-in uses the bundled public PKCE client (same as Band for VS Code / Jam). Ov
 
 ## Usage
 
-`band-wezterm` finds an existing Control tab, activates it, and raises WezTerm — it does not spawn a second Control. `--restart` kills that window first.
+`band` finds an existing Control tab, activates it, and raises WezTerm — it does not spawn a second Control. `--restart` kills that window first. `band-wezterm` remains available as a compatibility alias.
 
 | Keys | Where | Action |
 | --- | --- | --- |
@@ -182,7 +182,7 @@ just restart         # replace the Control window
 just screenshots     # refresh the README Control-tab SVGs
 ```
 
-Repo-root `plugin/init.lua` is the WezTerm plugin source of truth (also shipped in the wheel). Edit that file, re-run `band-wezterm setup`, then `wezterm.plugin.update_all()` from the Debug Overlay and reload. Or set `BAND_WEZTERM_PLUGIN_URL=file:///path/to/this/repo` to point WezTerm at the checkout ([WezTerm plugins](https://wezterm.org/config/plugins.html)).
+Repo-root `plugin/init.lua` is the WezTerm plugin source of truth (also shipped in the wheel). Edit that file, re-run `band setup`, then `wezterm.plugin.update_all()` from the Debug Overlay and reload. Or set `BAND_WEZTERM_PLUGIN_URL=file:///path/to/this/repo` to point WezTerm at the checkout ([WezTerm plugins](https://wezterm.org/config/plugins.html)).
 
 `setup` materializes `plugin/init.lua` into a tiny local git repo under `~/.band-wezterm/wezterm-plugin/` and writes a managed block into `~/.wezterm.lua` (or your existing XDG `wezterm.lua`) that loads it via `wezterm.plugin.require` + `file://` (WezTerm only accepts HTTPS/file git URLs; private GitHub HTTPS clones fail without credentials inside WezTerm).
 
@@ -191,7 +191,7 @@ local band = wezterm.plugin.require 'file:///…/.band-wezterm/wezterm-plugin'
 band.apply_to_config(config)
 ```
 
-WezTerm runs only the first `format-tab-title` handler. `band-wezterm setup` injects the Band plugin right after `config_builder()` so Band registers early; keep other `format-tab-title` handlers after that block (or remove them).
+WezTerm runs only the first `format-tab-title` handler. `band setup` injects the Band plugin right after `config_builder()` so Band registers early; keep other `format-tab-title` handlers after that block (or remove them).
 
 Contributor notes for agents live in [`AGENTS.md`](AGENTS.md).
 

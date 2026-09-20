@@ -62,6 +62,6 @@ $wezTermPaths = @(
 $env:Path = ($wezTermPaths + $env:Path.Split(";")) -join ";"
 
 & uv tool install --force --reinstall $package
-& band-wezterm setup
+& band setup
 
-Write-Output "Band WezTerm is installed. Run: band-wezterm"
+Write-Output "Band WezTerm is installed. Run: band"

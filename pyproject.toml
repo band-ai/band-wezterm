@@ -41,6 +41,7 @@ agents = [
 ]
 
 [project.scripts]
+band = "band_wezterm.__main__:main"
 band-wezterm = "band_wezterm.__main__:main"
 
 [tool.hatch.build.targets.wheel]

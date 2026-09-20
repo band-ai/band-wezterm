@@ -1,4 +1,4 @@
-"""`band-wezterm` entrypoint — setup, open, attach, or restart the Control tab."""
+"""`band` entrypoint — setup, open, attach, or restart the Control tab."""
 
 from __future__ import annotations
 
@@ -38,6 +38,7 @@ from band_wezterm.wezterm_cli import (
 
 CONTROL_MODULE: Final = "band_wezterm.tui"
 WINDOW_TITLE: Final = "Band"
+COMMAND_NAME: Final = "band"
 SETUP_COMMAND: Final = "setup"
 CONTROL_LOCK_FILENAME: Final = "control-launch.lock"
 CONTROL_LOCK_TIMEOUT_SECONDS: Final = 10
@@ -84,7 +85,7 @@ def _control_command() -> list[str]:
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="band-wezterm",
+        prog=COMMAND_NAME,
         description=(
             "Open Band Control in WezTerm. Re-running attaches and raises the "
             "existing Control window; --restart replaces it. "
@@ -134,7 +135,7 @@ def _run_setup() -> int:
             print(f"Band WezTerm plugin already configured in {result.path}.")
     print(
         "Reload WezTerm config (Ctrl+Shift+R) or restart WezTerm, then run "
-        "`band-wezterm`."
+        f"`{COMMAND_NAME}`."
     )
     return 0
 
