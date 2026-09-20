@@ -77,7 +77,13 @@ after `setup` (`Ctrl+Shift+R`).
 
 ### OAuth
 
-Sign-in uses the bundled public PKCE client (same as Band for VS Code / Jam). Override with `BAND_OAUTH_CLIENT_ID` for another tenant. Optional: `BAND_OAUTH_ISSUER` (default `https://auth.band.ai`), `BAND_BASE_URL`, `BAND_WS_URL`.
+Sign-in uses the bundled public PKCE client (same as Band for VS Code / Jam)
+against production by default: `https://auth.band.ai`,
+`https://app.band.ai`, and
+`wss://app.band.ai/api/v1/socket/websocket`. To target another Band deployment,
+set its matching `BAND_OAUTH_ISSUER`, `BAND_BASE_URL` (or `BAND_REST_URL`), and
+`BAND_WS_URL` together; do not combine production OAuth with a development API.
+`BAND_OAUTH_CLIENT_ID` selects another public OAuth client when required.
 
 ## Usage
 
