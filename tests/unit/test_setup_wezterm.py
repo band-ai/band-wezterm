@@ -939,7 +939,8 @@ def test_materialize_serializes_concurrent_setup(tmp_path: Path) -> None:
                 repeat(home, CONCURRENT_MATERIALIZATION_CALLS),
             )
         )
-    assert set(roots) == {home / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME}
+    expected_root = (home / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME).resolve()
+    assert set(roots) == {expected_root}
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=roots[0],
