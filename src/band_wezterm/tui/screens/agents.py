@@ -29,6 +29,7 @@ from band_wezterm.errors import format_platform_error, is_missing_resource
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.role_library import open_role_library
+from band_wezterm.tui.refresh import CATALOG_POLL_SECONDS
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.screens.new_role import NewRoleScreen
 from band_wezterm.tui.screens.register_agent import RegisterAgentScreen
@@ -50,7 +51,6 @@ from band_wezterm.wezterm_cli import (
 NO_BADGE: Final = "  "
 
 PANE_POLL_SECONDS: Final = 2.0
-CATALOG_POLL_SECONDS: Final = 10.0
 SEARCH_DEBOUNCE_SECONDS: Final = 0.25
 
 SEARCH_PLACEHOLDER: Final = "Search agents by name"
@@ -233,6 +233,7 @@ class AgentsScreen(ControlScreen):
         if not self.is_mounted:
             return
         self.query_one(selector(Id.LIST), ListView).focus()
+        self._refresh_catalog()
 
     async def watch_store(self, store: AgentsStore) -> None:
         if not self.is_mounted:

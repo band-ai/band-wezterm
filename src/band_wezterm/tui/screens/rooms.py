@@ -38,6 +38,7 @@ from band_wezterm.client import (
 )
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, AvatarKind
+from band_wezterm.tui.refresh import CATALOG_POLL_SECONDS
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.stores import (
     ROOM_FILTER_LABELS,
@@ -326,6 +327,7 @@ class RoomsScreen(ControlScreen):
         self.store = self.control.rooms_store
         self._pending_delete_id: str | None = None
         self.query_one(selector(Id.LIST), ListView).focus()
+        self.set_interval(CATALOG_POLL_SECONDS, self._load_rooms)
         self._load_rooms()
 
     def on_screen_resume(self) -> None:
@@ -334,6 +336,7 @@ class RoomsScreen(ControlScreen):
             return
         self._pending_delete_id = None
         self._close_draft()
+        self._load_rooms()
         self.mutate_reactive(RoomsScreen.store)
 
     async def watch_store(self, store: RoomsStore) -> None:
@@ -452,6 +455,7 @@ class RoomsScreen(ControlScreen):
             return
         self.control.forget_room(room.id)
         self._set_status(f"Deleted {room.title}.")
+        self._load_rooms()
 
     def action_cancel(self) -> None:
         if self._pending_delete_id is not None:
@@ -493,6 +497,7 @@ class RoomsScreen(ControlScreen):
         self.store.add_room(room)
         self.store.clear_status(RoomStatusSource.ACTION)
         self._close_draft()
+        self._load_rooms()
         self.control.open_room(room)
 
     def _set_status(self, status: str) -> None:
@@ -665,6 +670,7 @@ class RoomDetailScreen(ControlScreen):
         self._pending_delete = False
         self._load_roster()
         self._load_messages()
+        self._load_candidates()
         self._connect_realtime()
 
     def action_delete_room(self) -> None:
@@ -734,6 +740,7 @@ class RoomDetailScreen(ControlScreen):
         finally:
             self._roster_mutation_pending = False
             self._load_roster()
+            self._load_candidates()
 
     # --- add participant (select-then-act, add-only) -----------------------
 
@@ -784,6 +791,7 @@ class RoomDetailScreen(ControlScreen):
         finally:
             self._roster_mutation_pending = False
             self._load_roster()
+            self._load_candidates()
         self._set_picker_open(False)
 
     def _begin_roster_mutation(self) -> bool:

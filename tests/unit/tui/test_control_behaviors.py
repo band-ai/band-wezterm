@@ -25,6 +25,7 @@ from band_wezterm.client import (
     ParticipantRecord,
     RealtimeEvent,
     RealtimeEventKind,
+    RoomRecord,
 )
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
@@ -1254,7 +1255,17 @@ async def test_delete_room_requires_confirmation(
 ) -> None:
     """Delete on the rooms list is two-press, matching agents."""
     target = room(ROOM_ID, "Core")
-    band_client.list_my_chats.return_value = [target]
+    deleted = False
+
+    async def list_rooms() -> list[RoomRecord]:
+        return [] if deleted else [target]
+
+    async def delete_room(_room_id: str) -> None:
+        nonlocal deleted
+        deleted = True
+
+    band_client.list_my_chats.side_effect = list_rooms
+    band_client.delete_room.side_effect = delete_room
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
@@ -1276,7 +1287,17 @@ async def test_delete_room_from_detail_returns_to_list(
     control_app: ControlApp, band_client: MagicMock
 ) -> None:
     target = room(ROOM_ID, "Core")
-    band_client.list_my_chats.return_value = [target]
+    deleted = False
+
+    async def list_rooms() -> list[RoomRecord]:
+        return [] if deleted else [target]
+
+    async def delete_room(_room_id: str) -> None:
+        nonlocal deleted
+        deleted = True
+
+    band_client.list_my_chats.side_effect = list_rooms
+    band_client.delete_room.side_effect = delete_room
     band_client.list_participants.return_value = []
 
     async with control_app.run_test() as pilot:
