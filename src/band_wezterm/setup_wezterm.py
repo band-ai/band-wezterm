@@ -162,7 +162,8 @@ def resolve_plugin_require_url(*, home: Path | None = None) -> str:
 def materialize_plugin_repo(*, home: Path | None = None) -> Path:
     """Write packaged ``plugin/init.lua`` into a tiny git repo under local state."""
     home_dir = home if home is not None else Path.home()
-    root = (home_dir / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME).resolve()
+    # Avoid resolve(): concurrent creation can return Windows' extended spelling.
+    root = home_dir / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME
     with _plugin_repo_lock(root):
         plugin_dir = root / PLUGIN_DIRNAME
         plugin_dir.mkdir(parents=True, exist_ok=True)

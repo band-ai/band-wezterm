@@ -9,7 +9,8 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-uv tool install --force --reinstall "$SCRIPT_DIR"
+cd "$SCRIPT_DIR"
+uv tool install --force --reinstall ".[agents]"
 band-wezterm setup
 
 printf '%s\n' "Band WezTerm is installed. Run: band-wezterm"

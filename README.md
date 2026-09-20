@@ -39,7 +39,8 @@ Requires **Python ≥ 3.12**, [uv](https://github.com/astral-sh/uv), and [WezTer
 .\install.bat
 ```
 
-Both installers force-reinstall the checkout with `uv tool`, refresh the WezTerm plugin, and are safe to re-run after pulling an update. Then:
+Both installers force-reinstall the checkout with every supported harness extra,
+refresh the WezTerm plugin, and are safe to re-run after pulling an update. Then:
 
 ```bash
 band-wezterm
