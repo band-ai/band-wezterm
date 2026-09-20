@@ -52,8 +52,9 @@ from band_wezterm.platform_models import (
 )
 
 Unsubscribe = Callable[[], None]
-AuthenticationRejectedHandler = Callable[[], None]
+AuthenticationRejectedHandler = Callable[[int], None]
 UNAUTHORIZED_STATUS = 401
+AUTH_GENERATION_EXTENSION = "band_wezterm.auth_generation"
 
 # Compatibility boundary: UI and integrations import stable records from here.
 __all__ = (
@@ -121,7 +122,11 @@ class BandClient:
         self._settings = settings or load_settings()
         self._authentication_rejected_handler: AuthenticationRejectedHandler | None = None
         self._http = httpx.AsyncClient(
-            timeout=60.0, event_hooks={"response": [self._observe_response]}
+            timeout=60.0,
+            event_hooks={
+                "request": [self._tag_credential_generation],
+                "response": [self._observe_response],
+            },
         )
         self._wrapper = AsyncClientWrapper(
             api_key=api_key or "",
@@ -154,7 +159,7 @@ class BandClient:
         try:
             return await self._host_auth.get_access_token()
         except NoApiKeyError:
-            self._notify_authentication_rejected()
+            self._notify_authentication_rejected(self._token_generation)
             raise
 
     def set_authentication_rejected_handler(
@@ -163,13 +168,33 @@ class BandClient:
         """Register the host's response to a rejected user credential."""
         self._authentication_rejected_handler = handler
 
+    async def _tag_credential_generation(self, request: httpx.Request) -> None:
+        if self._api_key is None:
+            request.extensions[AUTH_GENERATION_EXTENSION] = self._token_generation
+
     async def _observe_response(self, response: httpx.Response) -> None:
         if self._api_key is None and response.status_code == UNAUTHORIZED_STATUS:
-            self._notify_authentication_rejected()
+            self._notify_authentication_rejected(
+                self._response_credential_generation(response)
+            )
 
-    def _notify_authentication_rejected(self) -> None:
+    def _response_credential_generation(self, response: httpx.Response) -> int:
+        try:
+            value = response.request.extensions.get(AUTH_GENERATION_EXTENSION)
+        except RuntimeError:
+            return self._token_generation
+        return value if isinstance(value, int) else self._token_generation
+
+    def _notify_authentication_rejected(self, generation: int) -> None:
+        if generation != self._token_generation:
+            log_event(
+                "ignored stale authentication rejection",
+                credential_generation=generation,
+                current_generation=self._token_generation,
+            )
+            return
         if self._authentication_rejected_handler is not None:
-            self._authentication_rejected_handler()
+            self._authentication_rejected_handler(self._token_generation)
 
     async def _bearer_token(self) -> str:
         """OAuth token for REST; reconnects realtime when generation rotates."""

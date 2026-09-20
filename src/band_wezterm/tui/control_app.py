@@ -62,6 +62,10 @@ BASE_STACK_DEPTH: Final = 2
 class AuthenticationRejected(Message):
     """A platform response rejected the stored user credential."""
 
+    def __init__(self, credential_generation: int) -> None:
+        super().__init__()
+        self.credential_generation = credential_generation
+
 
 def is_control_process() -> bool:
     """True when this process is the Control tab itself, not a launcher."""
@@ -232,10 +236,17 @@ class ControlApp(App[None]):
         if await self._return_to_sign_in():
             self.notify("Signed out.")
 
-    def _post_authentication_rejected(self) -> None:
-        self.post_message(AuthenticationRejected())
+    def _post_authentication_rejected(self, credential_generation: int) -> None:
+        self.post_message(AuthenticationRejected(credential_generation))
 
-    def on_authentication_rejected(self) -> None:
+    def on_authentication_rejected(self, event: AuthenticationRejected) -> None:
+        if event.credential_generation != self.host_auth.token_generation:
+            log_event(
+                "ignored stale authentication rejection",
+                credential_generation=event.credential_generation,
+                current_generation=self.host_auth.token_generation,
+            )
+            return
         if self._authentication_rejected_pending:
             return
         self._authentication_rejected_pending = True
