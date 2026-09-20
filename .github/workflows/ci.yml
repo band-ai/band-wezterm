@@ -17,7 +17,6 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          python-version: "3.14"
       - run: uv lock --check
       - run: uv sync --locked
       - run: uv run ruff check
@@ -37,7 +36,6 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          python-version: "3.14"
       - run: uv lock --check
       - run: uv sync --locked
       - run: uv run pytest tests/unit -q
@@ -57,7 +55,6 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          python-version: "3.14"
       - name: Install WezTerm (Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -98,7 +95,6 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          python-version: "3.14"
       - run: uv sync --locked
       # Live platform API cases self-skip without BAND_API_KEY_USER (same
       # opt-in gate as band-plugin-vsc). Do not inject that secret here —
