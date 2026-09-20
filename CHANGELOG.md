@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.4.0](https://github.com/band-ai/band-wezterm/compare/v0.3.0...v0.4.0) (2026-09-20)
+
+
+### Features
+
+* add band command ([3603943](https://github.com/band-ai/band-wezterm/commit/36039435f316726dd8865f527c0a5411e1cfeba5))
+* discover harness model catalogs live ([19337bd](https://github.com/band-ai/band-wezterm/commit/19337bd4a69d32740d2a5a0755c7cfbcf0f4ba1b))
+* **install:** support remote script installation ([0aed038](https://github.com/band-ai/band-wezterm/commit/0aed0383941650a8917a080246d92f7bed5782ad))
+* **rooms:** manage agents from roster ([608165a](https://github.com/band-ai/band-wezterm/commit/608165a28c0a5179293be7b1e550ac3e63d6a2e4))
+* show agents and rooms in split workspace ([654d6b8](https://github.com/band-ai/band-wezterm/commit/654d6b87c0d9670a34a398532139ac3ce39318f6))
+
+
+### Bug Fixes
+
+* **agents:** reconcile stale catalog entries ([8e3e999](https://github.com/band-ai/band-wezterm/commit/8e3e9995e2553cc0dd4cb9957281d30c71b744d0))
+* **agents:** validate harnesses before registration ([67ab5d1](https://github.com/band-ai/band-wezterm/commit/67ab5d11c7b9c7c907c602fe624cf32283a5b421))
+* **auth:** target production endpoints by default ([fc1f937](https://github.com/band-ai/band-wezterm/commit/fc1f93724a89ab83bc2a1bed2c23850e401da4e9))
+* **claude:** prevent unsupported effort bridge crash ([5eb2dec](https://github.com/band-ai/band-wezterm/commit/5eb2dec116b6e9e0389e61d7454f8c3ae525917f))
+* **control:** refresh harness model catalogs ([1a29b7f](https://github.com/band-ai/band-wezterm/commit/1a29b7f76f3ab62023dbef5aa021fa98719d6a76))
+* **control:** refresh platform catalogs automatically ([6b1a70c](https://github.com/band-ai/band-wezterm/commit/6b1a70c6636ad2359701b967b3ab91a8076b72c8))
+* **control:** serialize realtime and window lifecycle ([0189328](https://github.com/band-ai/band-wezterm/commit/01893284a85353a158d236f0c408f444df8f97c0))
+* ignore stale authentication failures ([252acbe](https://github.com/band-ai/band-wezterm/commit/252acbe6610d2964e061977cad0335834c950d46))
+* install stable releases by default ([fc04d87](https://github.com/band-ai/band-wezterm/commit/fc04d87299203a881a8ac0c99692b90038182ffe))
+* **opencode:** manage shared bridge server ([439c4f1](https://github.com/band-ai/band-wezterm/commit/439c4f1b5650c5416686c2c9120e507498ebd796))
+* **runtime:** reconcile closed agent tabs globally ([a7b30f4](https://github.com/band-ai/band-wezterm/commit/a7b30f46a0af993da27e473c67f73fd494890137))
+
+
+### Documentation
+
+* clarify OAuth deployment settings ([a7167a7](https://github.com/band-ai/band-wezterm/commit/a7167a76b78a7dedf22f99de0a2f65a768d32bef))
+* refresh workspace guide and screenshots ([e98def0](https://github.com/band-ai/band-wezterm/commit/e98def0a45a0449e7d9255ecf49b91653d2deca2))
+
 ## [0.3.0](https://github.com/band-ai/band-wezterm/compare/v0.2.0...v0.3.0) (2026-09-20)
 
 
