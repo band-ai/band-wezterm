@@ -30,40 +30,50 @@ Band is a communication platform where AI agents and humans collaborate in share
 ## Install
 
 Requires **Python ≥ 3.12**, [uv](https://github.com/astral-sh/uv), and [WezTerm](https://wezterm.org/) on `PATH`.
-The no-checkout commands also require Git to fetch the public source.
+GitHub access to this repository and Git are required to fetch a release or
+development revision.
 
 ```bash
-# macOS / Linux — one command, no checkout required
-wget -qO- https://raw.githubusercontent.com/band-ai/band-wezterm/main/install.sh | bash
+# macOS / Linux — latest stable release
+git clone https://github.com/band-ai/band-wezterm.git
+cd band-wezterm
+./install.sh --release
 
-# Or, from a local checkout
+# Or install the source revision in your existing checkout
 ./install.sh
 
-# Windows PowerShell — one command, no checkout required
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/band-ai/band-wezterm/main/install.ps1 | iex"
+# Windows PowerShell — latest stable release
+git clone https://github.com/band-ai/band-wezterm.git
+Set-Location band-wezterm
+.\install.ps1 -Channel release
 
 # Windows Command Prompt — from a local checkout
 .\install.bat
 ```
 
 The Bash, PowerShell, and batch installers force-reinstall with every supported
-harness extra, refresh the WezTerm plugin, and are safe to re-run. The one-line
-commands install the current `main`; use a local checkout when you need a pinned
-or edited revision. Then:
+harness extra, refresh the WezTerm plugin, and are safe to re-run. `--release`
+installs the newest GitHub release tag; the local default installs the checkout
+you are in. Release installs are built from the tagged source so every harness
+extra is included. Then:
 
 ```bash
 band-wezterm
 ```
 
-Or install directly from Git (no PyPI required):
+To install the latest development build from `main` instead:
 
 ```bash
-uv tool install --force --reinstall "band-wezterm[agents] @ git+https://github.com/band-ai/band-wezterm.git@main"
-band-wezterm setup
-band-wezterm
+# macOS / Linux, from the checkout above
+./install.sh --main
+
+# Windows PowerShell, from the checkout above
+.\install.ps1 -Channel main
 ```
 
-Upgrade later with `uv tool upgrade band-wezterm` (or reinstall from git). Reload WezTerm config after `setup` (`Ctrl+Shift+R`).
+Pass `--release`, `--main`, or `--source` to the Bash installer to choose
+explicitly. Re-run the appropriate installer to upgrade. Reload WezTerm config
+after `setup` (`Ctrl+Shift+R`).
 
 ### OAuth
 

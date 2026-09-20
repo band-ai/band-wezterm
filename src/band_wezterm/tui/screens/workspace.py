@@ -116,7 +116,7 @@ class WorkspaceScreen(agents.AgentsScreen):
         self.mutate_reactive(WorkspaceScreen.rooms)
 
     async def watch_rooms(self, store: RoomsStore) -> None:
-        if not self.is_mounted:
+        if not self.is_current:
             return
         visible = store.visible
         list_view = self.query_one(rooms.selector(rooms.Id.LIST), ListView)

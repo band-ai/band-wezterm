@@ -207,7 +207,7 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
         self._refresh_catalog()
 
     async def watch_store(self, store: AgentsStore) -> None:
-        if not self.is_mounted:
+        if not self.is_current:
             return
         self.query_one(selector(Id.SOURCE), Static).update(SOURCE_LABELS[store.source])
         await self._render_rows(store)

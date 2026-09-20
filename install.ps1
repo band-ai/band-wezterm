@@ -1,16 +1,54 @@
+param(
+    [ValidateSet("release", "main", "source")]
+    [string]$Channel = $env:BAND_WEZTERM_CHANNEL
+)
+
 $ErrorActionPreference = "Stop"
 
 $repository = "https://github.com/band-ai/band-wezterm"
-$remotePackage = "band-wezterm[agents] @ git+$repository.git@main"
 $scriptDirectory = $PSScriptRoot
 $localProject = if ($scriptDirectory) { Join-Path $scriptDirectory "pyproject.toml" }
 $isLocalProject = $localProject -and (Test-Path $localProject) -and (
     Select-String -Path $localProject -Pattern '^name = "band-wezterm"' -Quiet
 )
-$package = if ($isLocalProject) {
-    "$scriptDirectory[agents]"
-} else {
-    $remotePackage
+
+if (-not $Channel) {
+    $Channel = if ($isLocalProject) { "source" } else { "release" }
+}
+
+if ($Channel -ne "source" -and -not (Get-Command git -ErrorAction SilentlyContinue)) {
+    throw "Git is required to install Band WezTerm from a release or main."
+}
+
+$package = switch ($Channel) {
+    "source" {
+        if (-not $isLocalProject) {
+            throw "-Channel source requires a Band WezTerm checkout."
+        }
+        Write-Host "Installing Band WezTerm from this checkout."
+        "$scriptDirectory[agents]"
+    }
+    "main" {
+        Write-Host "Installing Band WezTerm from main."
+        "band-wezterm[agents] @ git+$repository.git@main"
+    }
+    "release" {
+        $releaseTags = & git ls-remote --refs --tags "$repository.git" "v*"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Git access is required to find the latest Band WezTerm release."
+        }
+        $tag = @(
+            $releaseTags |
+                ForEach-Object { ($_ -split "`t")[-1].Replace("refs/tags/", "") } |
+                Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } |
+                Sort-Object { [version]$_.Substring(1) } -Descending
+        )[0]
+        if (-not $tag) {
+            throw "Could not determine the latest Band WezTerm release."
+        }
+        Write-Host "Installing Band WezTerm release $tag."
+        "band-wezterm[agents] @ git+$repository.git@$tag"
+    }
 }
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
