@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar, Final
@@ -17,17 +15,16 @@ from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
 
 from band_wezterm.agent.adapters import HarnessUnavailableError, preflight_harness
+from band_wezterm.agent.launch import (
+    AgentLaunchContext,
+    AgentLaunchResources,
+    prepare_agent_launch,
+    rollback_agent_launch,
+    spawn_agent_panes,
+)
 from band_wezterm.agent.native_console import (
     NativeConsoleUnavailableError,
-    build_native_console,
-    native_console_command,
     preflight_native_console,
-    write_native_console_launch,
-)
-from band_wezterm.agent.spawn_cmd import (
-    agent_pane_command,
-    write_api_key_file,
-    write_persona_file,
 )
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
@@ -46,15 +43,9 @@ from band_wezterm.tui.stores import (
 )
 from band_wezterm.tui.widgets import AvatarChip, Chip, FilterChips
 from band_wezterm.wezterm_cli import (
-    PaneId,
     WezTermCliError,
-    WindowId,
-    activate_pane,
     kill_panes,
     list_panes,
-    set_tab_title,
-    spawn_additional_tab,
-    split_pane,
 )
 
 NO_BADGE: Final = "  "
@@ -102,16 +93,6 @@ class Id(StrEnum):
     TOOLBAR = "agent-toolbar"
 
 
-@dataclass(frozen=True)
-class AgentLaunchContext:
-    """Validated inputs for one paired native-console and Band-bridge launch."""
-
-    agent: AgentRecord
-    api_key: str
-    profile: ManagedAgentProfile
-    window_id: WindowId
-
-
 AGENT_CHIPS: Final[tuple[Chip, ...]] = tuple(
     Chip(key=chip.value, label=label) for chip, label in AGENT_FILTER_LABELS.items()
 )
@@ -129,21 +110,6 @@ def badge_for(agent: AgentRecord) -> HarnessBadge | None:
 def badge_label(agent: AgentRecord) -> str:
     badge = badge_for(agent)
     return badge.value if badge is not None else NO_BADGE
-
-
-async def _spawn_pane(
-    create: Callable[[], PaneId], acquired: list[PaneId]
-) -> PaneId:
-    """Keep ownership of a thread-created pane even if the worker is cancelled."""
-    task = asyncio.create_task(asyncio.to_thread(create))
-    try:
-        pane_id = await asyncio.shield(task)
-    except asyncio.CancelledError:
-        pane_id = await task
-        acquired.append(pane_id)
-        raise
-    acquired.append(pane_id)
-    return pane_id
 
 
 class AgentRow(ListItem):
@@ -518,77 +484,38 @@ class AgentsScreen(ControlScreen):
                     api_key=api_key,
                     profile=fresh,
                     window_id=window_id,
+                    cwd=Path.cwd(),
                 )
 
     @work(group="agents-start")
     async def _start_agent(self, agent: AgentRecord) -> None:
-        key_file: Path | None = None
-        persona_file: Path | None = None
-        console_launch_file: Path | None = None
-        acquired: list[PaneId] = []
+        resources: AgentLaunchResources | None = None
         committed = False
         try:
             context = await self._resolve_launch_context(agent)
             if context is None:
                 return
             agent = context.agent
-            profile = context.profile
-            store = self.store
-            if store.is_running(agent.id):
+            if self.store.is_running(agent.id):
                 return
-            cwd = Path.cwd()
-            key_file = write_api_key_file(context.api_key)
-            if profile.persona:
-                persona_file = write_persona_file(profile.persona)
-            console_launch = build_native_console(profile, cwd=cwd)
-            console_launch_file = write_native_console_launch(console_launch)
-            console_command = native_console_command(
-                agent_id=agent.id,
-                name=agent.name,
-                harness=profile.harness,
-                launch_file=console_launch_file,
-            )
-            bridge_command = agent_pane_command(
-                agent,
-                key_file=key_file,
-                cwd=cwd,
-                profile=profile,
-                persona_file=persona_file,
-            )
-            console_pane = await _spawn_pane(
-                lambda: spawn_additional_tab(context.window_id, cwd, console_command),
-                acquired,
-            )
-            await asyncio.to_thread(set_tab_title, console_pane, agent.name)
-            bridge_pane = await _spawn_pane(
-                lambda: split_pane(console_pane, cwd, bridge_command),
-                acquired,
-            )
-            await asyncio.to_thread(activate_pane, console_pane)
-            store.mark_running(agent.id, bridge_pane, console=console_pane)
+            resources = prepare_agent_launch(context)
+            panes = await spawn_agent_panes(context, resources)
+            self.store.mark_running(agent.id, panes.bridge, console=panes.console)
             committed = True
-            store.status = (
-                f"Started {agent.name} ({profile.harness.value}) with private console and Band bridge."
+            self.store.status = (
+                f"Started {agent.name} ({context.profile.harness.value}) "
+                "with private console and Band bridge."
             )
             self.mutate_reactive(AgentsScreen.store)
         except Exception as error:
             self._set_status(format_platform_error(error, operation="start agent"))
         finally:
             self._starting_agent_ids.discard(agent.id)
-            if not committed:
-                for path in (key_file, persona_file, console_launch_file):
-                    if path is not None:
-                        path.unlink(missing_ok=True)
-                if acquired:
-                    try:
-                        await asyncio.shield(asyncio.to_thread(kill_panes, acquired))
-                    except (WezTermCliError, OSError):
-                        self.store.mark_running(
-                            agent.id,
-                            acquired[-1],
-                            console=acquired[0],
-                        )
-                        self._set_status(PANE_CLEANUP_FAILED_MESSAGE)
+            if resources is not None and not committed:
+                panes = await rollback_agent_launch(resources)
+                if panes is not None:
+                    self.store.mark_running(agent.id, panes.bridge, console=panes.console)
+                    self._set_status(PANE_CLEANUP_FAILED_MESSAGE)
 
     @work(exclusive=True, group="agents-stop")
     async def _stop_agent(

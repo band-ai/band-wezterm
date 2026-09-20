@@ -11,6 +11,7 @@ import pytest
 from textual.widgets import Input, Label, ListView, OptionList, Static
 
 from band_wezterm.agent.adapters import HarnessUnavailableError
+from band_wezterm.agent.launch import _spawn_pane
 from band_wezterm.agent.native_console import NativeConsoleUnavailableError
 from band_wezterm.agent_draft import (
     NAME_FORBIDDEN_MESSAGE,
@@ -35,7 +36,6 @@ from band_wezterm.tui.screens.agents import (
     PROFILE_HARNESS_UNSTABLE_MESSAGE,
     AgentRow,
     AgentsScreen,
-    _spawn_pane,
 )
 from band_wezterm.tui.screens.agents import Id as AgentId
 from band_wezterm.tui.screens.agents import selector as agent_selector
@@ -496,25 +496,25 @@ async def test_start_agent_spawns_private_console_and_band_bridge(
         return PaneId(100)
 
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.spawn_additional_tab", fake_spawn
+        "band_wezterm.agent.launch.spawn_additional_tab", fake_spawn
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.set_tab_title", lambda *_a, **_k: None
+        "band_wezterm.agent.launch.set_tab_title", lambda *_a, **_k: None
     )
-    monkeypatch.setattr("band_wezterm.tui.screens.agents.split_pane", fake_split)
+    monkeypatch.setattr("band_wezterm.agent.launch.split_pane", fake_split)
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.activate_pane", activated.append
+        "band_wezterm.agent.launch.activate_pane", activated.append
     )
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.preflight_harness",
         preflighted.append,
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.write_api_key_file",
+        "band_wezterm.agent.launch.write_api_key_file",
         lambda _key: Path("/tmp/band-wezterm-test.key"),
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.write_native_console_launch",
+        "band_wezterm.agent.launch.write_native_console_launch",
         lambda _launch: tmp_path / "console.json",
     )
 
@@ -582,7 +582,7 @@ async def test_start_agent_surfaces_missing_native_console_before_spawning(
         ),
     )
     spawned = MagicMock()
-    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawned)
+    monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawned)
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
@@ -628,23 +628,23 @@ async def test_failed_start_retains_pane_ownership_when_cleanup_fails(
         ManagedAgentProfile(agent_id=IDLE_AGENT_ID, name="Beta", harness=HarnessId.CODEX)
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.spawn_additional_tab",
+        "band_wezterm.agent.launch.spawn_additional_tab",
         lambda *_args: PaneId(99),
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.set_tab_title",
+        "band_wezterm.agent.launch.set_tab_title",
         lambda *_args: (_ for _ in ()).throw(OSError("title unavailable")),
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.kill_panes",
+        "band_wezterm.agent.launch.kill_panes",
         lambda _panes: (_ for _ in ()).throw(OSError("mux unavailable")),
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.write_api_key_file",
+        "band_wezterm.agent.launch.write_api_key_file",
         lambda _key: tmp_path / "agent.key",
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.write_native_console_launch",
+        "band_wezterm.agent.launch.write_native_console_launch",
         lambda _launch: tmp_path / "console.json",
     )
 
@@ -702,28 +702,28 @@ async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
         return PaneId(99)
 
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.spawn_additional_tab", fake_spawn
+        "band_wezterm.agent.launch.spawn_additional_tab", fake_spawn
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.set_tab_title", lambda *_a, **_k: None
+        "band_wezterm.agent.launch.set_tab_title", lambda *_a, **_k: None
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.split_pane",
+        "band_wezterm.agent.launch.split_pane",
         lambda _pane, _cwd, _command: PaneId(100),
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.activate_pane", lambda _pane: None
+        "band_wezterm.agent.launch.activate_pane", lambda _pane: None
     )
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.preflight_harness",
         fake_preflight,
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.write_api_key_file",
+        "band_wezterm.agent.launch.write_api_key_file",
         lambda _key: Path("/tmp/band-wezterm-test.key"),
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.write_native_console_launch",
+        "band_wezterm.agent.launch.write_native_console_launch",
         lambda _launch: tmp_path / "console.json",
     )
 
@@ -758,7 +758,7 @@ async def test_start_agent_requires_managed_key(
     band_client.managed_agent_api_key.return_value = None
     control_app.window_id = 42
     spawn = MagicMock()
-    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawn)
+    monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
@@ -779,7 +779,7 @@ async def test_start_agent_requires_managed_profile(
     band_client.managed_agent_api_key.return_value = "band_a_managed"
     control_app.window_id = 42
     spawn = MagicMock()
-    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawn)
+    monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
@@ -1250,7 +1250,7 @@ async def test_start_agent_surfaces_harness_unavailable(
     def boom(_harness: object) -> None:
         raise HarnessUnavailableError(unavailable)
 
-    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawn)
+    monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr("band_wezterm.tui.screens.agents.preflight_harness", boom)
 
     async with control_app.run_test() as pilot:
@@ -1283,7 +1283,7 @@ async def test_start_agent_aborts_when_profile_removed_mid_preflight(
     def remove_during_preflight(_harness: object) -> None:
         control_app.managed_agents.remove(IDLE_AGENT_ID)
 
-    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawn)
+    monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.preflight_harness",
         remove_during_preflight,
@@ -1326,7 +1326,7 @@ async def test_start_agent_aborts_when_harness_never_settles(
             current.model_copy(update={"harness": flip[harness]})
         )
 
-    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawn)
+    monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.preflight_harness",
         never_settle,
@@ -1375,7 +1375,7 @@ async def test_start_agent_aborts_when_harness_changes_after_preflight(
         return result
 
     monkeypatch.setattr(AgentsScreen, "_preflight_launch_profile", drift_after_preflight)
-    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawn)
+    monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.preflight_harness",
         lambda _h: None,
@@ -1417,7 +1417,7 @@ async def test_start_agent_aborts_when_profile_removed_after_preflight(
         return result
 
     monkeypatch.setattr(AgentsScreen, "_preflight_launch_profile", remove_after_preflight)
-    monkeypatch.setattr("band_wezterm.tui.screens.agents.spawn_additional_tab", spawn)
+    monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
         "band_wezterm.tui.screens.agents.preflight_harness",
         lambda _h: None,
