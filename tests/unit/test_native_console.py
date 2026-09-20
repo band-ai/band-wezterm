@@ -62,8 +62,8 @@ def test_codex_console_uses_normalized_profile_without_band_bridge() -> None:
     assert launch.environment == {}
 
 
-def test_claude_console_leaves_unsupported_reasoning_to_native_default() -> None:
-    configured = profile(HarnessId.CLAUDE_SDK, model="sonnet", reasoning="on")
+def test_claude_console_forwards_effort() -> None:
+    configured = profile(HarnessId.CLAUDE_SDK, model="sonnet", reasoning="xhigh")
     launch = build_native_console(
         configured,
         cwd=Path("/workspace"),
@@ -73,6 +73,8 @@ def test_claude_console_leaves_unsupported_reasoning_to_native_default() -> None
         "claude",
         "--model",
         "sonnet",
+        "--effort",
+        "xhigh",
         "--append-system-prompt",
         configured.runtime_instructions(),
     )
@@ -84,16 +86,18 @@ def test_opencode_console_starts_isolated_tui_instead_of_attaching_band_server(
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     launch = build_native_console(
-        profile(HarnessId.OPENCODE, model="provider/model"),
+        profile(HarnessId.OPENCODE, model="provider/model", reasoning="high"),
         cwd=Path("/workspace"),
     )
 
     assert launch.command == ("opencode",)
     assert "attach" not in launch.command
     config_path = Path(launch.environment["OPENCODE_CONFIG"])
-    assert json.loads(config_path.read_text(encoding="utf-8"))["model"] == (
-        "provider/model"
-    )
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert config["model"] == "provider/model"
+    assert config["agent"] == {
+        "build": {"model": "provider/model", "variant": "high"}
+    }
 
 
 def test_launch_spec_is_private_and_consumed_once(tmp_path: Path) -> None:

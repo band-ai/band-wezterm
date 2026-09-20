@@ -153,6 +153,7 @@ class RegisterAgentScreen(ControlScreen):
         self._roles: list[Role] = []
         self._keep_current_persona = reconfigure
         self._custom_dimension: TuningDimensionId | None = None
+        self._catalog_errors: dict[HarnessId, str] = {}
 
     def compose(self) -> ComposeResult:
         heading = "Reconfigure agent" if self.reconfigure else "Register agent"
@@ -181,6 +182,7 @@ class RegisterAgentScreen(ControlScreen):
                 tuning=AgentTuning() if profile is None else profile.tuning,
             )
         self._render_step()
+        self._load_catalog(self.draft.harness)
 
     def action_back(self) -> None:
         if self._custom_dimension is not None:
@@ -255,6 +257,7 @@ class RegisterAgentScreen(ControlScreen):
         match self.step:
             case WizardStep.HARNESS:
                 self.draft = apply_draft_patch(self.draft, harness=HarnessId(option_id))
+                self._load_catalog(self.draft.harness)
             case WizardStep.ROLE:
                 if not self._accept_role(option_id):
                     return
@@ -324,7 +327,14 @@ class RegisterAgentScreen(ControlScreen):
 
     def _dimension(self, dimension_id: TuningDimensionId) -> TuningDimension:
         backend = resolve_backend(self.draft.harness)
-        return next(dim for dim in backend.tuning if dim.id is dimension_id)
+        fallback = next(dim for dim in backend.tuning if dim.id is dimension_id)
+        catalog = self.control.model_catalogs.get(self.draft.harness)
+        if catalog is None:
+            return fallback
+        return catalog.dimension(
+            fallback,
+            selected_model=self.draft.tuning.value_for(TuningDimensionId.MODEL),
+        )
 
     def _step_dimension(self) -> TuningDimensionId | None:
         match self.step:
@@ -390,6 +400,32 @@ class RegisterAgentScreen(ControlScreen):
                     items=self._tuning_choices(dimension),
                     selected_id=self._selected_tuning_id(dimension),
                 )
+                if error := self._catalog_errors.get(self.draft.harness):
+                    self._set_status(error)
+
+    @work(exclusive=True, group="model-catalog")
+    async def _load_catalog(self, harness: HarnessId) -> None:
+        try:
+            catalog = await self.control.model_catalogs.load(harness)
+        except Exception as error:
+            message = format_platform_error(error, operation="load model catalog")
+            self._catalog_errors[harness] = (
+                f"{message} Showing adapter defaults and Custom instead."
+            )
+            log_event(
+                "model catalog load failed",
+                harness=harness.value,
+                error=repr(error),
+            )
+        else:
+            self._catalog_errors.pop(harness, None)
+            log_event(
+                "model catalog loaded",
+                harness=harness.value,
+                models=len(catalog.models),
+            )
+        if harness is self.draft.harness and self._step_dimension() is not None:
+            self._render_step()
 
     def _role_choices(self) -> list[tuple[str, str]]:
         items: list[tuple[str, str]] = []

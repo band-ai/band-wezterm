@@ -90,7 +90,7 @@ def test_copilot_passes_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> Non
     }
 
 
-def test_claude_passes_persona_and_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_claude_passes_persona_and_effort(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     class FakeAdapter:
@@ -105,14 +105,14 @@ def test_claude_passes_persona_and_thinking(monkeypatch: pytest.MonkeyPatch) -> 
         HarnessId.CLAUDE_SDK,
         cwd=Path("/tmp/work"),
         persona="# Developer\nBe terse.\n",
-        tuning=AgentTuning(model="sonnet", reasoning="off"),
+        tuning=AgentTuning(model="sonnet", reasoning="xhigh"),
     )
     assert isinstance(adapter, FakeAdapter)
     assert captured == {
         "cwd": str(Path("/tmp/work")),
         "model": "sonnet",
         "custom_section": "# Developer\nBe terse.\n",
-        "max_thinking_tokens": 0,
+        "effort": "xhigh",
     }
 
 
@@ -186,7 +186,7 @@ def test_opencode_uses_shared_server_and_profile(
         HarnessId.OPENCODE,
         cwd=Path("/tmp/work"),
         persona="Be precise.",
-        tuning=AgentTuning(model="provider/model"),
+        tuning=AgentTuning(model="provider/model", reasoning="high"),
         opencode_server_url="http://127.0.0.1:43117",
     )
 
@@ -194,6 +194,8 @@ def test_opencode_uses_shared_server_and_profile(
     assert captured == {
         "directory": str(Path("/tmp/work")),
         "base_url": "http://127.0.0.1:43117",
-        "model_id": "provider/model",
+        "provider_id": "provider",
+        "model_id": "model",
+        "variant": "high",
         "custom_section": "Be precise.",
     }

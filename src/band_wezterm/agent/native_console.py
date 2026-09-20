@@ -188,6 +188,9 @@ def _claude_console(profile: ManagedAgentProfile, *, cwd: Path) -> NativeConsole
     model = profile.tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         command.extend(["--model", model])
+    effort = profile.tuning.value_for(TuningDimensionId.REASONING)
+    if effort is not None:
+        command.extend(["--effort", effort])
     instructions = profile.runtime_instructions()
     if instructions:
         command.extend(["--append-system-prompt", instructions])
@@ -239,16 +242,21 @@ def _copilot_instruction_environment(profile: ManagedAgentProfile) -> dict[str, 
 
 def _opencode_environment(profile: ManagedAgentProfile) -> dict[str, str]:
     instructions = profile.runtime_instructions()
-    if not instructions and not profile.tuning.value_for(TuningDimensionId.MODEL):
+    model = profile.tuning.value_for(TuningDimensionId.MODEL)
+    variant = profile.tuning.value_for(TuningDimensionId.REASONING)
+    if not instructions and model is None:
         return {}
     directory = _console_profile_directory(profile.agent_id, "opencode")
     persona_path = directory / "persona.md"
     if instructions:
         _write_console_profile_file(persona_path, instructions)
     config: dict[str, object] = {"$schema": "https://opencode.ai/config.json"}
-    model = profile.tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         config["model"] = model
+        if variant is not None:
+            config["agent"] = {
+                "build": {"model": model, "variant": variant},
+            }
     if instructions:
         config["instructions"] = [str(persona_path)]
     config_path = directory / "opencode.json"

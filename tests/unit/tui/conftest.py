@@ -12,7 +12,10 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from textual.pilot import Pilot
 
+from band_wezterm.agent.opencode_server import OpenCodeServerManager
 from band_wezterm.auth.host_auth import HostAuth
+from band_wezterm.backends import TuningOption
+from band_wezterm.catalogs import HarnessCatalog, ModelCatalogEntry, ModelCatalogService
 from band_wezterm.client import AgentRecord, BandClient, ParticipantRecord, RoomRecord
 from band_wezterm.config import Settings
 from band_wezterm.identity import AvatarKind, HarnessId, agent_accent, parse_harness
@@ -77,6 +80,37 @@ def host_auth() -> MagicMock:
 def control_app(
     host_auth: MagicMock, band_client: MagicMock, tmp_path: Path
 ) -> ControlApp:
+    opencode_server = OpenCodeServerManager()
+
+    async def codex_catalog() -> HarnessCatalog:
+        efforts = (
+            TuningOption(id="low", label="Low"),
+            TuningOption(id="medium", label="Medium"),
+            TuningOption(id="high", label="High"),
+        )
+        return HarnessCatalog(
+            models=(
+                ModelCatalogEntry(
+                    id="gpt-5.6-sol",
+                    label="GPT-5.6 Sol",
+                    efforts=efforts,
+                ),
+            ),
+            default_model_id="gpt-5.6-sol",
+        )
+
+    async def empty_catalog() -> HarnessCatalog:
+        return HarnessCatalog(models=())
+
+    catalogs = ModelCatalogService(
+        opencode_server,
+        loaders={
+            HarnessId.CLAUDE_SDK: empty_catalog,
+            HarnessId.CODEX: codex_catalog,
+            HarnessId.COPILOT_SDK: empty_catalog,
+            HarnessId.OPENCODE: empty_catalog,
+        },
+    )
     return ControlApp(
         settings=Settings(),
         host_auth=host_auth,
@@ -84,6 +118,8 @@ def control_app(
         starred=StarredRooms(tmp_path / "local_state.json"),
         managed_agents=ManagedAgentStore(tmp_path / "managed_agents.json"),
         preferences=PreferencesStore(tmp_path / "preferences.json"),
+        opencode_server=opencode_server,
+        model_catalogs=catalogs,
     )
 
 

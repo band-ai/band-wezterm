@@ -8,6 +8,7 @@ from band_wezterm.backends import (
     TuningDimensionId,
     describe_tuning_value,
     list_backends,
+    normalize_tuning,
     resolve_backend,
 )
 from band_wezterm.identity import HarnessId
@@ -37,26 +38,37 @@ def test_tuning_value_for_and_describe() -> None:
     assert AgentTuning().value_for(TuningDimensionId.MODEL) is None
 
 
-def test_copilot_exposes_reasoning_effort() -> None:
+def test_copilot_reasoning_uses_live_catalog_fallback() -> None:
     backend = resolve_backend(HarnessId.COPILOT_SDK)
     reasoning = next(
         dimension
         for dimension in backend.tuning
         if dimension.id is TuningDimensionId.REASONING
     )
-    assert [option.id for option in reasoning.options] == [
-        TUNING_DEFAULT_OPTION_ID,
-        "none",
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max",
-    ]
+    assert [option.id for option in reasoning.options] == [TUNING_DEFAULT_OPTION_ID]
 
 
-def test_codex_exposes_models_reported_by_the_current_runtime() -> None:
+def test_claude_effort_uses_live_catalog_fallback() -> None:
+    backend = resolve_backend(HarnessId.CLAUDE_SDK)
+    reasoning = next(
+        dimension
+        for dimension in backend.tuning
+        if dimension.id is TuningDimensionId.REASONING
+    )
+    assert reasoning.label == "Effort"
+    assert [option.id for option in reasoning.options] == [TUNING_DEFAULT_OPTION_ID]
+
+
+def test_legacy_claude_thinking_values_migrate_to_effort() -> None:
+    assert normalize_tuning(
+        HarnessId.CLAUDE_SDK, AgentTuning(reasoning="off")
+    ).reasoning == "low"
+    assert normalize_tuning(
+        HarnessId.CLAUDE, AgentTuning(reasoning="on")
+    ).reasoning == "high"
+
+
+def test_codex_models_use_live_catalog_fallback() -> None:
     backend = resolve_backend(HarnessId.CODEX)
     model = next(
         dimension
@@ -64,17 +76,10 @@ def test_codex_exposes_models_reported_by_the_current_runtime() -> None:
         if dimension.id is TuningDimensionId.MODEL
     )
 
-    assert [option.id for option in model.options] == [
-        TUNING_DEFAULT_OPTION_ID,
-        "gpt-5.6-sol",
-        "gpt-5.6-terra",
-        "gpt-5.6-luna",
-        "gpt-6-astra",
-        "gpt-5.5",
-    ]
+    assert [option.id for option in model.options] == [TUNING_DEFAULT_OPTION_ID]
 
 
-def test_copilot_exposes_models_reported_by_the_current_runtime() -> None:
+def test_copilot_models_use_live_catalog_fallback() -> None:
     backend = resolve_backend(HarnessId.COPILOT_SDK)
     model = next(
         dimension
@@ -82,19 +87,4 @@ def test_copilot_exposes_models_reported_by_the_current_runtime() -> None:
         if dimension.id is TuningDimensionId.MODEL
     )
 
-    assert [option.id for option in model.options] == [
-        TUNING_DEFAULT_OPTION_ID,
-        "claude-sonnet-5",
-        "claude-haiku-4.5",
-        "gpt-5.6-terra",
-        "gpt-5.6-luna",
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.3-codex",
-        "gpt-5-mini",
-        "mai-code-1.1-flash",
-        "grok-4.5",
-        "kimi-k3",
-        "kimi-k2.7-code",
-        "grok-4.6",
-    ]
+    assert [option.id for option in model.options] == [TUNING_DEFAULT_OPTION_ID]

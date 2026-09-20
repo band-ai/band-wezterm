@@ -103,11 +103,9 @@ def _claude(
     if model is not None:
         kwargs["model"] = model
     _apply_persona(kwargs, persona)
-    reasoning = tuning.value_for(TuningDimensionId.REASONING)
-    if reasoning == "off":
-        kwargs["max_thinking_tokens"] = 0
-    elif reasoning == "on":
-        kwargs["max_thinking_tokens"] = 16_000
+    effort = tuning.value_for(TuningDimensionId.REASONING)
+    if effort is not None:
+        kwargs["effort"] = effort
     return ClaudeSDKAdapter(**kwargs)
 
 
@@ -174,6 +172,16 @@ def _opencode(
         config_kwargs["base_url"] = server_url
     model = tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
-        config_kwargs["model_id"] = model
+        provider_id, separator, model_id = model.partition("/")
+        if separator:
+            config_kwargs.update(
+                provider_id=provider_id,
+                model_id=model_id,
+            )
+        else:
+            config_kwargs["model_id"] = model
+    variant = tuning.value_for(TuningDimensionId.REASONING)
+    if variant is not None:
+        config_kwargs["variant"] = variant
     _apply_persona(config_kwargs, persona)
     return OpencodeAdapter(OpencodeAdapterConfig(**config_kwargs))

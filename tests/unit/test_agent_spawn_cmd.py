@@ -110,7 +110,7 @@ def test_agent_pane_command_includes_persona_and_tuning(tmp_path: Path) -> None:
     assert "--model" in argv
     assert "sonnet" in argv
     assert "--reasoning" in argv
-    assert "off" in argv
+    assert "low" in argv
     assert "band_a_secret" not in " ".join(argv)
 
 

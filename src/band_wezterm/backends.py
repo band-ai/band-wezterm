@@ -1,8 +1,4 @@
-"""Harness backends and static model/reasoning tuning (VSC wizard parity).
-
-Uses band-sdk adapter knobs rather than ACP live catalogs — same dimensions
-(model / reasoning), vocabulary matched to each SDK adapter.
-"""
+"""Harness metadata, persisted tuning, and catalog fallbacks."""
 
 from __future__ import annotations
 
@@ -16,6 +12,7 @@ from band_wezterm.identity import HarnessId
 TUNING_DEFAULT_OPTION_ID: Final = ""
 CODEX_DEFAULT_MODEL: Final = "gpt-5.6-sol"
 _LEGACY_CODEX_MODELS: Final = {"gpt-5.6": CODEX_DEFAULT_MODEL}
+_LEGACY_CLAUDE_EFFORTS: Final = {"off": "low", "on": "high"}
 
 
 class TuningDimensionId(StrEnum):
@@ -64,13 +61,21 @@ class AgentTuning(BaseModel):
 
 
 def normalize_tuning(harness: HarnessId, tuning: AgentTuning) -> AgentTuning:
-    """Upgrade known Codex aliases before they reach the runtime."""
-    if harness is not HarnessId.CODEX:
-        return tuning
-    model = tuning.value_for(TuningDimensionId.MODEL)
-    replacement = _LEGACY_CODEX_MODELS.get(model or "")
-    return tuning if replacement is None else tuning.with_dimension(
-        TuningDimensionId.MODEL, replacement
+    """Upgrade known legacy values before they reach a runtime."""
+    match harness:
+        case HarnessId.CODEX:
+            dimension = TuningDimensionId.MODEL
+            replacements = _LEGACY_CODEX_MODELS
+        case HarnessId.CLAUDE | HarnessId.CLAUDE_SDK:
+            dimension = TuningDimensionId.REASONING
+            replacements = _LEGACY_CLAUDE_EFFORTS
+        case _:
+            return tuning
+    replacement = replacements.get(tuning.value_for(dimension) or "")
+    return (
+        tuning
+        if replacement is None
+        else tuning.with_dimension(dimension, replacement)
     )
 
 
@@ -85,8 +90,10 @@ class HarnessBackend(BaseModel):
 
 _DEFAULT = TuningOption(id=TUNING_DEFAULT_OPTION_ID, label="Adapter default")
 
-_CLAUDE_MODELS: Final = (
+
+_CLAUDE_MODEL_FALLBACKS: Final = (
     _DEFAULT,
+    TuningOption(id="fable", label="Fable"),
     TuningOption(id="opus", label="Opus"),
     TuningOption(id="sonnet", label="Sonnet"),
     TuningOption(id="haiku", label="Haiku"),
@@ -97,53 +104,7 @@ _CLAUDE_MODELS: Final = (
     ),
 )
 
-_CLAUDE_REASONING: Final = (
-    _DEFAULT,
-    TuningOption(id="off", label="Thinking off"),
-    TuningOption(id="on", label="Thinking on"),
-)
-
-_CODEX_MODELS: Final = (
-    _DEFAULT,
-    TuningOption(id=CODEX_DEFAULT_MODEL, label="GPT-5.6 Sol"),
-    TuningOption(id="gpt-5.6-terra", label="GPT-5.6 Terra"),
-    TuningOption(id="gpt-5.6-luna", label="GPT-5.6 Luna"),
-    TuningOption(id="gpt-6-astra", label="GPT-6 Astra"),
-    TuningOption(id="gpt-5.5", label="GPT-5.5"),
-)
-
-def _reasoning_effort_options(*efforts: str) -> tuple[TuningOption, ...]:
-    return (
-        _DEFAULT,
-        *(
-            TuningOption(id=effort, label=effort.capitalize())
-            for effort in efforts
-        ),
-    )
-
-
-_CODEX_REASONING: Final = _reasoning_effort_options("low", "medium", "high", "xhigh")
-
-_COPILOT_MODELS: Final = (
-    _DEFAULT,
-    TuningOption(id="claude-sonnet-5", label="Claude Sonnet 5"),
-    TuningOption(id="claude-haiku-4.5", label="Claude Haiku 4.5"),
-    TuningOption(id="gpt-5.6-terra", label="GPT-5.6 Terra"),
-    TuningOption(id="gpt-5.6-luna", label="GPT-5.6 Luna"),
-    TuningOption(id="gpt-5.4", label="GPT-5.4"),
-    TuningOption(id="gpt-5.4-mini", label="GPT-5.4 Mini"),
-    TuningOption(id="gpt-5.3-codex", label="GPT-5.3 Codex"),
-    TuningOption(id="gpt-5-mini", label="GPT-5 Mini"),
-    TuningOption(id="mai-code-1.1-flash", label="MAI-Code-1.1 Flash"),
-    TuningOption(id="grok-4.5", label="Grok 4.5"),
-    TuningOption(id="kimi-k3", label="Kimi K3"),
-    TuningOption(id="kimi-k2.7-code", label="Kimi K2.7 Code"),
-    TuningOption(id="grok-4.6", label="Grok 4.6"),
-)
-
-_COPILOT_REASONING: Final = _reasoning_effort_options(
-    "none", "minimal", "low", "medium", "high", "xhigh", "max"
-)
+_CATALOG_FALLBACK: Final = (_DEFAULT,)
 
 HARNESS_BACKENDS: Final[tuple[HarnessBackend, ...]] = (
     HarnessBackend(
@@ -154,13 +115,14 @@ HARNESS_BACKENDS: Final[tuple[HarnessBackend, ...]] = (
             TuningDimension(
                 id=TuningDimensionId.MODEL,
                 label="Model",
-                options=_CLAUDE_MODELS,
+                options=_CLAUDE_MODEL_FALLBACKS,
                 allow_custom=True,
             ),
             TuningDimension(
                 id=TuningDimensionId.REASONING,
-                label="Thinking",
-                options=_CLAUDE_REASONING,
+                label="Effort",
+                options=_CATALOG_FALLBACK,
+                allow_custom=True,
             ),
         ),
     ),
@@ -172,13 +134,13 @@ HARNESS_BACKENDS: Final[tuple[HarnessBackend, ...]] = (
             TuningDimension(
                 id=TuningDimensionId.MODEL,
                 label="Model",
-                options=_CODEX_MODELS,
+                options=_CATALOG_FALLBACK,
                 allow_custom=True,
             ),
             TuningDimension(
                 id=TuningDimensionId.REASONING,
                 label="Reasoning effort",
-                options=_CODEX_REASONING,
+                options=_CATALOG_FALLBACK,
                 allow_custom=True,
             ),
         ),
@@ -191,13 +153,13 @@ HARNESS_BACKENDS: Final[tuple[HarnessBackend, ...]] = (
             TuningDimension(
                 id=TuningDimensionId.MODEL,
                 label="Model",
-                options=_COPILOT_MODELS,
+                options=_CATALOG_FALLBACK,
                 allow_custom=True,
             ),
             TuningDimension(
                 id=TuningDimensionId.REASONING,
                 label="Reasoning effort",
-                options=_COPILOT_REASONING,
+                options=_CATALOG_FALLBACK,
                 allow_custom=True,
             ),
         ),
@@ -211,6 +173,12 @@ HARNESS_BACKENDS: Final[tuple[HarnessBackend, ...]] = (
                 id=TuningDimensionId.MODEL,
                 label="Model id",
                 options=(_DEFAULT,),
+                allow_custom=True,
+            ),
+            TuningDimension(
+                id=TuningDimensionId.REASONING,
+                label="Variant / effort",
+                options=_CATALOG_FALLBACK,
                 allow_custom=True,
             ),
         ),

@@ -19,6 +19,7 @@ from textual.screen import Screen
 
 from band_wezterm.agent.opencode_server import OpenCodeServerManager
 from band_wezterm.auth.host_auth import HostAuth
+from band_wezterm.catalogs import ModelCatalogService
 from band_wezterm.client import BandClient, RoomRecord
 from band_wezterm.config import CONTROL_TAB_TITLE, Settings, load_settings
 from band_wezterm.diagnostics import configure_diagnostics, log_event
@@ -151,6 +152,7 @@ class ControlApp(App[None]):
         managed_agents: ManagedAgentStore | None = None,
         preferences: PreferencesStore | None = None,
         opencode_server: OpenCodeServerManager | None = None,
+        model_catalogs: ModelCatalogService | None = None,
     ) -> None:
         super().__init__()
         self.settings = settings or load_settings()
@@ -160,6 +162,9 @@ class ControlApp(App[None]):
         self.managed_agents = managed_agents or ManagedAgentStore()
         self.preferences = preferences or PreferencesStore()
         self.opencode_server = opencode_server or OpenCodeServerManager()
+        self.model_catalogs = model_catalogs or ModelCatalogService(
+            self.opencode_server
+        )
         self.client.set_authentication_rejected_handler(
             self._post_authentication_rejected
         )
