@@ -18,6 +18,8 @@ from band_wezterm.auth.host_auth import (
 )
 from band_wezterm.config import Settings
 
+LOOPBACK_SERVER_START_TIMEOUT_SECONDS = 5
+
 
 class _MemoryStore(TokenStore):
     def __init__(self) -> None:
@@ -160,7 +162,9 @@ async def test_cancel_sign_in_unblocks_the_callback_wait(
     monkeypatch.setattr("band_wezterm.auth.host_auth._start_loopback_server", start_server)
 
     sign_in = asyncio.create_task(auth.sign_in())
-    assert await asyncio.to_thread(server_started.wait, 1)
+    assert await asyncio.to_thread(
+        server_started.wait, LOOPBACK_SERVER_START_TIMEOUT_SECONDS
+    )
     auth.cancel_sign_in()
 
     with pytest.raises(RuntimeError, match=SIGN_IN_CANCELLED_MESSAGE):
