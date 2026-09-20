@@ -69,7 +69,19 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          git fetch origin "$PR_BRANCH"
+          # actions/checkout persists the default GITHUB_TOKEN as a git
+          # http.https://github.com/.extraheader (host-scoped, so it applies
+          # to any github.com remote). That config-based header wins over any
+          # token embedded in a remote URL, so the App-token push below was
+          # silently authenticating as github-actions[bot] instead of the
+          # App. A github-actions[bot] push re-triggers the PR's CI as a
+          # bot-authored run, which this org requires a human to approve
+          # before it starts — the actual cause of the "stuck" release-PR
+          # runs. Drop it so the App token is what really authenticates.
+          for key in $(git config --local --get-regexp '\.extraheader$' | cut -d' ' -f1); do
+            git config --local --unset-all "$key"
+          done
+          git fetch "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "$PR_BRANCH"
           git checkout -B "$PR_BRANCH" FETCH_HEAD
           uv lock
           if git diff --quiet -- uv.lock; then
