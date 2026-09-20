@@ -137,14 +137,12 @@ def agent_accent(agent_id: UUID | str) -> str:
 
 
 def parse_harness(raw: str | HarnessId | None) -> HarnessId | None:
-    match raw:
-        case None:
-            return None
-        case _:
-            try:
-                return HarnessId(raw)
-            except ValueError:
-                return None
+    if raw is None:
+        return None
+    try:
+        return HarnessId(raw)
+    except ValueError:
+        return None
 
 
 def harness_badge(harness: str | HarnessId) -> HarnessBadge:
