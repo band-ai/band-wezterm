@@ -39,3 +39,7 @@ test-wezterm:
 # Live platform Control PTY (needs BAND_API_KEY_USER in .env.test)
 test-live:
     uv run pytest tests/integration/test_control_tab_pty.py -q
+
+# Refresh README Control-tab SVGs (no WezTerm or platform required)
+screenshots:
+    uv run python docs/capture_screenshots.py

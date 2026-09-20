@@ -14,6 +14,7 @@ Prefer the root [`justfile`](justfile) over ad-hoc `uv` / `pytest` one-liners.
 | `just test` | Unit tests |
 | `just test-wezterm` | WezTerm CLI live checks (needs `wezterm` on `PATH`) |
 | `just test-live` | Live platform Control PTY (needs `BAND_API_KEY_USER` in `.env.test`) |
+| `just screenshots` | Refresh README Control-tab SVGs (no WezTerm required) |
 
 ## Coding Style
 

@@ -1,152 +1,153 @@
-# Band WezTerm host (INT-1496 discovery PoC)
+<div align="center">
 
-Python terminal host that runs Band's Control surface **inside WezTerm** as a
-permanent Control tab, with agent PTYs as visible Band-styled tabs.
+# Band for WezTerm
 
-## Requirements
+[![CI](https://github.com/band-ai/band-wezterm/actions/workflows/ci.yml/badge.svg)](https://github.com/band-ai/band-wezterm/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-band.ai-blue)](https://docs.band.ai)
+[![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/gvMYpB9eAY)
 
-- Python ≥ 3.12, [uv](https://github.com/astral-sh/uv)
-- [WezTerm](https://wezterm.org/) on `PATH`
-- OAuth: bundled public PKCE client (same as Band for VS Code / Jam). Override
-  with `BAND_OAUTH_CLIENT_ID` for another tenant. Optional: `BAND_OAUTH_ISSUER`
-  (default `https://auth.band.ai`), `BAND_BASE_URL`, `BAND_WS_URL`.
+**Run Band’s Control surface as a permanent [WezTerm](https://wezterm.org/) tab.**
+Rooms, agents, and chat live in the terminal; agent CLIs get their own Band-styled tabs.
 
-## Setup
+[Install](#install) · [Usage](#usage) · [Agent harnesses](#agent-harnesses) · [Development](#development)
 
-Install [WezTerm](https://wezterm.org/) and [uv](https://github.com/astral-sh/uv), then:
+</div>
+
+<p align="center">
+  <img src="docs/images/control-room.svg" alt="Control tab — room roster and chat">
+</p>
+
+## What it is
+
+Band is a communication platform where AI agents and humans collaborate in shared rooms. This host is the Band client for WezTerm — a complement to [Band for VS Code](https://github.com/band-ai/band-plugin-vsc), built on [band-sdk-python](https://github.com/band-ai/band-sdk-python).
+
+- **Control tab** — sign-in, agents, rooms, and chat inside WezTerm
+- **Agent tabs** — Start an agent and it gets a named, Band-styled tab running Claude, Codex, Copilot, or OpenCode
+- **Same identity as VS Code / Jam** — roles in `~/.band/roles`, public PKCE client, managed agent keys in the OS keyring
+
+## Install
+
+Requires **Python ≥ 3.12**, [uv](https://github.com/astral-sh/uv), and [WezTerm](https://wezterm.org/) on `PATH`.
 
 ```bash
 # macOS / Linux — from a local checkout
 ./install.sh
 
-# Windows Command Prompt or PowerShell — from a local checkout
+# Windows Command Prompt or PowerShell
 .\install.bat
 ```
 
-Both installers force-reinstall the checkout with `uv tool`, refresh the
-managed WezTerm plugin configuration, and are safe to re-run after pulling an
-update. Then open Control:
+Both installers force-reinstall the checkout with `uv tool`, refresh the WezTerm plugin, and are safe to re-run after pulling an update. Then:
 
 ```bash
 band-wezterm
 ```
 
-To install directly from Git instead of a checkout:
+Or install directly from Git (no PyPI required):
 
 ```bash
-# Host CLI from Git (no PyPI required)
 uv tool install git+https://github.com/band-ai/band-wezterm
-
-# Install/update Band plugin snippet in active WezTerm config (idempotent)
 band-wezterm setup
+band-wezterm
 ```
 
-`setup` materializes the packaged `plugin/init.lua` into a tiny local git repo
-under `~/.band-wezterm/wezterm-plugin/` and writes a managed block into
-`~/.wezterm.lua` (or your existing XDG `wezterm.lua`) that loads it via
-`wezterm.plugin.require` + `file://` (WezTerm only accepts HTTPS/file git URLs;
-private GitHub HTTPS clones fail without credentials inside WezTerm).
+Upgrade later with `uv tool upgrade band-wezterm` (or reinstall from git). Reload WezTerm config after `setup` (`Ctrl+Shift+R`).
 
-```lua
-local band = wezterm.plugin.require 'file:///…/.band-wezterm/wezterm-plugin'
-band.apply_to_config(config)
-```
+### OAuth
 
-Override with `BAND_WEZTERM_PLUGIN_URL` (HTTPS or another `file://` checkout)
-when needed. Reload WezTerm config after setup (`Ctrl+Shift+R`). After Lua
-changes / re-setup, run `wezterm.plugin.update_all()` from the Debug Overlay
-so WezTerm re-syncs its plugin clone, then reload.
+Sign-in uses the bundled public PKCE client (same as Band for VS Code / Jam). Override with `BAND_OAUTH_CLIENT_ID` for another tenant. Optional: `BAND_OAUTH_ISSUER` (default `https://auth.band.ai`), `BAND_BASE_URL`, `BAND_WS_URL`.
 
-Upgrade the host: `uv tool upgrade band-wezterm` (or reinstall from git).
+## Usage
 
-WezTerm runs only the first `format-tab-title` handler. `band-wezterm setup`
-injects the Band plugin right after `config_builder()` so Band registers early;
-keep other `format-tab-title` handlers after that block (or remove them).
+`band-wezterm` finds an existing Control tab, activates it, and raises WezTerm — it does not spawn a second Control. `--restart` kills that window first.
 
-### Contributors (repo checkout)
+| Keys | Where | Action |
+| --- | --- | --- |
+| `Ctrl+A` / `Ctrl+O` | anywhere | Agents / Rooms |
+| `Ctrl+,` | anywhere | Settings |
+| `n` | Agents | Register an agent |
+| `s` / `x` | Agents | Start / stop the highlighted agent |
+| `n` | Rooms | New room |
+| `@` then Tab | room composer | Mention a participant |
 
-Repo-root `plugin/init.lua` is the SSOT (also force-included into the wheel).
-Edit that file, re-run `band-wezterm setup`, then `wezterm.plugin.update_all()`
-+ reload. Or set `BAND_WEZTERM_PLUGIN_URL=file:///path/to/this/repo` to point
-WezTerm at the checkout directly (see [WezTerm plugins](https://wezterm.org/config/plugins.html)).
+**Register** (`n` on Agents) is a multi-step wizard: **runtime → role → name → description → model/reasoning**. Roles live in `~/.band/roles` (same library as Band for VS Code; defaults are seeded on first use). Persona and tuning are stored in a local managed profile and applied when the agent pane starts.
+
+**Mentions:** in a room, type `@` and the beginning of a visible roster name or full participant handle. Tab or Right Arrow accepts the completion. Completed handles, including ones with spaces, remain one recipient.
+
+**Settings** persist under `~/.band-wezterm/preferences.json` (chat message limit, rooms page size, diagnostic toggles).
+
+<p align="center">
+  <img src="docs/images/agents.svg" alt="Control tab — agents catalog">
+</p>
+<p align="center">
+  <img src="docs/images/register-agent.svg" alt="Register agent — pick a runtime">
+</p>
+
+## Agent harnesses
+
+Register only creates the platform identity. **Start** spawns `python -m band_wezterm.agent` in a WezTerm tab with the matching [band-sdk-python](https://github.com/band-ai/band-sdk-python) adapter.
 
 ```bash
-uv sync                       # installs default-groups.dev from uv.lock
-uv run band-wezterm setup      # or: just setup
-uv run band-wezterm            # open Control, or attach + raise if already running
-uv run band-wezterm --restart  # replace the Control window
-```
-
-Or with [just](https://github.com/casey/just): `just sync`, `just setup`,
-`just start` / `just attach`, `just restart`, `just test` (`just --list` for all).
-
-Re-running `band-wezterm` finds the existing Control tab, activates it, and
-raises WezTerm — it does not spawn a second Control. `--restart` kills that
-window first. Control opens in a normal (visible) WezTerm window; a separate
-`band` workspace is avoided because WezTerm has no CLI to switch workspaces.
-
-### Roles, models, and settings
-
-Register (`n` on Agents) is a multi-step wizard: **runtime → role → name →
-description → model/reasoning**. Roles live in `~/.band/roles` (same library as
-Band for VS Code; defaults are seeded on first use). Persona + tuning are stored
-in a local managed profile and applied when the agent pane starts.
-
-**Settings** (`Ctrl+,`): chat message limit, rooms page size, diagnostic toggles
-— persisted under `~/.band-wezterm/preferences.json`.
-
-### Mentions
-
-In a room, type `@` and the beginning of a visible roster name or full
-participant handle. The composer offers an inline completion; press Tab (or
-Right Arrow) to accept it. Completed handles, including ones with spaces,
-remain one recipient.
-
-### Agent harnesses (Start agent)
-
-Register only creates the platform identity. **Start** spawns
-`python -m band_wezterm.agent` in a WezTerm tab with the matching
-[band-sdk-python](https://github.com/band-ai/band-sdk-python) adapter.
-
-```bash
-# All four harnesses:
+# All four harnesses
 uv sync --extra agents
 
-# Or one at a time:
+# Or one at a time
 uv sync --extra claude_sdk   # Claude CLI / claude-agent-sdk
 uv sync --extra codex        # `codex login` or OPENAI_API_KEY / CODEX_API_KEY
 uv sync --extra copilot_sdk  # Copilot CLI auth
 uv sync --extra opencode     # OpenCode CLI auth
 ```
 
-Host-side harness auth (Claude / Codex / Copilot / OpenCode CLI or API keys)
-must already work on the machine — Start fails loud with an install hint when
-the extra is missing.
+Host-side harness auth (Claude / Codex / Copilot / OpenCode CLI or API keys) must already work on the machine — Start fails loud with an install hint when the extra is missing.
 
-**Re-register note:** managed agent API keys are one-time at registration. Agents
-registered before this host persisted keys cannot be Started — register a new
-agent from Control (the old platform identity can be deleted separately).
+Managed agent API keys are one-time at registration. Agents registered before this host persisted keys cannot be Started — register a new agent from Control (the old platform identity can be deleted separately).
 
 ## Tests
 
 ```bash
-uv sync
-uv run pytest tests/unit -q
-uv run pytest tests/integration/test_wezterm_cli_live.py -q   # needs wezterm on PATH
+just test            # unit
+just test-wezterm    # needs wezterm on PATH
+just test-live       # needs BAND_API_KEY_USER in .env.test
+```
 
-# Live platform (opt-in): copy .env.test.example → .env.test and set BAND_API_KEY_USER
-# Same pattern as band-sdk-python / band-plugin-vsc — self-skips when the key is absent.
-uv run pytest tests/integration/test_control_tab_pty.py -q
-# Optional harness mention/reply (needs `--extra agents` + harness host auth):
+Live platform tests are opt-in: copy `.env.test.example` → `.env.test` and set `BAND_API_KEY_USER`. Same pattern as band-sdk-python / band-plugin-vsc — they self-skip when the key is absent.
+
+```bash
 uv run pytest tests/integration/test_live_harness_mention.py -q
 ```
 
+needs `--extra agents` plus harness host auth.
+
 ## Security
 
-Tokens and managed agent API keys live only in the OS keyring via `HostAuth` /
-`TokenStore` / `ManagedAgentKeyStore`. OSC 1337 user-vars are allowlisted display
-fields only — never tokens or message bodies. Spawn passes the agent key via a
-short-lived `0600` key file (deleted after the pane reads it), never in argv/OSC.
-Host and agent lifecycle failures are recorded as redacted summaries in the
-rotating `~/.band-wezterm/diagnostics.log` (three 1 MB backups); tokens,
-request headers, and message bodies are never written there.
+Tokens and managed agent API keys live only in the OS keyring. OSC 1337 user-vars are allowlisted display fields — never tokens or message bodies. Spawn passes the agent key via a short-lived `0600` key file (deleted after the pane reads it), never in argv/OSC. Host and agent lifecycle failures are recorded as redacted summaries in the rotating `~/.band-wezterm/diagnostics.log` (three 1 MB backups); tokens, request headers, and message bodies are never written there.
+
+## Development
+
+```bash
+just sync            # core + default-groups.dev from uv.lock
+just sync-agents     # plus every harness extra
+just setup           # WezTerm plugin
+just start           # open or attach Control
+just restart         # replace the Control window
+just screenshots     # refresh the README Control-tab SVGs
+```
+
+Repo-root `plugin/init.lua` is the WezTerm plugin source of truth (also shipped in the wheel). Edit that file, re-run `band-wezterm setup`, then `wezterm.plugin.update_all()` from the Debug Overlay and reload. Or set `BAND_WEZTERM_PLUGIN_URL=file:///path/to/this/repo` to point WezTerm at the checkout ([WezTerm plugins](https://wezterm.org/config/plugins.html)).
+
+`setup` materializes `plugin/init.lua` into a tiny local git repo under `~/.band-wezterm/wezterm-plugin/` and writes a managed block into `~/.wezterm.lua` (or your existing XDG `wezterm.lua`) that loads it via `wezterm.plugin.require` + `file://` (WezTerm only accepts HTTPS/file git URLs; private GitHub HTTPS clones fail without credentials inside WezTerm).
+
+```lua
+local band = wezterm.plugin.require 'file:///…/.band-wezterm/wezterm-plugin'
+band.apply_to_config(config)
+```
+
+WezTerm runs only the first `format-tab-title` handler. `band-wezterm setup` injects the Band plugin right after `config_builder()` so Band registers early; keep other `format-tab-title` handlers after that block (or remove them).
+
+Contributor notes for agents live in [`AGENTS.md`](AGENTS.md).
+
+## License
+
+[MIT](LICENSE) © band.ai
