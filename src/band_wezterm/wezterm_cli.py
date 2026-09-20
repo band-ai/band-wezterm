@@ -9,7 +9,7 @@ import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Final
 
@@ -25,6 +25,7 @@ _OSC_PREFIX: Final = "\033]1337;SetUserVar="
 _OSC_SUFFIX: Final = "\007"
 _FOCUS_USER_VAR: Final = "band.focus"
 _FOCUS_PAYLOAD: Final = "1"
+DEFAULT_BRIDGE_PANE_PERCENT: Final = 20
 
 
 class WindowId(RootModel[int]):
@@ -158,8 +159,32 @@ def spawn_additional_tab(
     return PaneId(int(stdout.splitlines()[-1].strip()))
 
 
+def split_pane(
+    pane_id: PaneId,
+    cwd: Path,
+    command: list[str],
+    *,
+    percent: int = DEFAULT_BRIDGE_PANE_PERCENT,
+) -> PaneId:
+    """Add a compact bottom pane to an existing tab."""
+    stdout = _run(split_pane_args(pane_id, cwd, command, percent=percent))
+    return PaneId(int(stdout.splitlines()[-1].strip()))
+
+
 def kill_pane(pane_id: PaneId) -> None:
     _run(["cli", "kill-pane", "--pane-id", str(pane_id.root)])
+
+
+def kill_panes(pane_ids: Iterable[PaneId]) -> None:
+    """Best-effort teardown for panes that share one lifecycle."""
+    failures: list[WezTermCliError | OSError] = []
+    for pane_id in pane_ids:
+        try:
+            kill_pane(pane_id)
+        except (WezTermCliError, OSError) as error:
+            failures.append(error)
+    if failures:
+        raise failures[0]
 
 
 def activate_pane(pane_id: PaneId) -> None:
@@ -374,4 +399,29 @@ def set_tab_title_args(pane_id: PaneId, title: str) -> list[str]:
         "--pane-id",
         str(pane_id.root),
         title,
+    ]
+
+
+def split_pane_args(
+    pane_id: PaneId,
+    cwd: Path,
+    command: list[str],
+    *,
+    percent: int = DEFAULT_BRIDGE_PANE_PERCENT,
+) -> list[str]:
+    """Pure split command builder for unit tests."""
+    if not 1 <= percent <= 99:
+        raise ValueError("split pane percent must be between 1 and 99")
+    return [
+        "cli",
+        "split-pane",
+        "--pane-id",
+        str(pane_id.root),
+        "--bottom",
+        "--percent",
+        str(percent),
+        "--cwd",
+        str(cwd),
+        "--",
+        *command,
     ]

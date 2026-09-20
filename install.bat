@@ -7,10 +7,19 @@ if errorlevel 1 (
     exit /b 1
 )
 
-uv tool install --force --reinstall "%~dp0"
-if errorlevel 1 exit /b 1
+pushd "%~dp0"
+uv tool install --force --reinstall .
+if errorlevel 1 (
+    popd
+    exit /b 1
+)
+
+if exist "%ProgramFiles%\WezTerm\wezterm.exe" set "PATH=%ProgramFiles%\WezTerm;%PATH%"
+if exist "%LocalAppData%\Programs\WezTerm\wezterm.exe" set "PATH=%LocalAppData%\Programs\WezTerm;%PATH%"
 
 band-wezterm setup
-if errorlevel 1 exit /b 1
+set RESULT=%ERRORLEVEL%
+popd
+if not "%RESULT%"=="0" exit /b %RESULT%
 
 echo Band WezTerm is installed. Run: band-wezterm

@@ -136,7 +136,7 @@ class MentionSuggester(Suggester):
             (
                 candidate
                 for candidate in self._handles()
-                if candidate.casefold().startswith(query)
+                if candidate.casefold().startswith(query.casefold())
             ),
             None,
         )

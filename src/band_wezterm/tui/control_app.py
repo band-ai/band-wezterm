@@ -6,6 +6,7 @@ stops every agent tab it started.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import Callable
 from contextlib import suppress
@@ -35,7 +36,7 @@ from band_wezterm.wezterm_cli import (
     PaneId,
     WezTermCliError,
     WindowId,
-    kill_pane,
+    kill_panes,
     set_tab_title,
     window_id_for_pane,
 )
@@ -169,29 +170,28 @@ class ControlApp(App[None]):
     def on_mount(self) -> None:
         name_control_tab()
         if self.host_auth.has_stored_tokens():
-            self.run_worker(self.enter_workspace(), group="workspace")
+            self.run_worker(self._restore_workspace(), group="workspace")
             return
         self.push_screen(SIGN_IN_SCREEN)
 
     async def on_unmount(self) -> None:
         """Host shutdown: every agent tab this host started goes with it."""
         self.client.set_authentication_rejected_handler(None)
-        for pane_id in list(self.agents_store.running.values()):
-            with suppress(WezTermCliError, OSError):
-                kill_pane(pane_id)
-        self.agents_store.running.clear()
+        await self._stop_managed_agents()
         await self.client.aclose()
+
+    async def _restore_workspace(self) -> None:
+        """Restore a stored session or present a retryable sign-in gate."""
+        try:
+            await self.enter_workspace()
+        except Exception as error:
+            message = format_platform_error(error, operation="open workspace")
+            self.notify(message, severity="error")
+            self.push_screen(SIGN_IN_SCREEN)
 
     async def enter_workspace(self) -> None:
         """Identify the signed-in human, then open the agents catalog."""
-        try:
-            self.user_id = await self.client.whoami()
-        except Exception as error:
-            self.notify(
-                format_platform_error(error, operation="open workspace"),
-                severity="error",
-            )
-            return
+        self.user_id = await self.client.whoami()
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
         announce_human(self.user_id)
         log_event("workspace entered", user_id=self.user_id)
@@ -240,10 +240,7 @@ class ControlApp(App[None]):
             return False
         self._ending_session = True
         try:
-            for pane_id in list(self.agents_store.running.values()):
-                with suppress(WezTermCliError, OSError):
-                    kill_pane(pane_id)
-            self.agents_store.running.clear()
+            stopped_agents = await self._stop_managed_agents()
             await self.host_auth.sign_out()
             self.user_id = None
             self.agents_store = AgentsStore()
@@ -251,9 +248,25 @@ class ControlApp(App[None]):
             while len(self.screen_stack) > 1:
                 self.pop_screen()
             self.push_screen(SIGN_IN_SCREEN)
+            if not stopped_agents:
+                self.notify(
+                    "Some managed agent panes could not be stopped; retry from WezTerm.",
+                    severity="warning",
+                )
             return True
         finally:
             self._ending_session = False
+
+    async def _stop_managed_agents(self) -> bool:
+        """Stop every tracked pair, retaining any pair whose teardown fails."""
+        for agent_id, panes in tuple(self.agents_store.running.items()):
+            try:
+                await asyncio.to_thread(kill_panes, panes.ids)
+            except (WezTermCliError, OSError) as error:
+                format_platform_error(error, operation="stop managed agent panes")
+                continue
+            self.agents_store.mark_stopped(agent_id)
+        return not self.agents_store.running
 
     def _show(self, screen_name: str) -> None:
         """Switching top-level screens discards any in-progress draft."""

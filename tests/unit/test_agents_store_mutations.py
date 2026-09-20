@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from band_wezterm.client import AgentRecord
 from band_wezterm.identity import AvatarKind, HarnessId, agent_accent
-from band_wezterm.tui.stores import AgentsStore
+from band_wezterm.tui.stores import AgentPanes, AgentsStore
 from band_wezterm.wezterm_cli import PaneId
 
 
@@ -29,3 +29,18 @@ def test_update_and_remove_agent() -> None:
     store.remove_agent("a1")
     assert store.find("a1") is None
     assert store.is_running("a1") is False
+
+
+def test_running_agent_tracks_console_and_bridge_as_one_lifecycle() -> None:
+    store = AgentsStore()
+    console = PaneId(9)
+    bridge = PaneId(10)
+
+    store.mark_running("a1", bridge, console=console)
+
+    assert store.running["a1"] == AgentPanes(console=console, bridge=bridge)
+    assert store.agents_with_missing_panes([9, 10]) == ()
+    assert store.agents_with_missing_panes([9]) == (
+        ("a1", AgentPanes(console=console, bridge=bridge)),
+    )
+    assert store.is_running("a1") is True

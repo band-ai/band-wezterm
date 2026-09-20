@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 import asyncio
-from threading import Event, Thread
+from threading import Event
 from urllib.parse import parse_qs, urlparse
-from urllib.request import urlopen
 
 import pytest
 
-import band_wezterm.auth.host_auth as host_auth_module
 from band_wezterm.auth.credentials import NoApiKeyError, TokenStore, UserTokens
 from band_wezterm.auth.host_auth import (
     SIGN_IN_CANCELLED_MESSAGE,
     HostAuth,
     TokenExchangeError,
 )
-from band_wezterm.config import Settings
+from band_wezterm.config import CALLBACK_PATH, Settings
+
+CALLBACK_WAIT_START_TIMEOUT_SECONDS = 1
+FAKE_CALLBACK_PORT = 12345
+
+
+class _FakeLoopbackServer:
+    def server_close(self) -> None:
+        return
 
 
 class _MemoryStore(TokenStore):
@@ -139,7 +145,7 @@ async def test_cancel_sign_in_unblocks_the_callback_wait(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     auth = HostAuth(Settings(band_oauth_client_id="client"), _MemoryStore())
-    server_started = Event()
+    callback_started = Event()
 
     async def discover() -> object:
         class Metadata:
@@ -150,17 +156,21 @@ async def test_cancel_sign_in_unblocks_the_callback_wait(
 
     monkeypatch.setattr(auth, "_discover", discover)
     monkeypatch.setattr(auth, "_open_browser", lambda _url: True)
-    original_start = host_auth_module._start_loopback_server
+    def start_server(_state: str) -> tuple[_FakeLoopbackServer, int]:
+        return _FakeLoopbackServer(), FAKE_CALLBACK_PORT
 
-    def start_server(state: str):
-        result = original_start(state)
-        server_started.set()
-        return result
+    def wait_for_code(_server: _FakeLoopbackServer, cancellation: Event) -> str:
+        callback_started.set()
+        cancellation.wait()
+        raise RuntimeError(SIGN_IN_CANCELLED_MESSAGE)
 
     monkeypatch.setattr("band_wezterm.auth.host_auth._start_loopback_server", start_server)
+    monkeypatch.setattr("band_wezterm.auth.host_auth._wait_for_code", wait_for_code)
 
     sign_in = asyncio.create_task(auth.sign_in())
-    assert await asyncio.to_thread(server_started.wait, 1)
+    assert await asyncio.to_thread(
+        callback_started.wait, CALLBACK_WAIT_START_TIMEOUT_SECONDS
+    )
     auth.cancel_sign_in()
 
     with pytest.raises(RuntimeError, match=SIGN_IN_CANCELLED_MESSAGE):
@@ -168,22 +178,22 @@ async def test_cancel_sign_in_unblocks_the_callback_wait(
 
 
 @pytest.mark.asyncio
-async def test_sign_in_returns_after_the_browser_callback(
+async def test_sign_in_exchanges_code_after_browser_launch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = _MemoryStore()
 
-    def complete_callback(authorization_url: str) -> bool:
+    def open_browser(authorization_url: str) -> bool:
         parsed = urlparse(authorization_url)
         parameters = parse_qs(parsed.query)
-        callback = urlparse(parameters["redirect_uri"][0])
-        query = f"code=authorization-code&state={parameters['state'][0]}"
-        redirect = callback._replace(query=query).geturl()
-        Thread(target=lambda: urlopen(redirect, timeout=2).read()).start()
+        assert parameters["client_id"] == ["client"]
+        assert parameters["redirect_uri"] == [
+            f"http://127.0.0.1:{FAKE_CALLBACK_PORT}{CALLBACK_PATH}"
+        ]
         return True
 
     auth = HostAuth(
-        Settings(band_oauth_client_id="client"), store, open_browser=complete_callback
+        Settings(band_oauth_client_id="client"), store, open_browser=open_browser
     )
 
     async def discover() -> object:
@@ -201,7 +211,15 @@ async def test_sign_in_returns_after_the_browser_callback(
 
     monkeypatch.setattr(auth, "_discover", discover)
     monkeypatch.setattr(auth, "_exchange", exchange)
+    monkeypatch.setattr(
+        "band_wezterm.auth.host_auth._start_loopback_server",
+        lambda _state: (_FakeLoopbackServer(), FAKE_CALLBACK_PORT),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.auth.host_auth._wait_for_code",
+        lambda _server, _cancellation: "authorization-code",
+    )
 
-    await asyncio.wait_for(auth.sign_in(), timeout=2)
+    await auth.sign_in()
 
     assert store.get_user_tokens() is not None

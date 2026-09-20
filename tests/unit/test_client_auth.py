@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import create_autospec
+from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 import httpx
 import pytest
@@ -50,4 +50,37 @@ async def test_api_key_client_does_not_invalidate_user_session() -> None:
     await client._observe_response(httpx.Response(401))
 
     assert rejected == []
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_room_subscription_is_idempotent_and_released() -> None:
+    client = BandClient.from_user_api_key("band_test", Settings())
+    phx = MagicMock()
+    phx.subscribe_to_topic = AsyncMock()
+    phx.unsubscribe_from_topic = AsyncMock()
+    client._phx = phx
+    client._phx_generation = client._token_generation
+
+    await client.subscribe_room("room-1")
+    await client.subscribe_room("room-1")
+
+    assert phx.subscribe_to_topic.await_count == 2
+    await client.unsubscribe_room("room-1")
+    assert phx.unsubscribe_from_topic.await_count == 2
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_failed_room_subscription_does_not_leave_a_stale_registration() -> None:
+    client = BandClient.from_user_api_key("band_test", Settings())
+    phx = MagicMock()
+    phx.subscribe_to_topic = AsyncMock(side_effect=RuntimeError("socket lost"))
+    client._phx = phx
+    client._phx_generation = client._token_generation
+
+    with pytest.raises(RuntimeError, match="socket lost"):
+        await client.subscribe_room("room-1")
+
+    assert client._realtime_rooms == set()
     await client.aclose()

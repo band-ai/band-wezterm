@@ -13,6 +13,7 @@ from band import Agent
 from band.runtime.types import AgentConfig
 
 from band_wezterm.agent.adapters import build_adapter
+from band_wezterm.agent.pane_identity import announce_agent_pane
 from band_wezterm.agent.spawn_cmd import tuning_from_cli
 from band_wezterm.backends import AgentTuning, TuningDimensionId
 from band_wezterm.config import (
@@ -27,38 +28,13 @@ from band_wezterm.config import (
 )
 from band_wezterm.diagnostics import configure_diagnostics, log_event
 from band_wezterm.errors import format_platform_error
-from band_wezterm.identity import (
-    AgentRuntime,
-    AgentStatus,
-    AvatarKind,
-    agent_accent,
-    harness_badge,
-    initials,
-    parse_harness,
-)
-from band_wezterm.osc import OscKey, emit_many_to_stdout, emit_to_stdout
+from band_wezterm.identity import AgentRuntime, AgentStatus
+from band_wezterm.osc import OscKey, emit_to_stdout
 
 AGENT_TAB_TITLE = "Band agent"
 AGENT_TAB_ONLINE = "Online — listening to Band rooms"
 AGENT_TAB_HINT = "Read and send messages in Control. Press Ctrl+C to stop this agent."
 DEFAULT_TUNING_VALUE = "automatic"
-
-
-def announce(agent_id: str, name: str, harness: str | None) -> None:
-    """OSC identity into this pane (stdout = WezTerm PTY)."""
-    fields: dict[OscKey, str] = {
-        OscKey.AGENT_ID: agent_id,
-        OscKey.AGENT_NAME: name,
-        OscKey.AGENT_INITIALS: initials(name),
-        OscKey.AGENT_COLOR: agent_accent(agent_id),
-        OscKey.AGENT_KIND: AvatarKind.AGENT.value,
-        OscKey.AGENT_STATUS: AgentStatus.ONLINE.value,
-        OscKey.AGENT_RUNTIME: AgentRuntime.STARTING.value,
-    }
-    parsed = parse_harness(harness)
-    if parsed is not None:
-        fields[OscKey.AGENT_HARNESS] = harness_badge(parsed).value
-    emit_many_to_stdout(fields)
 
 
 def _read_api_key(key_file: Path | None) -> str:
@@ -136,7 +112,7 @@ async def run(args: argparse.Namespace) -> int:
         print("BAND_AGENT_ID / --agent-id is required", file=sys.stderr)
         return 2
 
-    announce(agent_id, name, harness)
+    announce_agent_pane(agent_id, name, harness)
     failed = False
     try:
         api_key = _read_api_key(args.key_file)

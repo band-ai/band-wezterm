@@ -87,13 +87,23 @@ Sign-in uses the bundled public PKCE client (same as Band for VS Code / Jam). Ov
 
 ## Agent harnesses
 
-Register only creates the platform identity. **Start** spawns `python -m band_wezterm.agent` in a WezTerm tab with the matching [band-sdk-python](https://github.com/band-ai/band-sdk-python) adapter.
+Register only creates the platform identity. **Start** opens one agent tab with:
+
+- the harness's native interactive CLI as the main pane; input there belongs to
+  that private harness session and is never sent to Band;
+- the existing interactive Band bridge in a compact bottom pane, powered by the
+  matching [band-sdk-python](https://github.com/band-ai/band-sdk-python) adapter.
+
+The two panes share one lifecycle: closing either pane stops the other. The
+private CLI receives the managed profile's working directory, persona, model,
+and supported reasoning setting, but no `BAND_*` environment variables. Room
+messages remain available in Control exactly as before.
 
 ```bash
 # All four harnesses
 uv sync --extra agents
 
-# Or one at a time
+# Or one at a time:
 uv sync --extra claude_sdk   # Claude CLI / claude-agent-sdk
 uv sync --extra codex        # `codex login` or OPENAI_API_KEY / CODEX_API_KEY
 uv sync --extra copilot_sdk  # Copilot CLI auth
