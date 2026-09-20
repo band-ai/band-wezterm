@@ -12,6 +12,7 @@ from band_wezterm.catalogs import HarnessCatalog, ModelCatalogEntry, ModelCatalo
 from band_wezterm.catalogs.providers import (
     codex_catalog_from_payload,
     copilot_catalog_from_models,
+    load_claude_catalog,
     opencode_catalog_from_payload,
 )
 from band_wezterm.identity import HarnessId
@@ -70,6 +71,19 @@ def test_copilot_catalog_excludes_auto_and_keeps_model_specific_efforts() -> Non
     assert [model.id for model in catalog.models] == ["model-a", "model-b"]
     assert [effort.id for effort in catalog.models[0].efforts] == ["low", "high"]
     assert catalog.models[1].efforts == ()
+
+
+async def test_claude_catalog_exposes_only_bridge_supported_tuning() -> None:
+    catalog = await load_claude_catalog()
+
+    assert [model.id for model in catalog.models] == [
+        "fable",
+        "opus",
+        "sonnet",
+        "haiku",
+        "opusplan",
+    ]
+    assert all(not model.efforts for model in catalog.models)
 
 
 def test_opencode_catalog_uses_full_model_ids_and_variants() -> None:

@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from band_wezterm.agent.adapters import preflight_harness
 from band_wezterm.agent.native_console import preflight_native_console
+from band_wezterm.backends import AgentTuning
 from band_wezterm.identity import HarnessId
 
 
-def preflight_managed_agent(harness: HarnessId) -> None:
+def preflight_managed_agent(
+    harness: HarnessId,
+    *,
+    cwd: Path | None = None,
+    persona: str | None = None,
+    tuning: AgentTuning | None = None,
+) -> None:
     """Confirm both the Band adapter and private native console are usable."""
-    preflight_harness(harness)
+    preflight_harness(harness, cwd=cwd, persona=persona, tuning=tuning)
     preflight_native_console(harness)

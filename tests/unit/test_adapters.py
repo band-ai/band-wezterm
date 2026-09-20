@@ -90,7 +90,9 @@ def test_copilot_passes_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> Non
     }
 
 
-def test_claude_passes_persona_and_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_claude_passes_only_bridge_supported_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     class FakeAdapter:
@@ -112,7 +114,6 @@ def test_claude_passes_persona_and_effort(monkeypatch: pytest.MonkeyPatch) -> No
         "cwd": str(Path("/tmp/work")),
         "model": "sonnet",
         "custom_section": "# Developer\nBe terse.\n",
-        "effort": "xhigh",
     }
 
 

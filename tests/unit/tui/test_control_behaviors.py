@@ -101,11 +101,11 @@ def native_console_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep UI tests independent of locally installed harness executables."""
     monkeypatch.setattr(
         "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
-        lambda _harness: None,
+        lambda _harness, **_kwargs: None,
     )
     monkeypatch.setattr(
         "band_wezterm.tui.screens.register_agent.preflight_managed_agent",
-        lambda _harness: None,
+        lambda _harness, **_kwargs: None,
     )
 
 
@@ -680,7 +680,7 @@ async def test_start_agent_spawns_private_console_and_band_bridge(
     )
     monkeypatch.setattr(
         "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
-        preflighted.append,
+        lambda harness, **_kwargs: preflighted.append(harness),
     )
     monkeypatch.setattr(
         "band_wezterm.agent.launch.write_api_key_file",
@@ -750,7 +750,9 @@ async def test_start_agent_surfaces_missing_native_console_before_spawning(
     )
     monkeypatch.setattr(
         "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
-        lambda _harness: (_ for _ in ()).throw(NativeConsoleUnavailableError("codex CLI not found")),
+        lambda _harness, **_kwargs: (_ for _ in ()).throw(
+            NativeConsoleUnavailableError("codex CLI not found")
+        ),
     )
     spawned = MagicMock()
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawned)
@@ -936,7 +938,7 @@ async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
         HarnessId.COPILOT: HarnessId.CLAUDE,
     }
 
-    def fake_preflight(harness: object) -> None:
+    def fake_preflight(harness: object, **_kwargs: object) -> None:
         preflighted.append(harness)
         if not isinstance(harness, HarnessId):
             return
@@ -1649,7 +1651,7 @@ async def test_start_agent_surfaces_harness_unavailable(
     unavailable = "uv sync --extra codex"
     spawn = MagicMock()
 
-    def boom(_harness: object) -> None:
+    def boom(_harness: object, **_kwargs: object) -> None:
         raise HarnessUnavailableError(unavailable)
 
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
@@ -1682,7 +1684,7 @@ async def test_start_agent_aborts_when_profile_removed_mid_preflight(
     )
     spawn = MagicMock()
 
-    def remove_during_preflight(_harness: object) -> None:
+    def remove_during_preflight(_harness: object, **_kwargs: object) -> None:
         control_app.managed_agents.remove(IDLE_AGENT_ID)
 
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
@@ -1719,7 +1721,7 @@ async def test_start_agent_aborts_when_harness_never_settles(
     spawn = MagicMock()
     flip = {HarnessId.CODEX: HarnessId.COPILOT, HarnessId.COPILOT: HarnessId.CODEX}
 
-    def never_settle(harness: object) -> None:
+    def never_settle(harness: object, **_kwargs: object) -> None:
         if not isinstance(harness, HarnessId):
             return
         current = control_app.managed_agents.get(IDLE_AGENT_ID)
@@ -1780,7 +1782,7 @@ async def test_start_agent_aborts_when_harness_changes_after_preflight(
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
         "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
-        lambda _h: None,
+        lambda _h, **_kwargs: None,
     )
 
     async with control_app.run_test() as pilot:
@@ -1822,7 +1824,7 @@ async def test_start_agent_aborts_when_profile_removed_after_preflight(
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
         "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
-        lambda _h: None,
+        lambda _h, **_kwargs: None,
     )
 
     async with control_app.run_test() as pilot:

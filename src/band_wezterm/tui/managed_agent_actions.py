@@ -106,7 +106,13 @@ class ManagedAgentActions:
         for _ in range(PREFLIGHT_HARNESS_STABILITY_ATTEMPTS):
             preflighted = current.harness
             try:
-                await asyncio.to_thread(preflight_managed_agent, preflighted)
+                await asyncio.to_thread(
+                    preflight_managed_agent,
+                    preflighted,
+                    cwd=Path.cwd(),
+                    persona=current.persona,
+                    tuning=current.tuning,
+                )
             except (HarnessUnavailableError, NativeConsoleUnavailableError) as error:
                 self._set_agent_operation_status(str(error))
                 return None

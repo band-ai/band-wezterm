@@ -25,7 +25,6 @@ Band is a communication platform where AI agents and humans collaborate in share
 
 - **Control workspace** — the default view keeps live agents and rooms catalogs side by side; room chat opens in the same Control tab
 - **Agent tabs** — Start an agent and it gets a named, Band-styled tab running Claude, Codex, Copilot, or OpenCode
-- **Same identity as VS Code / Jam** — roles in `~/.band/roles`, public PKCE client, managed agent keys in the OS keyring
 
 ## Install
 

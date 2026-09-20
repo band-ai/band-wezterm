@@ -70,9 +70,15 @@ def build_adapter(
             raise HarnessUnavailableError(f"Unsupported harness {key.value!r}.")
 
 
-def preflight_harness(harness: HarnessId | str | None) -> None:
-    """Import-check the adapter extra before spawning a pane."""
-    build_adapter(harness)
+def preflight_harness(
+    harness: HarnessId | str | None,
+    *,
+    cwd: Path | None = None,
+    persona: str | None = None,
+    tuning: AgentTuning | None = None,
+) -> None:
+    """Construct the bridge adapter before spawning a pane."""
+    build_adapter(harness, cwd=cwd, persona=persona, tuning=tuning)
 
 
 def _missing(key: HarnessId, error: Exception) -> HarnessUnavailableError:
@@ -101,9 +107,6 @@ def _claude(
     if model is not None:
         kwargs["model"] = model
     _apply_persona(kwargs, persona)
-    effort = tuning.value_for(TuningDimensionId.REASONING)
-    if effort is not None:
-        kwargs["effort"] = effort
     return ClaudeSDKAdapter(**kwargs)
 
 

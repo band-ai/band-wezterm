@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Iterable
-from typing import Any, Final, get_args
+from typing import Any, Final
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
@@ -67,22 +67,17 @@ class _OpenCodeCatalog(BaseModel):
 
 
 async def load_claude_catalog() -> HarnessCatalog:
-    """Read the installed Claude SDK contract; it has no model-list API."""
-    sdk = importlib.import_module("claude_agent_sdk")
-    options = sdk.ClaudeAgentOptions
-    effort_type = options.__annotations__["effort"]
-    efforts = tuple(_option(value) for value in _literal_values(effort_type))
+    """Return the Claude models supported by the Band bridge adapter."""
     return HarnessCatalog(
         models=(
-            ModelCatalogEntry(id="fable", label="Fable", efforts=efforts),
-            ModelCatalogEntry(id="opus", label="Opus", efforts=efforts),
-            ModelCatalogEntry(id="sonnet", label="Sonnet", efforts=efforts),
-            ModelCatalogEntry(id="haiku", label="Haiku", efforts=efforts),
+            ModelCatalogEntry(id="fable", label="Fable"),
+            ModelCatalogEntry(id="opus", label="Opus"),
+            ModelCatalogEntry(id="sonnet", label="Sonnet"),
+            ModelCatalogEntry(id="haiku", label="Haiku"),
             ModelCatalogEntry(
                 id="opusplan",
                 label="Opus, then Sonnet",
                 description="Opus while planning, Sonnet to execute",
-                efforts=efforts,
             ),
         ),
     )
@@ -204,10 +199,3 @@ def _full_opencode_model_id(model: _OpenCodeModel) -> str:
 
 def _option(value: str) -> TuningOption:
     return TuningOption(id=value, label=value.capitalize())
-
-
-def _literal_values(annotation: Any) -> Iterable[str]:
-    for candidate in get_args(annotation):
-        values = get_args(candidate)
-        if values and all(isinstance(value, str) for value in values):
-            yield from values
