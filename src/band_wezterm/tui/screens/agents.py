@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar, Final
@@ -47,6 +48,7 @@ from band_wezterm.tui.widgets import AvatarChip, Chip, FilterChips
 from band_wezterm.wezterm_cli import (
     PaneId,
     WezTermCliError,
+    WindowId,
     activate_pane,
     kill_panes,
     list_panes,
@@ -98,6 +100,16 @@ class Id(StrEnum):
     LIST = "agent-list"
     STATUS = "agent-status"
     TOOLBAR = "agent-toolbar"
+
+
+@dataclass(frozen=True)
+class AgentLaunchContext:
+    """Validated inputs for one paired native-console and Band-bridge launch."""
+
+    agent: AgentRecord
+    api_key: str
+    profile: ManagedAgentProfile
+    window_id: WindowId
 
 
 AGENT_CHIPS: Final[tuple[Chip, ...]] = tuple(
@@ -467,6 +479,47 @@ class AgentsScreen(ControlScreen):
         self._set_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
         return None
 
+    async def _resolve_launch_context(
+        self, agent: AgentRecord
+    ) -> AgentLaunchContext | None:
+        """Validate and stabilize the durable inputs used by one agent launch."""
+        window_id = self.control.window_id
+        api_key = self.control.client.managed_agent_api_key(agent.id)
+        profile = self.control.managed_agents.get(agent.id)
+        match window_id, api_key, profile:
+            case None, _, _:
+                self._set_status(NO_WINDOW_MESSAGE)
+                return None
+            case _, None | "", _:
+                self._set_status(NO_MANAGED_KEY_MESSAGE)
+                return None
+            case _, _, None:
+                self._set_status(NO_MANAGED_PROFILE_MESSAGE)
+                return None
+            case window_id, api_key, profile:
+                agent = self._sync_agent_to_profile(agent, profile)
+
+        preflighted = await self._preflight_launch_profile(agent.id, profile)
+        if preflighted is None:
+            self._resync_store_to_durable_profile(agent)
+            return None
+        fresh = self.control.managed_agents.get(agent.id)
+        match fresh:
+            case None:
+                self._set_status(NO_MANAGED_PROFILE_MESSAGE)
+                return None
+            case fresh if fresh.harness is not preflighted.harness:
+                self._sync_agent_to_profile(agent, fresh)
+                self._set_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
+                return None
+            case fresh:
+                return AgentLaunchContext(
+                    agent=self._sync_agent_to_profile(agent, fresh),
+                    api_key=api_key,
+                    profile=fresh,
+                    window_id=window_id,
+                )
+
     @work(group="agents-start")
     async def _start_agent(self, agent: AgentRecord) -> None:
         key_file: Path | None = None
@@ -475,38 +528,16 @@ class AgentsScreen(ControlScreen):
         acquired: list[PaneId] = []
         committed = False
         try:
-            window_id = self.control.window_id
-            if window_id is None:
-                self._set_status(NO_WINDOW_MESSAGE)
+            context = await self._resolve_launch_context(agent)
+            if context is None:
                 return
-            api_key = self.control.client.managed_agent_api_key(agent.id)
-            if not api_key:
-                self._set_status(NO_MANAGED_KEY_MESSAGE)
-                return
-            profile = self.control.managed_agents.get(agent.id)
-            if profile is None:
-                self._set_status(NO_MANAGED_PROFILE_MESSAGE)
-                return
-            agent = self._sync_agent_to_profile(agent, profile)
-            profile = await self._preflight_launch_profile(agent.id, profile)
-            if profile is None:
-                self._resync_store_to_durable_profile(agent)
-                return
-            fresh = self.control.managed_agents.get(agent.id)
-            if fresh is None:
-                self._set_status(NO_MANAGED_PROFILE_MESSAGE)
-                return
-            if fresh.harness is not profile.harness:
-                self._sync_agent_to_profile(agent, fresh)
-                self._set_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
-                return
-            profile = fresh
-            agent = self._sync_agent_to_profile(agent, profile)
+            agent = context.agent
+            profile = context.profile
             store = self.store
             if store.is_running(agent.id):
                 return
             cwd = Path.cwd()
-            key_file = write_api_key_file(api_key)
+            key_file = write_api_key_file(context.api_key)
             if profile.persona:
                 persona_file = write_persona_file(profile.persona)
             console_launch = build_native_console(profile, cwd=cwd)
@@ -525,7 +556,7 @@ class AgentsScreen(ControlScreen):
                 persona_file=persona_file,
             )
             console_pane = await _spawn_pane(
-                lambda: spawn_additional_tab(window_id, cwd, console_command),
+                lambda: spawn_additional_tab(context.window_id, cwd, console_command),
                 acquired,
             )
             await asyncio.to_thread(set_tab_title, console_pane, agent.name)
