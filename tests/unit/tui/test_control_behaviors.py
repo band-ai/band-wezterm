@@ -569,6 +569,28 @@ async def test_room_roster_shows_local_agent_runtime(
         assert str(indicator.render()) == "●"
 
 
+async def test_closing_agent_tab_updates_runtime_from_room_view(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    member = agent(RUNNING_AGENT_ID, "Alpha")
+    band_client.list_participants.return_value = [participant(member)]
+    control_app.agents_store.mark_running(RUNNING_AGENT_ID, AGENT_PANE)
+    monkeypatch.setattr("band_wezterm.tui.control_app.list_panes", list)
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(room(ROOM_ID, "Core"))
+        await settle(pilot)
+        worker = control_app._reconcile_agent_panes()
+        await worker.wait()
+        await settle(pilot)
+
+        assert control_app.agents_store.is_running(RUNNING_AGENT_ID) is False
+        assert control_app.agents_store.status == "1 agent tab(s) closed — marked stopped."
+
+
 async def test_room_roster_starts_selected_managed_agent(
     control_app: ControlApp,
     band_client: MagicMock,
@@ -696,7 +718,7 @@ async def test_start_agent_spawns_private_console_and_band_bridge(
             self.pane_id = pane_id
 
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.list_panes",
+        "band_wezterm.tui.control_app.list_panes",
         lambda: [_Pane(99), _Pane(100)],
     )
 
@@ -986,7 +1008,7 @@ async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
             self.pane_id = pane_id
 
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.list_panes",
+        "band_wezterm.tui.control_app.list_panes",
         lambda: [_Pane(99), _Pane(100)],
     )
 

@@ -12,6 +12,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from typing import ClassVar, Final
 
+from textual import work
 from textual.app import App
 from textual.binding import Binding
 from textual.message import Message
@@ -29,17 +30,19 @@ from band_wezterm.local_state import StarredRooms
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.osc import OscKey, emit_many_to_stdout
 from band_wezterm.preferences import PreferencesStore
+from band_wezterm.tui.refresh import PANE_POLL_SECONDS
 from band_wezterm.tui.screens.agents import AgentsScreen
 from band_wezterm.tui.screens.rooms import RoomDetailScreen, RoomsScreen
 from band_wezterm.tui.screens.settings import SettingsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
 from band_wezterm.tui.screens.workspace import WorkspaceScreen
-from band_wezterm.tui.stores import AgentsStore, RoomsStore
+from band_wezterm.tui.stores import AgentsStore, AgentStatusSource, RoomsStore
 from band_wezterm.wezterm_cli import (
     PaneId,
     WezTermCliError,
     WindowId,
     kill_panes,
+    list_panes,
     set_tab_title,
     window_id_for_pane,
 )
@@ -185,6 +188,7 @@ class ControlApp(App[None]):
 
     def on_mount(self) -> None:
         name_control_tab()
+        self.set_interval(PANE_POLL_SECONDS, self._reconcile_agent_panes)
         if self.host_auth.has_stored_tokens():
             self.run_worker(self._restore_workspace(), group="workspace")
             return
@@ -295,6 +299,55 @@ class ControlApp(App[None]):
                 continue
             self.agents_store.mark_stopped(agent_id)
         return not self.agents_store.running
+
+    @work(exclusive=True, group="agent-pane-reconciliation")
+    async def _reconcile_agent_panes(self) -> None:
+        """Treat either half of a closed managed-agent tab as stopped."""
+        store = self.agents_store
+        if not store.running:
+            return
+        try:
+            panes = await asyncio.to_thread(list_panes)
+        except (WezTermCliError, OSError) as error:
+            self._report_agent_pane_error(error)
+            return
+
+        live_pane_ids = {pane.pane_id for pane in panes}
+        stopped = 0
+        for agent_id, agent_panes in store.agents_with_missing_panes(live_pane_ids):
+            survivors = tuple(
+                pane_id
+                for pane_id in agent_panes.ids
+                if pane_id.root in live_pane_ids
+            )
+            try:
+                await asyncio.to_thread(kill_panes, survivors)
+            except (WezTermCliError, OSError) as error:
+                self._report_agent_pane_error(error)
+                continue
+            store.mark_stopped(agent_id)
+            stopped += 1
+        if stopped:
+            self._report_closed_agent_tabs(stopped)
+
+    def _report_agent_pane_error(self, error: BaseException) -> None:
+        message = format_platform_error(error, operation="reconcile agent panes")
+        self.agents_store.set_status(AgentStatusSource.ACTION, message)
+        self._refresh_agent_runtime_view()
+        self.notify(message, severity="error")
+
+    def _report_closed_agent_tabs(self, stopped: int) -> None:
+        message = f"{stopped} agent tab(s) closed — marked stopped."
+        self.agents_store.set_status(AgentStatusSource.ACTION, message)
+        self._refresh_agent_runtime_view()
+        self.notify(message)
+
+    def _refresh_agent_runtime_view(self) -> None:
+        match self.screen:
+            case AgentsScreen() as screen:
+                screen.mutate_reactive(AgentsScreen.store)
+            case RoomDetailScreen() as screen:
+                screen.mutate_reactive(RoomDetailScreen.store)
 
     def _show(self, screen_name: str) -> None:
         """Switching top-level screens discards any in-progress draft."""

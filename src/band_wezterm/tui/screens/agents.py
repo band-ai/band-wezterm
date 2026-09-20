@@ -34,15 +34,10 @@ from band_wezterm.tui.stores import (
     AgentStatusSource,
 )
 from band_wezterm.tui.widgets import AvatarChip, Chip, FilterChips
-from band_wezterm.wezterm_cli import (
-    WezTermCliError,
-    kill_panes,
-    list_panes,
-)
+from band_wezterm.wezterm_cli import kill_panes
 
 NO_BADGE: Final = "  "
 
-PANE_POLL_SECONDS: Final = 2.0
 SEARCH_DEBOUNCE_SECONDS: Final = 0.25
 
 SEARCH_PLACEHOLDER: Final = "Search agents by name"
@@ -195,7 +190,6 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
         self.store = self.control.agents_store
         self._pending_delete_id: str | None = None
         self.query_one(selector(Id.LIST), ListView).focus()
-        self.set_interval(PANE_POLL_SECONDS, self._reconcile_panes)
         self.set_interval(CATALOG_POLL_SECONDS, self._refresh_catalog)
         self._load_agents()
 
@@ -437,36 +431,6 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
 
     def _refresh_agent_operation_view(self) -> None:
         self.mutate_reactive(AgentsScreen.store)
-
-    @work(exclusive=True, group="agents-panes")
-    async def _reconcile_panes(self) -> None:
-        """Closing either half of an agent tab stops its private console and bridge."""
-        store = self.store
-        if not store.running:
-            return
-        try:
-            panes = await asyncio.to_thread(list_panes)
-        except (WezTermCliError, OSError) as error:
-            self._set_status(format_platform_error(error, operation="reconcile agent panes"))
-            return
-        live_pane_ids = {pane.pane_id for pane in panes}
-        incomplete = store.agents_with_missing_panes(live_pane_ids)
-        stopped_count = 0
-        for agent_id, agent_panes in incomplete:
-            survivors = tuple(
-                pane_id
-                for pane_id in agent_panes.ids
-                if pane_id.root in live_pane_ids
-            )
-            try:
-                await asyncio.to_thread(kill_panes, survivors)
-            except (WezTermCliError, OSError) as error:
-                self._set_status(format_platform_error(error, operation="reconcile agent panes"))
-                continue
-            store.mark_stopped(agent_id)
-            stopped_count += 1
-        if stopped_count:
-            self._set_status(f"{stopped_count} agent tab(s) closed — marked stopped.")
 
     @work(exclusive=True, group="agents-delete")
     async def _delete_agent(self, agent: AgentRecord) -> None:
