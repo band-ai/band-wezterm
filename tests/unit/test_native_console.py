@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -121,6 +122,25 @@ def test_preflight_reports_missing_native_cli(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(NativeConsoleUnavailableError, match="codex CLI not found"):
         preflight_native_console(HarnessId.CODEX)
+
+
+def test_preflight_explains_unconfigured_mise_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.agent.native_console.shutil.which", lambda _name: "/mise/opencode"
+    )
+    monkeypatch.setattr(
+        "band_wezterm.agent.native_console.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stderr="mise ERROR No version is set for shim: opencode",
+        ),
+    )
+
+    with pytest.raises(NativeConsoleUnavailableError, match="mise use -g"):
+        preflight_native_console(HarnessId.OPENCODE)
 
 
 def test_exec_native_console_removes_band_environment(

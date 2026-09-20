@@ -11,6 +11,7 @@ from band_rest.core.api_error import ApiError
 from band_wezterm.errors import (
     PLAN_REQUIRED_MESSAGE,
     format_platform_error,
+    is_missing_resource,
 )
 
 
@@ -61,6 +62,12 @@ def test_typed_error_body() -> None:
 
 def test_generic_exception_passthrough() -> None:
     assert format_platform_error(RuntimeError("boom")) == "boom"
+
+
+def test_is_missing_resource_recognizes_platform_not_found() -> None:
+    assert is_missing_resource(ApiError(status_code=404))
+    assert not is_missing_resource(ApiError(status_code=500))
+    assert not is_missing_resource(RuntimeError("not found"))
 
 
 def test_error_is_logged_with_its_operation(caplog: pytest.LogCaptureFixture) -> None:

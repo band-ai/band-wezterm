@@ -31,6 +31,10 @@ _NATIVE_BINARY: Final[dict[HarnessId, str]] = {
 }
 _BAND_ENV_PREFIX: Final = "BAND_"
 _PREFLIGHT_TIMEOUT_SECONDS: Final = 10
+_MISE_VERSION_MISSING: Final = "No version is set for shim"
+_MISE_INSTALL_HINTS: Final[dict[str, str]] = {
+    "opencode": "mise use -g aqua:anomalyco/opencode@latest",
+}
 
 
 class NativeConsoleUnavailableError(RuntimeError):
@@ -85,8 +89,23 @@ def preflight_native_console(harness: HarnessId) -> None:
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
         raise NativeConsoleUnavailableError(
-            f"Native {binary} CLI is unavailable: {detail or 'unknown error'}"
+            _native_cli_failure_message(binary, detail)
         )
+
+
+def _native_cli_failure_message(binary: str, detail: str) -> str:
+    if _MISE_VERSION_MISSING in detail:
+        install_hint = _MISE_INSTALL_HINTS.get(binary)
+        next_step = (
+            f"Install it with `{install_hint}`"
+            if install_hint is not None
+            else "Select an installed version with mise"
+        )
+        return (
+            f"Native {binary} CLI is managed by mise but has no selected version. "
+            f"{next_step}, then Start again."
+        )
+    return f"Native {binary} CLI is unavailable: {detail or 'unknown error'}"
 
 
 def write_native_console_launch(launch: NativeConsoleLaunch) -> Path:

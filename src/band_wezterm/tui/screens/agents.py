@@ -27,7 +27,7 @@ from band_wezterm.agent.native_console import (
     preflight_native_console,
 )
 from band_wezterm.client import AgentRecord
-from band_wezterm.errors import format_platform_error
+from band_wezterm.errors import format_platform_error, is_missing_resource
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.role_library import open_role_library
@@ -52,6 +52,7 @@ from band_wezterm.wezterm_cli import (
 NO_BADGE: Final = "  "
 
 PANE_POLL_SECONDS: Final = 2.0
+CATALOG_POLL_SECONDS: Final = 10.0
 SEARCH_DEBOUNCE_SECONDS: Final = 0.25
 
 SEARCH_PLACEHOLDER: Final = "Search agents by name"
@@ -74,12 +75,16 @@ REFRESHED_AGENTS_MESSAGE: Final = "Refreshed {count} agents."
 REFRESHING_DIRECTORY_MESSAGE: Final = "Refreshing public directory…"
 REFRESHED_DIRECTORY_MESSAGE: Final = "Refreshed {count} public agents."
 DELETING_AGENT_MESSAGE: Final = "Deleting {name}…"
+STALE_AGENT_REMOVED_MESSAGE: Final = (
+    "{name} was already deleted remotely — removed the stale local entry."
+)
 DELETING_LABEL: Final = "deleting"
 OPERATION_IN_PROGRESS_MESSAGE: Final = "An agent operation is already in progress."
 NO_MANAGED_PROFILE_MESSAGE: Final = (
     "No local profile — register or reconfigure after upgrade."
 )
 AGENT_STARTING_MESSAGE: Final = "Agent is starting; wait for it to finish before deleting it."
+STARTING_AGENT_MESSAGE: Final = "Starting {name}…"
 PANE_CLEANUP_FAILED_MESSAGE: Final = (
     "Agent start failed and its panes could not be closed; use Stop to retry cleanup."
 )
@@ -222,6 +227,7 @@ class AgentsScreen(ControlScreen):
         self._pending_delete_id: str | None = None
         self.query_one(selector(Id.LIST), ListView).focus()
         self.set_interval(PANE_POLL_SECONDS, self._reconcile_panes)
+        self.set_interval(CATALOG_POLL_SECONDS, self._refresh_catalog)
         self._load_agents()
 
     def on_screen_resume(self) -> None:
@@ -372,6 +378,14 @@ class AgentsScreen(ControlScreen):
             case AgentSource.DIRECTORY:
                 self._load_directory(announce=True)
 
+    def _refresh_catalog(self) -> None:
+        """Keep the visible platform catalog current without noisy status updates."""
+        match self.store.source:
+            case AgentSource.MINE:
+                self._load_agents()
+            case AgentSource.DIRECTORY:
+                self._load_directory()
+
     def action_toggle_discover(self) -> None:
         store = self.store
         store.set_source(
@@ -448,6 +462,7 @@ class AgentsScreen(ControlScreen):
         if agent.id in self._starting_agent_ids:
             return
         self._starting_agent_ids.add(agent.id)
+        self._set_status(STARTING_AGENT_MESSAGE.format(name=agent.name))
         self._start_agent(agent)
 
     def action_stop_agent(self) -> None:
@@ -620,13 +635,21 @@ class AgentsScreen(ControlScreen):
             await self._stop_agent_for_delete(agent)
             await self.control.client.delete_agent(agent.id)
         except Exception as error:
+            if is_missing_resource(error):
+                self._remove_agent(agent)
+                self._set_status(STALE_AGENT_REMOVED_MESSAGE.format(name=agent.name))
+                self._refresh_catalog()
+                return
             self._set_status(format_platform_error(error, operation="delete agent"))
             return
         finally:
             self.store.finish_delete(agent.id)
+        self._remove_agent(agent)
+        self._set_status(f"Deleted {agent.name}.")
+
+    def _remove_agent(self, agent: AgentRecord) -> None:
         self.control.managed_agents.remove(agent.id)
         self.store.remove_agent(agent.id)
-        self._set_status(f"Deleted {agent.name}.")
 
     async def _stop_agent_for_delete(self, agent: AgentRecord) -> None:
         panes = self.store.running.get(agent.id)

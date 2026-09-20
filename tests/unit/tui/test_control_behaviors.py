@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from band_rest.core.api_error import ApiError
 from textual.widgets import Input, Label, ListView, OptionList, Static
 
 from band_wezterm.agent.adapters import HarnessUnavailableError
@@ -1166,6 +1167,29 @@ async def test_delete_surfaces_in_progress_state(
         await settle(pilot)
 
     assert control_app.agents_store.find(target.id) is None
+
+
+async def test_delete_reconciles_an_agent_already_missing_remotely(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = []
+    band_client.delete_agent.side_effect = ApiError(status_code=404)
+    control_app.managed_agents.record(
+        ManagedAgentProfile(agent_id=target.id, name=target.name, harness=HarnessId.CODEX)
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.agents_store.add_agent(target)
+        control_app.screen.mutate_reactive(AgentsScreen.store)
+        await settle(pilot)
+        await pilot.press("delete", "delete")
+        await settle(pilot)
+
+    assert control_app.agents_store.find(target.id) is None
+    assert control_app.managed_agents.get(target.id) is None
+    assert "already deleted remotely" in (control_app.agents_store.status or "")
 
 
 async def test_reload_reports_completion_and_refreshes_both_catalogs(

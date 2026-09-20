@@ -23,6 +23,7 @@ PLAN_REQUIRED_MESSAGE: Final = (
 
 VALIDATION_STATUS: Final = 422
 VALIDATION_ERROR_CODE: Final = "validation_error"
+NOT_FOUND_STATUS: Final = 404
 
 
 def _error_payload(body: Any) -> Mapping[str, Any] | None:
@@ -73,6 +74,11 @@ def format_platform_error(
     message = _platform_error_message(error)
     log_failure(operation, error, message)
     return message
+
+
+def is_missing_resource(error: BaseException) -> bool:
+    """Whether the platform confirms the resource no longer exists."""
+    return isinstance(error, ApiError) and error.status_code == NOT_FOUND_STATUS
 
 
 def _platform_error_message(error: BaseException) -> str:
