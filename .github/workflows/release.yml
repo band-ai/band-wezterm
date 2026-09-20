@@ -79,6 +79,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -89,8 +90,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          assets=(artifacts/* install.sh install.ps1)
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release upload "$TAG" artifacts/* --clobber --repo "${{ github.repository }}"
+            gh release upload "$TAG" "${assets[@]}" --clobber --repo "${{ github.repository }}"
           else
-            gh release create "$TAG" artifacts/* --repo "${{ github.repository }}" --title "$TAG" --generate-notes
+            gh release create "$TAG" "${assets[@]}" --repo "${{ github.repository }}" --title "$TAG" --generate-notes
           fi
