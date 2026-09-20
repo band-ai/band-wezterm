@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Iterable, Sequence
 from enum import StrEnum
@@ -594,9 +595,7 @@ class RoomDetailScreen(ControlScreen):
         self._connect_realtime()
 
     async def on_unmount(self) -> None:
-        if self._unsubscribe is not None:
-            self._unsubscribe()
-            self._unsubscribe = None
+        self._release_realtime_listener()
         await self.control.client.unsubscribe_room(self.room.id)
 
     def _roster_view(self) -> ListView:
@@ -862,11 +861,14 @@ class RoomDetailScreen(ControlScreen):
 
     @work(exclusive=True, group="room-realtime")
     async def _connect_realtime(self) -> None:
+        self._release_realtime_listener()
         unsubscribe = self.control.client.subscribe_realtime(self._on_event)
         try:
             await self.control.client.subscribe_room(self.room.id)
-        except Exception as error:
+        except BaseException as error:
             unsubscribe()
+            if isinstance(error, asyncio.CancelledError):
+                raise
             self.store.set_status(
                 RoomStatusSource.REALTIME,
                 format_platform_error(error, operation="connect realtime"),
@@ -876,6 +878,12 @@ class RoomDetailScreen(ControlScreen):
             self._unsubscribe = unsubscribe
             self.store.clear_status(RoomStatusSource.REALTIME)
             self.mutate_reactive(RoomDetailScreen.store)
+
+    def _release_realtime_listener(self) -> None:
+        if self._unsubscribe is None:
+            return
+        self._unsubscribe()
+        self._unsubscribe = None
 
     def _on_event(self, event: RealtimeEvent) -> None:
         self.post_message(self.Incoming(event))

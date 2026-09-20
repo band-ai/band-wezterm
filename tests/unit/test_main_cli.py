@@ -6,8 +6,14 @@ import sys
 from pathlib import Path
 
 import pytest
+from filelock import Timeout
 
-from band_wezterm.__main__ import SETUP_COMMAND, _parse_args, _run_control, main
+from band_wezterm.__main__ import (
+    SETUP_COMMAND,
+    _parse_args,
+    _run_control,
+    main,
+)
 from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
 from band_wezterm.wezterm_cli import (
     PaneId,
@@ -185,3 +191,27 @@ def test_restart_starts_a_gui_when_closing_the_window_drops_cli(
 
     assert _run_control(restart=True) == 0
     assert started
+
+
+def test_main_reports_a_concurrent_control_launch(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class BusyLock:
+        def __init__(self, *_: object, **__: object) -> None:
+            pass
+
+        def __enter__(self) -> None:
+            raise Timeout("control launch")
+
+        def __exit__(
+            self,
+            _exception_type: object,
+            _exception: object,
+            _traceback: object,
+        ) -> bool:
+            return False
+
+    monkeypatch.setattr("band_wezterm.__main__.FileLock", BusyLock)
+
+    assert main([]) == 1
+    assert "still in progress" in capsys.readouterr().err

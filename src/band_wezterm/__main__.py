@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Final
 
-from band_wezterm.config import BAND_WORKSPACE_NAME, CONTROL_TAB_TITLE
+from filelock import FileLock, Timeout
+
+from band_wezterm.config import (
+    BAND_WORKSPACE_NAME,
+    CONTROL_TAB_TITLE,
+    LOCAL_STATE_DIRNAME,
+)
 from band_wezterm.setup_wezterm import (
     SetupAction,
     SetupConfigError,
@@ -31,10 +39,33 @@ from band_wezterm.wezterm_cli import (
 CONTROL_MODULE: Final = "band_wezterm.tui"
 WINDOW_TITLE: Final = "Band"
 SETUP_COMMAND: Final = "setup"
+CONTROL_LOCK_FILENAME: Final = "control-launch.lock"
+CONTROL_LOCK_TIMEOUT_SECONDS: Final = 10
 SETUP_HELP: Final = (
     "Install/update the Band WezTerm plugin snippet in the active "
     "WezTerm config (WEZTERM_CONFIG_FILE, ~/.wezterm.lua, or XDG wezterm.lua)"
 )
+
+
+class ControlLaunchError(RuntimeError):
+    """Another Band Control launch did not complete in time."""
+
+
+def _control_lock_path() -> Path:
+    return Path.home() / LOCAL_STATE_DIRNAME / CONTROL_LOCK_FILENAME
+
+
+@contextmanager
+def _control_launch_lock() -> Iterator[None]:
+    lock_path = _control_lock_path()
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with FileLock(lock_path, timeout=CONTROL_LOCK_TIMEOUT_SECONDS):
+            yield
+    except Timeout as error:
+        raise ControlLaunchError(
+            "Another Band Control launch is still in progress; try again shortly."
+        ) from error
 
 
 def _control_command() -> list[str]:
@@ -109,6 +140,11 @@ def _run_setup() -> int:
 
 
 def _run_control(*, restart: bool) -> int:
+    with _control_launch_lock():
+        return _run_control_locked(restart=restart)
+
+
+def _run_control_locked(*, restart: bool) -> int:
     cwd = Path.cwd()
     try:
         existing = find_control_pane()
@@ -159,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
         return _run_setup()
     try:
         return _run_control(restart=args.restart)
-    except WezTermCliError as exc:
+    except (ControlLaunchError, WezTermCliError) as exc:
         print(exc, file=sys.stderr)
         return 1
 

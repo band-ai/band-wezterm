@@ -878,6 +878,33 @@ async def test_realtime_roster_change_refreshes_participants(
         assert [row.identity.name for row in screen.query(IdentityRow)] == ["Alpha", "Beta"]
 
 
+async def test_room_reload_replaces_its_realtime_listener(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    released: list[int] = []
+
+    def subscribe(_callback: object) -> object:
+        index = band_client.subscribe_realtime.call_count - 1
+        return lambda: released.append(index)
+
+    band_client.subscribe_realtime.side_effect = subscribe
+    band_client.list_participants.return_value = []
+    band_client.list_messages.return_value = []
+    target = room(ROOM_ID, "Core")
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target)
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RoomDetailScreen)
+        screen.action_reload()
+        await settle(pilot)
+        assert released == [0]
+
+    assert released == [0, 1]
+
+
 async def test_failed_send_keeps_composer_draft_for_retry(
     control_app: ControlApp, band_client: MagicMock
 ) -> None:
