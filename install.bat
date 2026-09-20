@@ -14,6 +14,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+if exist "%ProgramFiles%\WezTerm\wezterm.exe" set "PATH=%ProgramFiles%\WezTerm;%PATH%"
+if exist "%LocalAppData%\Programs\WezTerm\wezterm.exe" set "PATH=%LocalAppData%\Programs\WezTerm;%PATH%"
+
 band-wezterm setup
 set RESULT=%ERRORLEVEL%
 popd

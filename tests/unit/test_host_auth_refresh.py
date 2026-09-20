@@ -9,7 +9,6 @@ from urllib.request import urlopen
 
 import pytest
 
-import band_wezterm.auth.host_auth as host_auth_module
 from band_wezterm.auth.credentials import NoApiKeyError, TokenStore, UserTokens
 from band_wezterm.auth.host_auth import (
     SIGN_IN_CANCELLED_MESSAGE,
@@ -18,7 +17,7 @@ from band_wezterm.auth.host_auth import (
 )
 from band_wezterm.config import Settings
 
-LOOPBACK_SERVER_START_TIMEOUT_SECONDS = 5
+CALLBACK_WAIT_START_TIMEOUT_SECONDS = 1
 
 
 class _MemoryStore(TokenStore):
@@ -141,7 +140,7 @@ async def test_cancel_sign_in_unblocks_the_callback_wait(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     auth = HostAuth(Settings(band_oauth_client_id="client"), _MemoryStore())
-    server_started = Event()
+    callback_started = Event()
 
     async def discover() -> object:
         class Metadata:
@@ -152,18 +151,24 @@ async def test_cancel_sign_in_unblocks_the_callback_wait(
 
     monkeypatch.setattr(auth, "_discover", discover)
     monkeypatch.setattr(auth, "_open_browser", lambda _url: True)
-    original_start = host_auth_module._start_loopback_server
+    class FakeServer:
+        def server_close(self) -> None:
+            return
 
-    def start_server(state: str):
-        result = original_start(state)
-        server_started.set()
-        return result
+    def start_server(_state: str) -> tuple[FakeServer, int]:
+        return FakeServer(), 12345
+
+    def wait_for_code(_server: FakeServer, cancellation: Event) -> str:
+        callback_started.set()
+        cancellation.wait()
+        raise RuntimeError(SIGN_IN_CANCELLED_MESSAGE)
 
     monkeypatch.setattr("band_wezterm.auth.host_auth._start_loopback_server", start_server)
+    monkeypatch.setattr("band_wezterm.auth.host_auth._wait_for_code", wait_for_code)
 
     sign_in = asyncio.create_task(auth.sign_in())
     assert await asyncio.to_thread(
-        server_started.wait, LOOPBACK_SERVER_START_TIMEOUT_SECONDS
+        callback_started.wait, CALLBACK_WAIT_START_TIMEOUT_SECONDS
     )
     auth.cancel_sign_in()
 
