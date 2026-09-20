@@ -8,8 +8,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_OAUTH_ISSUER = "https://auth.band.ai"
 # Public PKCE client shared with band-plugin-vsc (repo var BAND_OAUTH_CLIENT_ID).
 DEFAULT_OAUTH_CLIENT_ID = "8b331314-a09c-485e-99dd-f4d26c7b39c7"
-DEFAULT_BAND_BASE_URL = "https://api.dev.band.ai"
-DEFAULT_BAND_WS_URL = "wss://api.dev.band.ai/api/v1/socket/websocket"
+DEFAULT_BAND_BASE_URL = "https://app.band.ai"
+DEFAULT_BAND_WS_URL = "wss://app.band.ai/api/v1/socket/websocket"
 BAND_WORKSPACE_NAME = "band"
 CONTROL_TAB_TITLE = "Control"
 REFRESH_EARLY_MS = 60_000
