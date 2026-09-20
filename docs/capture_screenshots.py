@@ -127,7 +127,7 @@ def _client() -> MagicMock:
         MessageRecord(
             id="m4",
             author_name="Codex",
-            content="`install.bat` is in — uv tool + `band-wezterm setup`.",
+            content="`install.bat` is in — uv tool + `band setup`.",
         ),
     ]
     client.subscribe_realtime.return_value = lambda: None
@@ -152,7 +152,7 @@ def _app(tmp: Path, client: MagicMock) -> ControlApp:
     return app
 
 
-async def _capture_agents(_app: ControlApp, _pilot: Pilot[None]) -> None:
+async def _capture_workspace(_app: ControlApp, _pilot: Pilot[None]) -> None:
     return
 
 
@@ -185,11 +185,11 @@ async def _main() -> None:
     _color()
     IMAGES.mkdir(parents=True, exist_ok=True)
     with (
-        patch("band_wezterm.tui.control_app.kill_pane"),
+        patch("band_wezterm.tui.control_app.kill_panes"),
         patch("band_wezterm.tui.control_app.announce_human"),
     ):
         written = [
-            await _write("agents.svg", _capture_agents, (110, 16)),
+            await _write("workspace.svg", _capture_workspace, (110, 16)),
             await _write("control-room.svg", _capture_room, (110, 28)),
             await _write("register-agent.svg", _capture_register, (88, 18)),
         ]
