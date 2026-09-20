@@ -1,0 +1,13 @@
+"""Validate the local pieces required by a managed agent."""
+
+from __future__ import annotations
+
+from band_wezterm.agent.adapters import preflight_harness
+from band_wezterm.agent.native_console import preflight_native_console
+from band_wezterm.identity import HarnessId
+
+
+def preflight_managed_agent(harness: HarnessId) -> None:
+    """Confirm both the Band adapter and private native console are usable."""
+    preflight_harness(harness)
+    preflight_native_console(harness)

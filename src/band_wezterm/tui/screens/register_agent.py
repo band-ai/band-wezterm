@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from enum import StrEnum
 from typing import ClassVar, Final
 
@@ -12,6 +13,9 @@ from textual.containers import Vertical
 from textual.widgets import Footer, Header, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
+from band_wezterm.agent.adapters import HarnessUnavailableError
+from band_wezterm.agent.native_console import NativeConsoleUnavailableError
+from band_wezterm.agent.readiness import preflight_managed_agent
 from band_wezterm.agent_draft import (
     AgentDraft,
     agent_name_error,
@@ -494,6 +498,8 @@ class RegisterAgentScreen(ControlScreen):
             self._submit_reconfigure()
             return
         draft = self.draft
+        if not await self._preflight_draft(draft.harness):
+            return
         name = draft_name(draft)
         try:
             agent = await self.control.client.create_agent(
@@ -547,12 +553,15 @@ class RegisterAgentScreen(ControlScreen):
         )
         self.app.pop_screen()
 
-    def _submit_reconfigure(self) -> None:
+    @work(exclusive=True, group="agents-reconfigure")
+    async def _submit_reconfigure(self) -> None:
         agent = self.agent
         if agent is None:
             self._set_status("No agent to reconfigure.")
             return
         draft = self.draft
+        if not await self._preflight_draft(draft.harness):
+            return
         previous = self.control.managed_agents.get(agent.id)
         persona = (
             previous.persona
@@ -587,6 +596,14 @@ class RegisterAgentScreen(ControlScreen):
             reasoning=draft.tuning.reasoning or "default",
         )
         self.app.pop_screen()
+
+    async def _preflight_draft(self, harness: HarnessId) -> bool:
+        try:
+            await asyncio.to_thread(preflight_managed_agent, harness)
+        except (HarnessUnavailableError, NativeConsoleUnavailableError) as error:
+            self._set_status(str(error))
+            return False
+        return True
 
     def _set_status(self, status: str) -> None:
         self.query_one(selector(Id.STATUS), Static).update(status)

@@ -14,7 +14,7 @@ from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
 
-from band_wezterm.agent.adapters import HarnessUnavailableError, preflight_harness
+from band_wezterm.agent.adapters import HarnessUnavailableError
 from band_wezterm.agent.launch import (
     AgentLaunchContext,
     AgentLaunchResources,
@@ -22,10 +22,8 @@ from band_wezterm.agent.launch import (
     rollback_agent_launch,
     spawn_agent_panes,
 )
-from band_wezterm.agent.native_console import (
-    NativeConsoleUnavailableError,
-    preflight_native_console,
-)
+from band_wezterm.agent.native_console import NativeConsoleUnavailableError
+from band_wezterm.agent.readiness import preflight_managed_agent
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error, is_missing_resource
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
@@ -499,8 +497,7 @@ class AgentsScreen(ControlScreen):
         for _ in range(PREFLIGHT_HARNESS_STABILITY_ATTEMPTS):
             preflighted = current.harness
             try:
-                await asyncio.to_thread(preflight_harness, preflighted)
-                await asyncio.to_thread(preflight_native_console, preflighted)
+                await asyncio.to_thread(preflight_managed_agent, preflighted)
             except (HarnessUnavailableError, NativeConsoleUnavailableError) as error:
                 self._set_status(str(error))
                 return None
