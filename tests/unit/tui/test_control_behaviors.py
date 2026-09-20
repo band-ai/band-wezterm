@@ -14,6 +14,10 @@ from textual.widgets import Input, Label, ListView, OptionList, Static
 from band_wezterm.agent.adapters import HarnessUnavailableError
 from band_wezterm.agent.launch import _spawn_pane
 from band_wezterm.agent.native_console import NativeConsoleUnavailableError
+from band_wezterm.agent.opencode_server import (
+    OpenCodeEndpoint,
+    OpenCodeServerError,
+)
 from band_wezterm.agent_draft import (
     NAME_FORBIDDEN_MESSAGE,
     AgentDraft,
@@ -486,7 +490,7 @@ async def test_room_roster_starts_selected_managed_agent(
     )
     monkeypatch.setattr(
         "band_wezterm.tui.managed_agent_actions.prepare_agent_launch",
-        lambda _context: object(),
+        lambda _context, **_kwargs: object(),
     )
 
     async def spawn(_context: object, _resources: object) -> AgentPanes:
@@ -665,6 +669,87 @@ async def test_start_agent_surfaces_missing_native_console_before_spawning(
 
     spawned.assert_not_called()
     assert control_app.agents_store.status == "codex CLI not found"
+
+
+async def test_start_opencode_agent_provisions_server_before_launch(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.OPENCODE)
+    band_client.list_my_agents.return_value = [target]
+    band_client.managed_agent_api_key.return_value = "band_a_managed"
+    control_app.window_id = 42
+    control_app.managed_agents.record(
+        ManagedAgentProfile(
+            agent_id=IDLE_AGENT_ID,
+            name="Beta",
+            harness=HarnessId.OPENCODE,
+        )
+    )
+    endpoint = OpenCodeEndpoint("http://127.0.0.1:43117")
+    ensure = AsyncMock(return_value=endpoint)
+    monkeypatch.setattr(control_app.opencode_server, "ensure", ensure)
+    captured: list[OpenCodeEndpoint | None] = []
+
+    def prepare(
+        _context: object, *, opencode_endpoint: OpenCodeEndpoint | None
+    ) -> object:
+        captured.append(opencode_endpoint)
+        return object()
+
+    async def spawn(_context: object, _resources: object) -> AgentPanes:
+        return AgentPanes(console=PaneId(99), bridge=PaneId(100))
+
+    monkeypatch.setattr(
+        "band_wezterm.tui.managed_agent_actions.prepare_agent_launch", prepare
+    )
+    monkeypatch.setattr(
+        "band_wezterm.tui.managed_agent_actions.spawn_agent_panes", spawn
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await settle(pilot)
+
+    assert captured == [endpoint]
+    ensure.assert_awaited_once()
+    assert control_app.agents_store.is_running(IDLE_AGENT_ID)
+
+
+async def test_start_opencode_agent_surfaces_server_failure_without_panes(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.OPENCODE)
+    band_client.list_my_agents.return_value = [target]
+    band_client.managed_agent_api_key.return_value = "band_a_managed"
+    control_app.window_id = 42
+    control_app.managed_agents.record(
+        ManagedAgentProfile(
+            agent_id=IDLE_AGENT_ID,
+            name="Beta",
+            harness=HarnessId.OPENCODE,
+        )
+    )
+    ensure = AsyncMock(
+        side_effect=OpenCodeServerError("OpenCode server failed to start.")
+    )
+    monkeypatch.setattr(control_app.opencode_server, "ensure", ensure)
+    prepare = MagicMock()
+    monkeypatch.setattr(
+        "band_wezterm.tui.managed_agent_actions.prepare_agent_launch", prepare
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await settle(pilot)
+
+    prepare.assert_not_called()
+    assert control_app.agents_store.status == "OpenCode server failed to start."
 
 
 async def test_cancelled_pane_spawn_retains_pane_for_transaction_cleanup() -> None:

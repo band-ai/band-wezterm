@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from band_wezterm.agent.opencode_server import OpenCodeEndpoint
 from band_wezterm.agent.runner import _read_api_key, runtime_banner
 from band_wezterm.agent.spawn_cmd import agent_pane_command, write_api_key_file
 from band_wezterm.backends import AgentTuning
@@ -43,7 +44,9 @@ def test_write_api_key_file_is_private() -> None:
         path.unlink(missing_ok=True)
 
 
-def test_unreadable_key_file_is_removed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unreadable_key_file_is_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "key"
     path.write_text("band_a_secret", encoding="utf-8")
 
@@ -152,3 +155,29 @@ def test_agent_pane_command_migrates_the_rejected_codex_model_alias(
     argv = agent_pane_command(agent, key_file=key_file, cwd=tmp_path, profile=profile)
 
     assert argv[argv.index("--model") + 1] == "gpt-5.6-sol"
+
+
+def test_agent_pane_command_passes_shared_opencode_server(tmp_path: Path) -> None:
+    agent = AgentRecord(
+        id="agent-9",
+        name="Omega",
+        kind=AvatarKind.AGENT,
+        color=agent_accent("agent-9"),
+        harness=HarnessId.OPENCODE,
+    )
+    profile = ManagedAgentProfile(
+        agent_id=agent.id,
+        name=agent.name,
+        harness=HarnessId.OPENCODE,
+    )
+    endpoint = OpenCodeEndpoint("http://127.0.0.1:43117")
+
+    argv = agent_pane_command(
+        agent,
+        key_file=tmp_path / "key",
+        cwd=tmp_path,
+        profile=profile,
+        opencode_endpoint=endpoint,
+    )
+
+    assert argv[argv.index("--opencode-server-url") + 1] == endpoint.url

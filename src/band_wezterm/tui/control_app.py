@@ -17,6 +17,7 @@ from textual.binding import Binding
 from textual.message import Message
 from textual.screen import Screen
 
+from band_wezterm.agent.opencode_server import OpenCodeServerManager
 from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.client import BandClient, RoomRecord
 from band_wezterm.config import CONTROL_TAB_TITLE, Settings, load_settings
@@ -149,6 +150,7 @@ class ControlApp(App[None]):
         starred: StarredRooms | None = None,
         managed_agents: ManagedAgentStore | None = None,
         preferences: PreferencesStore | None = None,
+        opencode_server: OpenCodeServerManager | None = None,
     ) -> None:
         super().__init__()
         self.settings = settings or load_settings()
@@ -157,6 +159,7 @@ class ControlApp(App[None]):
         self.starred = starred or StarredRooms()
         self.managed_agents = managed_agents or ManagedAgentStore()
         self.preferences = preferences or PreferencesStore()
+        self.opencode_server = opencode_server or OpenCodeServerManager()
         self.client.set_authentication_rejected_handler(
             self._post_authentication_rejected
         )
@@ -178,6 +181,7 @@ class ControlApp(App[None]):
         """Host shutdown: every agent tab this host started goes with it."""
         self.client.set_authentication_rejected_handler(None)
         await self._stop_managed_agents()
+        await self.opencode_server.close()
         await self.client.aclose()
 
     async def _restore_workspace(self) -> None:
@@ -241,6 +245,7 @@ class ControlApp(App[None]):
         self._ending_session = True
         try:
             stopped_agents = await self._stop_managed_agents()
+            await self.opencode_server.close()
             await self.host_auth.sign_out()
             self.user_id = None
             self.agents_store = AgentsStore()

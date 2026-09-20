@@ -101,6 +101,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", default=os.environ.get(AGENT_MODEL_ENV, ""))
     parser.add_argument("--reasoning", default=os.environ.get(AGENT_REASONING_ENV, ""))
     parser.add_argument("--cwd", type=Path, default=Path.cwd())
+    parser.add_argument("--opencode-server-url", default=None)
     return parser.parse_args(argv)
 
 
@@ -123,7 +124,11 @@ async def run(args: argparse.Namespace) -> int:
         )
         settings = load_settings()
         adapter = build_adapter(
-            harness, cwd=args.cwd, persona=persona, tuning=tuning
+            harness,
+            cwd=args.cwd,
+            persona=persona,
+            tuning=tuning,
+            opencode_server_url=args.opencode_server_url,
         )
         config = AgentConfig(auto_subscribe_existing_rooms=True, single_instance=True)
         agent = Agent.create(

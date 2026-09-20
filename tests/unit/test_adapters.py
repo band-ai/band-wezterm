@@ -75,9 +75,7 @@ def test_copilot_passes_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> Non
     copilot_mod = types.ModuleType("band.adapters.copilot_sdk")
     copilot_mod.CopilotSDKAdapterConfig = FakeConfig  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "band.adapters", adapters_pkg)
-    monkeypatch.setitem(
-        sys.modules, "band.adapters.copilot_sdk", copilot_mod
-    )
+    monkeypatch.setitem(sys.modules, "band.adapters.copilot_sdk", copilot_mod)
 
     adapter = build_adapter(
         HarnessId.COPILOT_SDK,
@@ -162,3 +160,40 @@ def test_persona_omitted_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
 
     build_adapter(HarnessId.CLAUDE_SDK, cwd=Path("/tmp/work"))
     assert "custom_section" not in captured
+
+
+def test_opencode_uses_shared_server_and_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeConfig:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    class FakeAdapter:
+        def __init__(self, config: object) -> None:
+            self.config = config
+
+    adapters_pkg = types.ModuleType("band.adapters")
+    adapters_pkg.OpencodeAdapter = FakeAdapter  # type: ignore[attr-defined]
+    config_mod = types.ModuleType("band.adapters.opencode.config")
+    config_mod.OpencodeAdapterConfig = FakeConfig  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "band.adapters", adapters_pkg)
+    monkeypatch.setitem(sys.modules, "band.adapters.opencode.config", config_mod)
+
+    adapter = build_adapter(
+        HarnessId.OPENCODE,
+        cwd=Path("/tmp/work"),
+        persona="Be precise.",
+        tuning=AgentTuning(model="provider/model"),
+        opencode_server_url="http://127.0.0.1:43117",
+    )
+
+    assert isinstance(adapter, FakeAdapter)
+    assert captured == {
+        "directory": str(Path("/tmp/work")),
+        "base_url": "http://127.0.0.1:43117",
+        "model_id": "provider/model",
+        "custom_section": "Be precise.",
+    }

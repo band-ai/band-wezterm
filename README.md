@@ -135,6 +135,9 @@ uv sync --extra opencode     # OpenCode CLI auth
 ```
 
 Host-side harness auth (Claude / Codex / Copilot / OpenCode CLI or API keys) must already work on the machine — Start fails loud with an install hint when the extra is missing.
+For OpenCode, Control automatically owns the shared local `opencode serve`
+backend used by Band bridges; private OpenCode tabs remain separate,
+profile-configured direct sessions.
 
 Managed agent API keys are one-time at registration. Agents registered before this host persisted keys cannot be Started — register a new agent from Control (the old platform identity can be deleted separately).
 

@@ -48,6 +48,7 @@ def build_adapter(
     cwd: Path | None = None,
     persona: str | None = None,
     tuning: AgentTuning | None = None,
+    opencode_server_url: str | None = None,
 ) -> Any:
     """Construct the band-sdk adapter for a harness. Fail loud on missing extras."""
     key = _normalize(harness)
@@ -61,7 +62,12 @@ def build_adapter(
         case HarnessId.COPILOT | HarnessId.COPILOT_SDK:
             return _copilot(persona=persona, tuning=resolved)
         case HarnessId.OMP | HarnessId.OPENCODE:
-            return _opencode(persona=persona, tuning=resolved)
+            return _opencode(
+                workdir,
+                persona=persona,
+                tuning=resolved,
+                server_url=opencode_server_url,
+            )
         case _:
             raise HarnessUnavailableError(f"Unsupported harness {key.value!r}.")
 
@@ -110,9 +116,7 @@ def _apply_persona(kwargs: dict[str, Any], persona: str | None) -> None:
         kwargs["custom_section"] = persona
 
 
-def _apply_reasoning_effort(
-    config_kwargs: dict[str, Any], tuning: AgentTuning
-) -> None:
+def _apply_reasoning_effort(config_kwargs: dict[str, Any], tuning: AgentTuning) -> None:
     effort = tuning.value_for(TuningDimensionId.REASONING)
     if effort is not None:
         config_kwargs["reasoning_effort"] = effort
@@ -150,7 +154,13 @@ def _copilot(*, persona: str | None, tuning: AgentTuning) -> Any:
     return CopilotSDKAdapter(CopilotSDKAdapterConfig(**config_kwargs))
 
 
-def _opencode(*, persona: str | None, tuning: AgentTuning) -> Any:
+def _opencode(
+    directory: str | None,
+    *,
+    persona: str | None,
+    tuning: AgentTuning,
+    server_url: str | None,
+) -> Any:
     try:
         from band.adapters import OpencodeAdapter  # noqa: PLC0415
         from band.adapters.opencode.config import OpencodeAdapterConfig  # noqa: PLC0415
@@ -158,6 +168,10 @@ def _opencode(*, persona: str | None, tuning: AgentTuning) -> Any:
         raise _missing(HarnessId.OPENCODE, error) from error
 
     config_kwargs: dict[str, Any] = {}
+    if directory is not None:
+        config_kwargs["directory"] = directory
+    if server_url is not None:
+        config_kwargs["base_url"] = server_url
     model = tuning.value_for(TuningDimensionId.MODEL)
     if model is not None:
         config_kwargs["model_id"] = model

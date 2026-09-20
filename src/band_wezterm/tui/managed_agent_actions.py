@@ -17,9 +17,11 @@ from band_wezterm.agent.launch import (
     spawn_agent_panes,
 )
 from band_wezterm.agent.native_console import NativeConsoleUnavailableError
+from band_wezterm.agent.opencode_server import OpenCodeEndpoint
 from band_wezterm.agent.readiness import preflight_managed_agent
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
+from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.tui.stores import AgentPanes
 from band_wezterm.wezterm_cli import WezTermCliError, kill_panes
@@ -32,7 +34,9 @@ NO_MANAGED_KEY_MESSAGE: Final = (
     "No managed API key for this agent — re-register it from Control "
     "(keys are one-time at registration)."
 )
-NO_MANAGED_PROFILE_MESSAGE: Final = "No local profile — register or reconfigure after upgrade."
+NO_MANAGED_PROFILE_MESSAGE: Final = (
+    "No local profile — register or reconfigure after upgrade."
+)
 STARTING_AGENT_MESSAGE: Final = "Starting {name}…"
 AGENT_STARTING_MESSAGE: Final = "Agent is already starting."
 ALREADY_STOPPED_MESSAGE: Final = "{name} is already stopped."
@@ -73,7 +77,9 @@ class ManagedAgentActions:
     def stop_managed_agent(self, agent_id: str, agent_name: str) -> None:
         panes = self._control_screen.control.agents_store.running.get(agent_id)
         if panes is None:
-            self._set_agent_operation_status(ALREADY_STOPPED_MESSAGE.format(name=agent_name))
+            self._set_agent_operation_status(
+                ALREADY_STOPPED_MESSAGE.format(name=agent_name)
+            )
             return
         self._stop_managed_agent(agent_id, agent_name, panes)
 
@@ -165,9 +171,12 @@ class ManagedAgentActions:
             context = await self._resolve_launch_context(agent)
             if context is None or control.agents_store.is_running(agent.id):
                 return
-            resources = prepare_agent_launch(context)
+            endpoint = await self._opencode_endpoint(context)
+            resources = prepare_agent_launch(context, opencode_endpoint=endpoint)
             panes = await spawn_agent_panes(context, resources)
-            control.agents_store.mark_running(agent.id, panes.bridge, console=panes.console)
+            control.agents_store.mark_running(
+                agent.id, panes.bridge, console=panes.console
+            )
             committed = True
             self._set_agent_operation_status(
                 f"Started {agent.name} ({context.profile.harness.value}) "
@@ -187,6 +196,15 @@ class ManagedAgentActions:
                     )
                     self._set_agent_operation_status(PANE_CLEANUP_FAILED_MESSAGE)
             self._refresh_agent_operation_view()
+
+    async def _opencode_endpoint(
+        self, context: AgentLaunchContext
+    ) -> OpenCodeEndpoint | None:
+        match context.profile.harness:
+            case HarnessId.OMP | HarnessId.OPENCODE:
+                return await self._control_screen.control.opencode_server.ensure()
+            case _:
+                return None
 
     @work(exclusive=True, group="managed-agent-stop")
     async def _stop_managed_agent(

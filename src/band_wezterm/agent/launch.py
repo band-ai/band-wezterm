@@ -12,6 +12,7 @@ from band_wezterm.agent.native_console import (
     native_console_command,
     write_native_console_launch,
 )
+from band_wezterm.agent.opencode_server import OpenCodeEndpoint
 from band_wezterm.agent.spawn_cmd import (
     agent_pane_command,
     write_api_key_file,
@@ -60,7 +61,11 @@ class AgentLaunchResources:
                 path.unlink(missing_ok=True)
 
 
-def prepare_agent_launch(context: AgentLaunchContext) -> AgentLaunchResources:
+def prepare_agent_launch(
+    context: AgentLaunchContext,
+    *,
+    opencode_endpoint: OpenCodeEndpoint | None = None,
+) -> AgentLaunchResources:
     """Create private handoff files and commands before opening any pane."""
     resources = AgentLaunchResources()
     try:
@@ -82,6 +87,7 @@ def prepare_agent_launch(context: AgentLaunchContext) -> AgentLaunchResources:
             cwd=context.cwd,
             profile=context.profile,
             persona_file=resources.persona_file,
+            opencode_endpoint=opencode_endpoint,
         )
     except Exception:
         resources.remove_private_files()
@@ -122,9 +128,7 @@ async def rollback_agent_launch(resources: AgentLaunchResources) -> AgentPanes |
     return None
 
 
-async def _spawn_pane(
-    create: Callable[[], PaneId], acquired: list[PaneId]
-) -> PaneId:
+async def _spawn_pane(create: Callable[[], PaneId], acquired: list[PaneId]) -> PaneId:
     """Keep ownership of a thread-created pane even if the worker is cancelled."""
     task = asyncio.create_task(asyncio.to_thread(create))
     try:

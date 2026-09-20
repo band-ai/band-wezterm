@@ -10,6 +10,8 @@ from band_wezterm.backends import AgentTuning, TuningDimensionId, normalize_tuni
 from band_wezterm.client import AgentRecord
 from band_wezterm.managed_profiles import ManagedAgentProfile
 
+from .opencode_server import OpenCodeEndpoint
+
 
 def write_api_key_file(api_key: str) -> Path:
     """0600 temp file; the agent pane deletes it after reading."""
@@ -36,6 +38,7 @@ def agent_pane_command(
     cwd: Path,
     profile: ManagedAgentProfile | None = None,
     persona_file: Path | None = None,
+    opencode_endpoint: OpenCodeEndpoint | None = None,
 ) -> list[str]:
     harness = profile.harness if profile is not None else agent.harness
     if harness is None:
@@ -67,6 +70,8 @@ def agent_pane_command(
     reasoning = tuning.value_for(TuningDimensionId.REASONING)
     if reasoning is not None:
         command.extend(["--reasoning", reasoning])
+    if opencode_endpoint is not None:
+        command.extend(["--opencode-server-url", opencode_endpoint.url])
     return command
 
 
