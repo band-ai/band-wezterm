@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.2](https://github.com/band-ai/band-wezterm/compare/v0.4.1...v0.4.2) (2026-09-21)
+
+
+### Bug Fixes
+
+* **ci:** clone fresh for the uv.lock sync push instead of reusing checkout ([#16](https://github.com/band-ai/band-wezterm/issues/16)) ([e761dcc](https://github.com/band-ai/band-wezterm/commit/e761dccd1bb2f6f35307af1a7fe1c8fff14eb3d8))
+* **ci:** stop the uv.lock sync push from silently using GITHUB_TOKEN ([#15](https://github.com/band-ai/band-wezterm/issues/15)) ([41c7ecc](https://github.com/band-ai/band-wezterm/commit/41c7eccf022f9762051253dacd1f8f96395081f7))
+
+
+### Documentation
+
+* simplify installation guide ([#13](https://github.com/band-ai/band-wezterm/issues/13)) ([2b502b2](https://github.com/band-ai/band-wezterm/commit/2b502b2a3df7a2e61f5f6747b47e8b9a3a048f5f))
+
 ## [0.4.1](https://github.com/band-ai/band-wezterm/compare/v0.4.0...v0.4.1) (2026-09-20)
 
 
