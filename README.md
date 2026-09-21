@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/images/band-matrix-logo.png" alt="Band logo in green digital code rain" width="240">
+
 # Band for WezTerm
 
 [![CI](https://github.com/band-ai/band-wezterm/actions/workflows/ci.yml/badge.svg)](https://github.com/band-ai/band-wezterm/actions/workflows/ci.yml)
