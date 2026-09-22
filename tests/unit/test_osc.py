@@ -6,13 +6,13 @@ import base64
 
 import pytest
 
-from band_wezterm import osc
 from band_wezterm.osc import (
     ALLOWED_KEYS,
     DisallowedOscKeyError,
     OscKey,
     emit,
     encode_payload,
+    format_focus_sequence,
     format_sequence,
 )
 from band_wezterm.wezterm_cli import PaneId
@@ -23,7 +23,8 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[tuple[PaneId, str]]:
     """Capture what emit() would hand to `wezterm cli send-text`."""
     captured: list[tuple[PaneId, str]] = []
     monkeypatch.setattr(
-        osc, "send_text", lambda pane_id, text: captured.append((pane_id, text))
+        "band_wezterm.wezterm_cli.send_text",
+        lambda pane_id, text: captured.append((pane_id, text)),
     )
     return captured
 
@@ -73,4 +74,11 @@ def test_allowlist_contains_presence_split_and_room_colors() -> None:
     assert OscKey.AGENT_RUNTIME in ALLOWED_KEYS
     assert OscKey.AGENT_ROOM_COLORS in ALLOWED_KEYS
     assert OscKey.ROOM_COLOR in ALLOWED_KEYS
+    assert OscKey.FOCUS in ALLOWED_KEYS
     assert "band.agent.presence" not in {key.value for key in ALLOWED_KEYS}
+
+
+def test_format_focus_sequence_reuses_osc_framing() -> None:
+    sequence = format_focus_sequence()
+    assert sequence.startswith("\033]1337;SetUserVar=band.focus=")
+    assert sequence.endswith("\007")

@@ -6,9 +6,10 @@ import base64
 import sys
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
-from band_wezterm.wezterm_cli import PaneId, send_text
+if TYPE_CHECKING:
+    from band_wezterm.wezterm_cli import PaneId
 
 
 class OscKey(StrEnum):
@@ -26,12 +27,14 @@ class OscKey(StrEnum):
     ROOM_SLUG = "band.room.slug"
     ROOM_NAME = "band.room.name"
     ROOM_COLOR = "band.room.color"
+    FOCUS = "band.focus"
 
 
 ALLOWED_KEYS: Final[frozenset[OscKey]] = frozenset(OscKey)
 
-OSC_PREFIX: Final = "\033]1337;SetUserVar="
-OSC_SUFFIX: Final = "\007"
+OSC_PREFIX: Final = "\x1b]1337;SetUserVar="
+OSC_SUFFIX: Final = ""
+FOCUS_PAYLOAD: Final = "1"
 
 
 class DisallowedOscKeyError(ValueError):
@@ -54,6 +57,11 @@ def format_sequence(key: OscKey | str, value: str) -> str:
     return f"{OSC_PREFIX}{osc_key.value}={encode_payload(value)}{OSC_SUFFIX}"
 
 
+def format_focus_sequence() -> str:
+    """OSC that the Band WezTerm plugin handles as SwitchToWorkspace + focus."""
+    return format_sequence(OscKey.FOCUS, FOCUS_PAYLOAD)
+
+
 def emit(pane_id: PaneId, key: OscKey | str, value: str) -> None:
     """Write an allowlisted user-var to a pane. Raises on a disallowed key."""
     emit_many(pane_id, {key: value})
@@ -61,6 +69,9 @@ def emit(pane_id: PaneId, key: OscKey | str, value: str) -> None:
 
 def emit_many(pane_id: PaneId, fields: Mapping[OscKey | str, str]) -> None:
     """Write several allowlisted user-vars in one ``wezterm cli send-text``."""
+    # Lazy import: wezterm_cli reuses format_focus_sequence from this module.
+    from band_wezterm.wezterm_cli import send_text  # noqa: PLC0415
+
     payload = _joined_sequences(fields)
     if payload:
         send_text(pane_id, payload)

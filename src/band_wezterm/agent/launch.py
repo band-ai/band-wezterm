@@ -20,6 +20,7 @@ from band_wezterm.agent.spawn_cmd import (
 )
 from band_wezterm.client import AgentRecord
 from band_wezterm.managed_profiles import ManagedAgentProfile
+from band_wezterm.tui.agent_teardown import kill_pane_ids
 from band_wezterm.tui.stores import AgentPanes
 from band_wezterm.wezterm_cli import (
     DEFAULT_CONSOLE_ATTACH_PERCENT,
@@ -28,7 +29,6 @@ from band_wezterm.wezterm_cli import (
     WezTermCliError,
     WindowId,
     activate_pane,
-    kill_panes,
     set_tab_title,
     spawn_additional_tab,
     split_pane,
@@ -179,7 +179,7 @@ async def rollback_agent_launch(resources: AgentLaunchResources) -> AgentPanes |
     if not resources.acquired_panes:
         return None
     try:
-        await asyncio.shield(asyncio.to_thread(kill_panes, resources.acquired_panes))
+        await asyncio.shield(kill_pane_ids(resources.acquired_panes))
     except (WezTermCliError, OSError):
         first = resources.acquired_panes[0]
         last = resources.acquired_panes[-1]
