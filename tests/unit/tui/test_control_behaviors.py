@@ -658,7 +658,7 @@ async def test_room_roster_stops_selected_managed_agent(
     assert control_app.rooms_store.status == "Stopped Alpha."
 
 
-async def test_start_agent_spawns_private_console_and_band_bridge(
+async def test_start_agent_default_spawns_static_status_tab(
     control_app: ControlApp,
     band_client: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
@@ -678,8 +678,85 @@ async def test_start_agent_spawns_private_console_and_band_bridge(
     )
 
     spawned: list[tuple[object, ...]] = []
+    split = MagicMock()
+    preflight_kwargs: list[dict[str, object]] = []
+
+    def fake_spawn(window_id: object, cwd: object, command: list[str]) -> PaneId:
+        spawned.append((window_id, cwd, command))
+        return PaneId(99)
+
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.spawn_additional_tab", fake_spawn
+    )
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.set_tab_title", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr("band_wezterm.agent.launch.split_pane", split)
+    monkeypatch.setattr(
+        "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
+        lambda harness, **kwargs: preflight_kwargs.append(kwargs),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.write_api_key_file",
+        lambda _key: Path("/tmp/band-wezterm-test.key"),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.write_native_console_launch",
+        lambda _launch: (_ for _ in ()).throw(AssertionError("static mode")),
+    )
+
+    class _Pane:
+        def __init__(self, pane_id: int) -> None:
+            self.pane_id = pane_id
+
+    monkeypatch.setattr(
+        "band_wezterm.tui.control_app.list_panes",
+        lambda: [_Pane(99)],
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await settle(pilot)
+        assert control_app.agents_store.is_running(IDLE_AGENT_ID)
+        panes = control_app.agents_store.running[IDLE_AGENT_ID]
+        assert panes.console == PaneId(99)
+        assert panes.bridge == PaneId(99)
+        assert panes.ids == (PaneId(99),)
+
+    assert len(spawned) == 1
+    window_id, _cwd, bridge_command = spawned[0]
+    assert window_id == 42
+    assert "band_wezterm.agent" in bridge_command
+    assert "band_wezterm.agent.console" not in bridge_command
+    split.assert_not_called()
+    assert len(preflight_kwargs) == 1
+    assert preflight_kwargs[0]["require_native_console"] is False
+    assert "status tab" in (control_app.agents_store.status or "")
+
+
+async def test_start_agent_spawns_private_console_and_band_bridge(
+    control_app: ControlApp,
+    band_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    control_app.preferences.update(interactive_agent_console=True)
+    target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CLAUDE_SDK)
+    band_client.list_my_agents.return_value = [target]
+    band_client.managed_agent_api_key.return_value = "band_a_managed"
+    control_app.window_id = 42
+    control_app.managed_agents.record(
+        ManagedAgentProfile(
+            agent_id=IDLE_AGENT_ID,
+            name="Beta",
+            harness=HarnessId.CODEX,
+            tuning=AgentTuning(model="o3", reasoning="high"),
+        )
+    )
+
+    spawned: list[tuple[object, ...]] = []
     split: list[tuple[object, ...]] = []
-    activated: list[PaneId] = []
     preflighted: list[object] = []
 
     def fake_spawn(window_id: object, cwd: object, command: list[str]) -> PaneId:
@@ -697,9 +774,6 @@ async def test_start_agent_spawns_private_console_and_band_bridge(
         "band_wezterm.agent.launch.set_tab_title", lambda *_a, **_k: None
     )
     monkeypatch.setattr("band_wezterm.agent.launch.split_pane", fake_split)
-    monkeypatch.setattr(
-        "band_wezterm.agent.launch.activate_pane", activated.append
-    )
     monkeypatch.setattr(
         "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
         lambda harness, **_kwargs: preflighted.append(harness),
@@ -753,7 +827,6 @@ async def test_start_agent_spawns_private_console_and_band_bridge(
     assert bridge_command[bridge_command.index("--harness") + 1] == (
         HarnessId.CODEX.value
     )
-    assert activated == [PaneId(99)]
     assert preflighted == [HarnessId.CODEX]
     assert control_app.agents_store.find(IDLE_AGENT_ID).harness is HarnessId.CODEX
 
@@ -763,6 +836,7 @@ async def test_start_agent_surfaces_missing_native_console_before_spawning(
     band_client: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    control_app.preferences.update(interactive_agent_console=True)
     target = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
     band_client.list_my_agents.return_value = [target]
     band_client.managed_agent_api_key.return_value = "band_a_managed"
@@ -986,9 +1060,6 @@ async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
     monkeypatch.setattr(
         "band_wezterm.agent.launch.split_pane",
         lambda _pane, _cwd, _command: PaneId(100),
-    )
-    monkeypatch.setattr(
-        "band_wezterm.agent.launch.activate_pane", lambda _pane: None
     )
     monkeypatch.setattr(
         "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
@@ -1790,8 +1861,8 @@ async def test_start_agent_aborts_when_harness_changes_after_preflight(
     spawn = MagicMock()
     original = AgentsScreen._preflight_launch_profile
 
-    async def drift_after_preflight(self, agent_id, profile):
-        result = await original(self, agent_id, profile)
+    async def drift_after_preflight(self, agent_id, profile, **kwargs):
+        result = await original(self, agent_id, profile, **kwargs)
         if result is not None:
             current = self.control.managed_agents.get(agent_id)
             assert current is not None
@@ -1836,8 +1907,8 @@ async def test_start_agent_aborts_when_profile_removed_after_preflight(
     spawn = MagicMock()
     original = AgentsScreen._preflight_launch_profile
 
-    async def remove_after_preflight(self, agent_id, profile):
-        result = await original(self, agent_id, profile)
+    async def remove_after_preflight(self, agent_id, profile, **kwargs):
+        result = await original(self, agent_id, profile, **kwargs)
         if result is not None:
             self.control.managed_agents.remove(agent_id)
         return result

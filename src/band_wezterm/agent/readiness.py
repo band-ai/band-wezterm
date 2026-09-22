@@ -16,7 +16,9 @@ def preflight_managed_agent(
     cwd: Path | None = None,
     persona: str | None = None,
     tuning: AgentTuning | None = None,
+    require_native_console: bool = False,
 ) -> None:
-    """Confirm both the Band adapter and private native console are usable."""
+    """Confirm the Band adapter — and optionally the private native console — are usable."""
     preflight_harness(harness, cwd=cwd, persona=persona, tuning=tuning)
-    preflight_native_console(harness)
+    if require_native_console:
+        preflight_native_console(harness)

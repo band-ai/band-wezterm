@@ -109,7 +109,7 @@ set its matching `BAND_OAUTH_ISSUER`, `BAND_BASE_URL` (or `BAND_REST_URL`), and
 
 **Mentions:** in a room, type `@` and the beginning of a visible roster name or full participant handle. Tab or Right Arrow accepts the completion. Completed handles, including ones with spaces, remain one recipient.
 
-**Settings** persist under `~/.band-wezterm/preferences.json` (chat message limit, rooms page size, diagnostic toggles).
+**Settings** persist under `~/.band-wezterm/preferences.json` (chat message limit, rooms page size, diagnostic toggles, interactive agent console).
 
 <p align="center">
   <img src="docs/images/workspace.svg" alt="Control tab — default workspace with agents and rooms">
@@ -120,31 +120,38 @@ set its matching `BAND_OAUTH_ISSUER`, `BAND_BASE_URL` (or `BAND_REST_URL`), and
 
 ## Agent harnesses
 
-Register only creates the platform identity. **Start** opens one agent tab with:
+Register only creates the platform identity. **Start** opens one titled agent
+tab and leaves Control focused. By default the tab is a static Band bridge
+status pane (agent name, harness, model, online state) — not an interactive
+native CLI.
+
+Enable **Interactive agent console** in Settings to restore the previous layout:
 
 - the harness's native interactive CLI as the main pane; input there belongs to
   that private harness session and is never sent to Band;
-- the existing interactive Band bridge in a compact bottom pane, powered by the
-  matching [band-sdk-python](https://github.com/band-ai/band-sdk-python) adapter.
+- the Band bridge in a compact bottom pane, powered by the matching
+  [band-sdk-python](https://github.com/band-ai/band-sdk-python) adapter.
 
-The two panes share one lifecycle: closing either pane stops the other. The
+Those two panes share one lifecycle: closing either pane stops the other. The
 private CLI receives the managed profile's working directory, persona, model,
 and supported reasoning setting, but no `BAND_*` environment variables. Room
 messages remain available in Control exactly as before.
 
 Each managed agent has one durable profile: its Band identity, harness, role
-snapshot, tuning, and working directory. Start applies that same profile to
-both panes. The selected role is bound to the agent's name, so the agent should
-introduce itself by its Band identity and role rather than as only the underlying
+snapshot, tuning, and working directory. Start applies that same profile to the
+Band bridge (and to the native console when interactive mode is on). The
+selected role is bound to the agent's name, so the agent should introduce
+itself by its Band identity and role rather than as only the underlying
 harness. Editing a role file affects newly configured agents; use Reconfigure
 to update an existing agent's saved role snapshot.
 
-The panes deliberately keep conversation context separate. The native CLI is a
-private, direct harness session; it never reads or sends Band room messages.
-The Band bridge is the platform agent: each room gets its own harness thread,
-while all rooms retain the same managed-agent profile. `Model: automatic` lets
-each runtime use its provider default; select an explicit model in Reconfigure
-when the native tab and Band bridge must use the same model identifier.
+When the interactive console is enabled, the panes keep conversation context
+separate. The native CLI is a private, direct harness session; it never reads
+or sends Band room messages. The Band bridge is the platform agent: each room
+gets its own harness thread, while all rooms retain the same managed-agent
+profile. `Model: automatic` lets each runtime use its provider default; select
+an explicit model in Reconfigure when the native tab and Band bridge must use
+the same model identifier.
 
 ```bash
 # All four harnesses

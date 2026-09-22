@@ -12,11 +12,21 @@ from band_wezterm.preferences import HostPreferences, PreferencesStore
 
 def test_preferences_round_trip(tmp_path: Path) -> None:
     store = PreferencesStore(tmp_path / "prefs.json")
-    store.update(rooms_page_size=40, chat_messages_limit=50, diagnostic_log=False)
+    store.update(
+        rooms_page_size=40,
+        chat_messages_limit=50,
+        diagnostic_log=False,
+        interactive_agent_console=True,
+    )
     reloaded = PreferencesStore(tmp_path / "prefs.json")
     assert reloaded.current.rooms_page_size == 40
     assert reloaded.current.chat_messages_limit == 50
     assert reloaded.current.diagnostic_log is False
+    assert reloaded.current.interactive_agent_console is True
+
+
+def test_preferences_interactive_agent_console_defaults_off() -> None:
+    assert HostPreferences().interactive_agent_console is False
 
 
 def test_preferences_reject_out_of_range() -> None:

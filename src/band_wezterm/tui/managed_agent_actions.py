@@ -100,7 +100,11 @@ class ManagedAgentActions:
         self._refresh_agent_operation_view()
 
     async def _preflight_launch_profile(
-        self, agent_id: str, profile: ManagedAgentProfile
+        self,
+        agent_id: str,
+        profile: ManagedAgentProfile,
+        *,
+        require_native_console: bool,
     ) -> ManagedAgentProfile | None:
         current = profile
         for _ in range(PREFLIGHT_HARNESS_STABILITY_ATTEMPTS):
@@ -112,6 +116,7 @@ class ManagedAgentActions:
                     cwd=Path.cwd(),
                     persona=current.persona,
                     tuning=current.tuning,
+                    require_native_console=require_native_console,
                 )
             except (HarnessUnavailableError, NativeConsoleUnavailableError) as error:
                 self._set_agent_operation_status(str(error))
@@ -133,6 +138,7 @@ class ManagedAgentActions:
         window_id = control.window_id
         api_key = control.client.managed_agent_api_key(agent.id)
         profile = control.managed_agents.get(agent.id)
+        interactive_console = control.preferences.current.interactive_agent_console
         match window_id, api_key, profile:
             case None, _, _:
                 self._set_agent_operation_status(NO_WINDOW_MESSAGE)
@@ -146,7 +152,11 @@ class ManagedAgentActions:
             case window_id, api_key, profile:
                 agent = self._sync_agent_to_profile(agent, profile)
 
-        preflighted = await self._preflight_launch_profile(agent.id, profile)
+        preflighted = await self._preflight_launch_profile(
+            agent.id,
+            profile,
+            require_native_console=interactive_console,
+        )
         if preflighted is None:
             self._resync_store_to_durable_profile(agent)
             return None
@@ -166,6 +176,7 @@ class ManagedAgentActions:
                     profile=fresh,
                     window_id=window_id,
                     cwd=Path.cwd(),
+                    interactive_console=interactive_console,
                 )
 
     @work(group="managed-agent-start")
@@ -184,9 +195,13 @@ class ManagedAgentActions:
                 agent.id, panes.bridge, console=panes.console
             )
             committed = True
+            detail = (
+                "with private console and Band bridge"
+                if context.interactive_console
+                else "with Band bridge status tab"
+            )
             self._set_agent_operation_status(
-                f"Started {agent.name} ({context.profile.harness.value}) "
-                "with private console and Band bridge."
+                f"Started {agent.name} ({context.profile.harness.value}) {detail}."
             )
         except Exception as error:
             self._set_agent_operation_status(

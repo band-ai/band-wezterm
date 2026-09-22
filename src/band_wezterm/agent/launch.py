@@ -25,7 +25,6 @@ from band_wezterm.wezterm_cli import (
     PaneId,
     WezTermCliError,
     WindowId,
-    activate_pane,
     kill_panes,
     set_tab_title,
     spawn_additional_tab,
@@ -35,13 +34,14 @@ from band_wezterm.wezterm_cli import (
 
 @dataclass(frozen=True)
 class AgentLaunchContext:
-    """Validated inputs for one paired native-console and Band-bridge launch."""
+    """Validated inputs for one Band-bridge launch (optionally with native console)."""
 
     agent: AgentRecord
     api_key: str
     profile: ManagedAgentProfile
     window_id: WindowId
     cwd: Path
+    interactive_console: bool = False
 
 
 @dataclass
@@ -73,14 +73,15 @@ def prepare_agent_launch(
         instructions = context.profile.runtime_instructions()
         if instructions:
             resources.persona_file = write_persona_file(instructions)
-        console = build_native_console(context.profile, cwd=context.cwd)
-        resources.console_launch_file = write_native_console_launch(console)
-        resources.console_command = native_console_command(
-            agent_id=context.agent.id,
-            name=context.agent.name,
-            harness=context.profile.harness,
-            launch_file=resources.console_launch_file,
-        )
+        if context.interactive_console:
+            console = build_native_console(context.profile, cwd=context.cwd)
+            resources.console_launch_file = write_native_console_launch(console)
+            resources.console_command = native_console_command(
+                agent_id=context.agent.id,
+                name=context.agent.name,
+                harness=context.profile.harness,
+                launch_file=resources.console_launch_file,
+            )
         resources.bridge_command = agent_pane_command(
             context.agent,
             key_file=resources.key_file,
@@ -98,20 +99,29 @@ def prepare_agent_launch(
 async def spawn_agent_panes(
     context: AgentLaunchContext, resources: AgentLaunchResources
 ) -> AgentPanes:
-    """Open, title, and focus the private console with its Band bridge."""
-    console = await _spawn_pane(
+    """Open and title the agent tab; leave Control focused (do not activate)."""
+    if context.interactive_console:
+        console = await _spawn_pane(
+            lambda: spawn_additional_tab(
+                context.window_id, context.cwd, resources.console_command
+            ),
+            resources.acquired_panes,
+        )
+        await asyncio.to_thread(set_tab_title, console, context.agent.name)
+        bridge = await _spawn_pane(
+            lambda: split_pane(console, context.cwd, resources.bridge_command),
+            resources.acquired_panes,
+        )
+        return AgentPanes(bridge=bridge, console=console)
+
+    bridge = await _spawn_pane(
         lambda: spawn_additional_tab(
-            context.window_id, context.cwd, resources.console_command
+            context.window_id, context.cwd, resources.bridge_command
         ),
         resources.acquired_panes,
     )
-    await asyncio.to_thread(set_tab_title, console, context.agent.name)
-    bridge = await _spawn_pane(
-        lambda: split_pane(console, context.cwd, resources.bridge_command),
-        resources.acquired_panes,
-    )
-    await asyncio.to_thread(activate_pane, console)
-    return AgentPanes(bridge=bridge, console=console)
+    await asyncio.to_thread(set_tab_title, bridge, context.agent.name)
+    return AgentPanes(bridge=bridge, console=bridge)
 
 
 async def rollback_agent_launch(resources: AgentLaunchResources) -> AgentPanes | None:
@@ -122,9 +132,9 @@ async def rollback_agent_launch(resources: AgentLaunchResources) -> AgentPanes |
     try:
         await asyncio.shield(asyncio.to_thread(kill_panes, resources.acquired_panes))
     except (WezTermCliError, OSError):
-        return AgentPanes(
-            bridge=resources.acquired_panes[-1], console=resources.acquired_panes[0]
-        )
+        first = resources.acquired_panes[0]
+        last = resources.acquired_panes[-1]
+        return AgentPanes(bridge=last, console=first)
     return None
 
 
