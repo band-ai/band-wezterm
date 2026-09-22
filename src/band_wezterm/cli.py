@@ -31,6 +31,13 @@ class AgentAction(StrEnum):
     STATUS = "status"
 
 
+AGENT_ACTION_HELP: Final[dict[AgentAction, str]] = {
+    AgentAction.START: "Start a detached managed agent.",
+    AgentAction.STOP: "Gracefully stop a detached managed agent.",
+    AgentAction.STATUS: "Show one managed agent's runtime state.",
+}
+
+
 SetupHandler = Callable[[], int]
 RoomHandler = Callable[[str | None], Awaitable[int]]
 AsyncHandler = Callable[[], Awaitable[int]]
@@ -93,7 +100,11 @@ def create_app(
         return await status()
 
     for action in AgentAction:
-        agent_app.command(_agent_command(agent, action), name=action.value)
+        agent_app.command(
+            _agent_command(agent, action),
+            name=action.value,
+            help=AGENT_ACTION_HELP[action],
+        )
     app.command(agent_app)
     return app
 
