@@ -19,7 +19,7 @@ from band_wezterm.setup_wezterm import (
     ensure_band_plugin_config,
 )
 from band_wezterm.supervisor import SupervisorClient
-from band_wezterm.tui.control_app import is_control_process, run_control_app
+from band_wezterm.tui.control_app import AppScreen, is_control_process, run_control_app
 from band_wezterm.wezterm_cli import (
     WezTermCliError,
     WezTermNotFoundError,
@@ -33,7 +33,7 @@ class RoomSelectionError(ValueError):
     """A room reference does not select exactly one accessible room."""
 
 
-def _view_command(*, room_id: str | None) -> list[str]:
+def _view_command(*, room_id: str | None, screen: AppScreen) -> list[str]:
     """Spawn via ``env`` so NO_COLOR from the launcher cannot gray out Textual."""
     # macOS ``env`` has no ``--``; name=value then utility.
     command = [
@@ -47,6 +47,8 @@ def _view_command(*, room_id: str | None) -> list[str]:
     ]
     if room_id is not None:
         command.extend(["--room-id", room_id])
+    if screen is not AppScreen.ROOMS:
+        command.extend(["--screen", screen.value])
     return command
 
 
@@ -80,11 +82,12 @@ def _run_setup() -> int:
 def _run_view(
     *,
     room_id: str | None = None,
+    screen: AppScreen = AppScreen.ROOMS,
 ) -> int:
     cwd = Path.cwd()
     if os.environ.get("WEZTERM_PANE"):
-        return run_control_app(initial_room_id=room_id)
-    return _start_view_without_cli(cwd, room_id=room_id)
+        return run_control_app(initial_room_id=room_id, initial_screen=screen)
+    return _start_view_without_cli(cwd, room_id=room_id, screen=screen)
 
 
 def _run_room(reference: str | None) -> int:
@@ -102,11 +105,16 @@ def _start_view_without_cli(
     cwd: Path,
     *,
     room_id: str | None,
+    screen: AppScreen,
 ) -> int:
     """Recover when a GUI closes between a CLI lookup and spawn."""
-    start_first_window(cwd, _view_command(room_id=room_id))
+    start_first_window(cwd, _view_command(room_id=room_id, screen=screen))
     print("Band view opened in a new WezTerm window.")
     return 0
+
+
+def _run_agent_view() -> int:
+    return _run_view(screen=AppScreen.AGENTS)
 
 
 async def _current_supervisor() -> SupervisorClient:
@@ -245,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         agents=_run_agents,
         status=_run_status,
         agent=_run_agent_action,
+        agent_view=_run_agent_view,
     )
     try:
         return app(argv)

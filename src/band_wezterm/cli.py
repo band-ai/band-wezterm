@@ -42,6 +42,7 @@ SetupHandler = Callable[[], int]
 RoomHandler = Callable[[str | None], int]
 AsyncHandler = Callable[[], Awaitable[int]]
 AgentHandler = Callable[[AgentAction, str], Awaitable[int]]
+AgentViewHandler = Callable[[], int]
 
 
 def create_app(
@@ -52,6 +53,7 @@ def create_app(
     agents: AsyncHandler,
     status: AsyncHandler,
     agent: AgentHandler,
+    agent_view: AgentViewHandler,
 ) -> App:
     """Create the complete public command tree from typed operation handlers."""
     app = App(
@@ -63,6 +65,11 @@ def create_app(
         result_action="return_int_as_exit_code_else_zero",
     )
     agent_app = App(name=Command.AGENT.value, help="Operate one managed agent.")
+
+    @agent_app.default
+    def agent_view_command() -> int:
+        """Open agent management."""
+        return agent_view()
 
     @app.default
     def help_command() -> int:

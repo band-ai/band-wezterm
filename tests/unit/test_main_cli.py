@@ -136,7 +136,9 @@ def test_room_command_starts_the_textual_view_outside_cyclopts_event_loop(
     opened: list[str | None] = []
     monkeypatch.setattr(
         "band_wezterm.__main__.run_control_app",
-        lambda *, initial_room_id=None: opened.append(initial_room_id) or 0,
+        lambda *, initial_room_id=None, initial_screen=None: (
+            opened.append(initial_room_id) or 0
+        ),
     )
 
     assert main(["room"]) == 0
@@ -262,7 +264,9 @@ def test_run_view_uses_the_current_wezterm_pane(
     room_ids: list[str | None] = []
     monkeypatch.setattr(
         "band_wezterm.__main__.run_control_app",
-        lambda *, initial_room_id=None: room_ids.append(initial_room_id) or 0,
+        lambda *, initial_room_id=None, initial_screen=None: (
+            room_ids.append(initial_room_id) or 0
+        ),
     )
     assert _run_view(room_id="room-1") == 0
     assert room_ids == ["room-1"]

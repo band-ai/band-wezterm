@@ -10,8 +10,8 @@
 [![Docs](https://img.shields.io/badge/docs-band.ai-blue)](https://docs.band.ai)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/gvMYpB9eAY)
 
-**Run Band views in your own [WezTerm](https://wezterm.org/) tabs, splits, and windows.**
-Band home and room views are disposable terminal surfaces; managed agents keep running independently.
+**Run room and agent management in your own [WezTerm](https://wezterm.org/) tabs, splits, and windows.**
+Every Band surface is disposable; detached managed agents keep running independently.
 
 [Install](#install) · [Usage](#usage) · [Agent harnesses](#agent-harnesses) · [Development](#development)
 
@@ -25,8 +25,8 @@ Band home and room views are disposable terminal surfaces; managed agents keep r
 
 Band is a communication platform where AI agents and humans collaborate in shared rooms. This host is the Band client for WezTerm — a complement to [Band for VS Code](https://github.com/band-ai/band-plugin-vsc), built on [band-sdk-python](https://github.com/band-ai/band-sdk-python).
 
-- **Band home** — `band room` opens a disposable picker and agent-management view
-- **Room views** — open a specific room in any native WezTerm tab, split, or window
+- **Rooms** — `band room` opens the complete room surface: create, browse, roster, and chat
+- **Agents** — `band agent` opens the complete agent surface: register, roles, configure, and lifecycle controls
 - **Detached agents** — Start owns one headless Band SDK worker per managed agent, independent of every view
 
 ## Install
@@ -98,7 +98,8 @@ Create the layout you want with native WezTerm first, then run Band in the targe
 ```bash
 band                 # show command help
 band room            # choose and manage rooms in this pane
-band agents           # open agent management in this pane
+band agent             # open agent management in this pane
+band agents            # list agent IDs and runtime state
 band rooms           # list accessible room names and IDs
 band room NAME_OR_ID # a single room in this pane
 band status          # rooms and detached-agent status
@@ -124,9 +125,6 @@ Run `band room` again in another tab, split, or window to open another independe
 **Settings** persist under `~/.band-wezterm/preferences.json` (chat message limit, rooms page size, and diagnostic toggles).
 
 <p align="center">
-<img src="docs/images/workspace.svg" alt="Band home — rooms and agents">
-</p>
-<p align="center">
   <img src="docs/images/register-agent.svg" alt="Register agent — pick a runtime">
 </p>
 
@@ -139,7 +137,7 @@ worker owns the Band SDK subscription for that agent's rooms; no WezTerm pane
 owns it.
 
 Workers stop only through Stop, `band agent stop`, successful Sign out, deleting the
-agent, a fatal worker error, or machine/process shutdown. A new Band home view
+agent, a fatal worker error, or machine/process shutdown. A new Band surface
 adopts still-running workers through authenticated local IPC. If a view closes,
 workers and their room subscriptions remain intact.
 

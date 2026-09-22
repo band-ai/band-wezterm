@@ -65,7 +65,7 @@ class SignInScreen(ControlScreen):
         try:
             if not self.control.host_auth.has_stored_tokens():
                 await self.control.host_auth.sign_in()
-            await self.control.enter_workspace()
+            await self.control.enter_surface()
         except Exception as error:  # surfaced in-screen; retry with Enter
             message = format_platform_error(error, operation="sign in")
             self.status = f"{message}\n\n{SIGN_IN_PROMPT}"

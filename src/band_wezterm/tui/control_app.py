@@ -38,7 +38,6 @@ from band_wezterm.tui.screens.agents import AgentsScreen
 from band_wezterm.tui.screens.rooms import RoomDetailScreen, RoomsScreen
 from band_wezterm.tui.screens.settings import SettingsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
-from band_wezterm.tui.screens.workspace import WorkspaceScreen
 from band_wezterm.tui.stores import AgentsStore, AgentStatusSource, RoomsStore
 from band_wezterm.wezterm_cli import WezTermCliError, set_tab_title, set_window_title
 
@@ -52,7 +51,6 @@ class AppScreen(StrEnum):
     """Every navigable Band app screen."""
 
     SIGN_IN = "sign_in"
-    WORKSPACE = "workspace"
     AGENTS = "agents"
     ROOMS = "rooms"
     SETTINGS = "settings"
@@ -109,7 +107,6 @@ class ControlApp(App[None]):
 
     SCREENS: ClassVar[dict[str, Callable[[], Screen[None]]]] = {
         AppScreen.SIGN_IN: SignInScreen,
-        AppScreen.WORKSPACE: WorkspaceScreen,
         AppScreen.AGENTS: AgentsScreen,
         AppScreen.ROOMS: RoomsScreen,
         AppScreen.SETTINGS: SettingsScreen,
@@ -128,6 +125,7 @@ class ControlApp(App[None]):
         model_catalogs: ModelCatalogService | None = None,
         supervisor: SupervisorClient | None = None,
         initial_room_id: str | None = None,
+        initial_screen: AppScreen = AppScreen.ROOMS,
     ) -> None:
         super().__init__()
         self.settings = settings or load_settings()
@@ -150,12 +148,13 @@ class ControlApp(App[None]):
         self._ending_session = False
         self._authentication_rejected_pending = False
         self.initial_room_id = initial_room_id
+        self.initial_screen = initial_screen
 
     def on_mount(self) -> None:
         name_control_tab()
         self.set_interval(PANE_POLL_SECONDS, self._reconcile_workers)
         if self.host_auth.has_stored_tokens():
-            self.run_worker(self._restore_workspace(), group="workspace")
+            self.run_worker(self._restore_surface(), group="surface")
             return
         self.push_screen(AppScreen.SIGN_IN)
 
@@ -165,24 +164,24 @@ class ControlApp(App[None]):
         await self.opencode_server.close()
         await self.client.aclose()
 
-    async def _restore_workspace(self) -> None:
+    async def _restore_surface(self) -> None:
         """Restore a stored session or present a retryable sign-in gate."""
         try:
-            await self.enter_workspace()
+            await self.enter_surface()
         except Exception as error:
-            message = format_platform_error(error, operation="open workspace")
+            message = format_platform_error(error, operation="open Band view")
             self.notify(message, severity="error")
             self.push_screen(AppScreen.SIGN_IN)
 
-    async def enter_workspace(self) -> None:
-        """Identify the signed-in human, then open the shared workspace."""
+    async def enter_surface(self) -> None:
+        """Identify the signed-in human, then open the requested Band surface."""
         self.user_id = await self.client.whoami()
         await self.supervisor.connect(self.user_id)
         self.agents_store.replace_workers(await self.supervisor.list_workers())
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
         announce_control_human(self.user_id)
-        log_event("workspace entered", user_id=self.user_id)
-        self._show(AppScreen.WORKSPACE)
+        log_event("Band surface entered", user_id=self.user_id)
+        self._show(self.initial_screen)
         await self._open_initial_room()
 
     async def _open_initial_room(self) -> None:
@@ -204,9 +203,6 @@ class ControlApp(App[None]):
 
     def action_show_rooms(self) -> None:
         self._show(AppScreen.ROOMS)
-
-    def action_show_workspace(self) -> None:
-        self._show(AppScreen.WORKSPACE)
 
     def action_show_settings(self) -> None:
         self.push_screen(AppScreen.SETTINGS)
@@ -335,10 +331,11 @@ class ControlApp(App[None]):
 def run_control_app(
     *,
     initial_room_id: str | None = None,
+    initial_screen: AppScreen = AppScreen.ROOMS,
 ) -> int:
     """Run a disposable Band home or room view in this process."""
     mark_control_process()
     ensure_terminal_color()
     configure_diagnostics()
-    ControlApp(initial_room_id=initial_room_id).run()
+    ControlApp(initial_room_id=initial_room_id, initial_screen=initial_screen).run()
     return 0

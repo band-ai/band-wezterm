@@ -1,4 +1,4 @@
-"""Render Control-tab SVGs for README.md.
+"""Render room and agent SVGs for README.md.
 
 No live WezTerm or platform needed — same mocked seams as the unit Pilot tests.
 
@@ -152,10 +152,6 @@ def _app(tmp: Path, client: MagicMock) -> ControlApp:
     return app
 
 
-async def _capture_workspace(_app: ControlApp, _pilot: Pilot[None]) -> None:
-    return
-
-
 async def _capture_room(app: ControlApp, pilot: Pilot[None]) -> None:
     app.action_show_rooms()
     await _settle(pilot)
@@ -186,7 +182,6 @@ async def _main() -> None:
     IMAGES.mkdir(parents=True, exist_ok=True)
     with patch("band_wezterm.pane_identity.announce_control_human"):
         written = [
-            await _write("workspace.svg", _capture_workspace, (110, 16)),
             await _write("control-room.svg", _capture_room, (110, 28)),
             await _write("register-agent.svg", _capture_register, (88, 18)),
         ]
