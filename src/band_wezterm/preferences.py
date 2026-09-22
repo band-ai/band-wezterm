@@ -25,11 +25,8 @@ class HostPreferences(BaseModel):
     chat_messages_limit: int = CHAT_MESSAGES_LIMIT
     diagnostic_log: bool = True
     diagnostic_log_verbose: bool = False
-<<<<<<< HEAD
     interactive_agent_console: bool = False
-=======
     chat_event_types: tuple[str, ...] = DEFAULT_ALLOWED_TYPES
->>>>>>> 604990b (feat(wezterm): filter and expand Control chat events)
 
     @field_validator("rooms_page_size")
     @classmethod
