@@ -835,10 +835,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
                 order_roster(
                     participants,
                     user_id=self.control.user_id,
-                    local_agent_ids=(
-                        profile.agent_id
-                        for profile in self.control.managed_agents.list()
-                    ),
+                    local_agent_ids=self.control.managed_agents.ids(),
                 )
             )
             store.clear_status(RoomStatusSource.ROSTER)

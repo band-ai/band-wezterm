@@ -30,10 +30,9 @@ from band_wezterm.config import (
 )
 from band_wezterm.diagnostics import configure_diagnostics, log_event
 from band_wezterm.errors import format_platform_error
-from band_wezterm.identity import AgentStatus, AvatarKind, agent_accent, initials
 from band_wezterm.local_state import StarredRooms
 from band_wezterm.managed_profiles import ManagedAgentStore
-from band_wezterm.osc import OscKey, emit_many_to_stdout
+from band_wezterm.pane_identity import announce_human_pane
 from band_wezterm.preferences import PreferencesStore
 from band_wezterm.tui.host_pane import (
     WEZTERM_PANE_ENV,
@@ -367,15 +366,7 @@ class ControlApp(App[None]):
 
 def announce_human(user_id: str) -> None:
     """The signed-in human stays online for as long as the host runs."""
-    fields: dict[OscKey, str] = {
-        OscKey.AGENT_ID: user_id,
-        OscKey.AGENT_NAME: HOST_HUMAN_NAME,
-        OscKey.AGENT_INITIALS: initials(HOST_HUMAN_NAME),
-        OscKey.AGENT_COLOR: agent_accent(user_id),
-        OscKey.AGENT_KIND: AvatarKind.HUMAN.value,
-        OscKey.AGENT_STATUS: AgentStatus.ONLINE.value,
-    }
-    emit_many_to_stdout(fields)
+    announce_human_pane(user_id, HOST_HUMAN_NAME)
 
 
 def run_control_app() -> int:

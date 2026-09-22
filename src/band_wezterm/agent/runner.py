@@ -13,7 +13,6 @@ from band import Agent
 from band.runtime.types import AgentConfig
 
 from band_wezterm.agent.adapters import build_adapter
-from band_wezterm.agent.pane_identity import announce_agent_pane
 from band_wezterm.agent.spawn_cmd import tuning_from_cli
 from band_wezterm.backends import AgentTuning, TuningDimensionId
 from band_wezterm.config import (
@@ -28,8 +27,8 @@ from band_wezterm.config import (
 )
 from band_wezterm.diagnostics import configure_diagnostics, log_event
 from band_wezterm.errors import format_platform_error
-from band_wezterm.identity import AgentRuntime, AgentStatus
-from band_wezterm.osc import OscKey, emit_to_stdout
+from band_wezterm.identity import AgentRuntime
+from band_wezterm.pane_identity import announce_agent_pane, announce_runtime_status
 
 AGENT_TAB_TITLE = "Band agent"
 AGENT_TAB_ONLINE = "Online — listening to Band rooms"
@@ -159,15 +158,13 @@ async def run(args: argparse.Namespace) -> int:
     except Exception as error:
         failed = True
         message = format_platform_error(error, operation="agent runtime")
-        emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.ERROR.value)
-        emit_to_stdout(OscKey.AGENT_STATUS, AgentStatus.OFFLINE.value)
+        announce_runtime_status(AgentRuntime.ERROR)
         print(f"Agent runtime failed: {message}", file=sys.stderr)
         return 1
     finally:
         if not failed:
             log_event("agent stopping", agent_id=agent_id)
-            emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.STOPPING.value)
-            emit_to_stdout(OscKey.AGENT_STATUS, AgentStatus.OFFLINE.value)
+            announce_runtime_status(AgentRuntime.STOPPING)
     return 0
 
 

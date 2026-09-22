@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence, Set
 from enum import StrEnum
 
 from band_wezterm.identity import AvatarKind
@@ -28,15 +28,14 @@ def roster_group(
     participant: ParticipantRecord,
     *,
     user_id: str | None,
-    local_agent_ids: Iterable[str],
+    local_agent_ids: Set[str],
 ) -> RosterGroup:
     """Classify one roster row — mirrors VS Code INT-1521 avatar groups."""
     if user_id is not None and participant.id == user_id:
         return RosterGroup.SELF
     if participant.kind is AvatarKind.HUMAN:
         return RosterGroup.HUMAN
-    local = frozenset(local_agent_ids)
-    if participant.id in local:
+    if participant.id in local_agent_ids:
         return RosterGroup.LOCAL
     return RosterGroup.OUTSIDE
 
@@ -45,16 +44,17 @@ def order_roster(
     participants: Sequence[ParticipantRecord],
     *,
     user_id: str | None,
-    local_agent_ids: Iterable[str],
+    local_agent_ids: Set[str],
 ) -> list[ParticipantRecord]:
     """Stable display order: me → humans → local agents → outside agents."""
-    local = frozenset(local_agent_ids)
     return sorted(
         participants,
         key=lambda participant: (
             _ROSTER_GROUP_RANK[
                 roster_group(
-                    participant, user_id=user_id, local_agent_ids=local
+                    participant,
+                    user_id=user_id,
+                    local_agent_ids=local_agent_ids,
                 )
             ],
             participant.name.casefold(),
