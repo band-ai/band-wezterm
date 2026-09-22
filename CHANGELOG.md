@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/band-ai/band-wezterm/compare/v0.4.2...v0.5.0) (2026-09-22)
+
+
+### Features
+
+* **wezterm:** default agent tabs to static status ([#20](https://github.com/band-ai/band-wezterm/issues/20)) ([e9d75d0](https://github.com/band-ai/band-wezterm/commit/e9d75d0c6c1dc47e68606f3320426b09a094d6e8))
+
+
+### Documentation
+
+* add matrix-inspired README logo ([#17](https://github.com/band-ai/band-wezterm/issues/17)) ([b702fa4](https://github.com/band-ai/band-wezterm/commit/b702fa414948d6ee7875d083e34f1a35bae8e659))
+* refine matrix logo transparency ([#19](https://github.com/band-ai/band-wezterm/issues/19)) ([754efda](https://github.com/band-ai/band-wezterm/commit/754efda4474e771b70a1d30627706a611eb9c252))
+
 ## [0.4.2](https://github.com/band-ai/band-wezterm/compare/v0.4.1...v0.4.2) (2026-09-21)
 
 
