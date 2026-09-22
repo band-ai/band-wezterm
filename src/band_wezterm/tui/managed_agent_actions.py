@@ -162,31 +162,24 @@ class ManagedAgentActions:
         self._set_agent_operation_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
         return None
 
-    async def _resolve_launch_context(
-        self, agent: AgentRecord
-    ) -> AgentLaunchContext | None:
-        control = self._control_screen.control
-        window_id = control.window_id
-        api_key = control.client.managed_agent_api_key(agent.id)
-        profile = control.managed_agents.get(agent.id)
-        interactive_console = control.preferences.current.interactive_agent_console
-        match window_id, api_key, profile:
-            case None, _, _:
-                self._set_agent_operation_status(NO_WINDOW_MESSAGE)
-                return None
-            case _, None | "", _:
-                self._set_agent_operation_status(NO_MANAGED_KEY_MESSAGE)
-                return None
-            case _, _, None:
-                self._set_agent_operation_status(NO_MANAGED_PROFILE_MESSAGE)
-                return None
-            case window_id, api_key, profile:
-                agent = self._sync_agent_to_profile(agent, profile)
 
+    async def _ready_managed_profile(
+        self,
+        agent: AgentRecord,
+        *,
+        require_native_console: bool,
+    ) -> tuple[AgentRecord, ManagedAgentProfile] | None:
+        """Load, preflight, and sync one durable profile for start or attach."""
+        control = self._control_screen.control
+        profile = control.managed_agents.get(agent.id)
+        if profile is None:
+            self._set_agent_operation_status(NO_MANAGED_PROFILE_MESSAGE)
+            return None
+        agent = self._sync_agent_to_profile(agent, profile)
         preflighted = await self._preflight_launch_profile(
             agent.id,
             profile,
-            require_native_console=interactive_console,
+            require_native_console=require_native_console,
         )
         if preflighted is None:
             self._resync_store_to_durable_profile(agent)
@@ -201,15 +194,41 @@ class ManagedAgentActions:
                 self._set_agent_operation_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
                 return None
             case fresh:
-                return AgentLaunchContext(
-                    agent=self._sync_agent_to_profile(agent, fresh),
-                    api_key=api_key,
-                    profile=fresh,
-                    window_id=window_id,
-                    cwd=Path.cwd(),
-                    interactive_console=interactive_console,
-                    focus_pane=current_pane_id(),
-                )
+                return self._sync_agent_to_profile(agent, fresh), fresh
+
+    async def _resolve_launch_context(
+        self, agent: AgentRecord
+    ) -> AgentLaunchContext | None:
+        control = self._control_screen.control
+        window_id = control.window_id
+        api_key = control.client.managed_agent_api_key(agent.id)
+        profile = control.managed_agents.get(agent.id)
+        interactive_console = control.preferences.current.interactive_agent_console
+        if window_id is None:
+            self._set_agent_operation_status(NO_WINDOW_MESSAGE)
+            return None
+        if not api_key:
+            self._set_agent_operation_status(NO_MANAGED_KEY_MESSAGE)
+            return None
+        if profile is None:
+            self._set_agent_operation_status(NO_MANAGED_PROFILE_MESSAGE)
+            return None
+
+        ready = await self._ready_managed_profile(
+            agent, require_native_console=interactive_console
+        )
+        if ready is None:
+            return None
+        agent, fresh = ready
+        return AgentLaunchContext(
+            agent=agent,
+            api_key=api_key,
+            profile=fresh,
+            window_id=window_id,
+            cwd=Path.cwd(),
+            interactive_console=interactive_console,
+            focus_pane=current_pane_id(),
+        )
 
     @work(group="managed-agent-start")
     async def _start_managed_agent(self, agent: AgentRecord) -> None:
@@ -265,28 +284,12 @@ class ManagedAgentActions:
     ) -> None:
         control = self._control_screen.control
         try:
-            profile = control.managed_agents.get(agent.id)
-            if profile is None:
-                self._set_agent_operation_status(NO_MANAGED_PROFILE_MESSAGE)
-                return
-            agent = self._sync_agent_to_profile(agent, profile)
-            preflighted = await self._preflight_launch_profile(
-                agent.id,
-                profile,
-                require_native_console=True,
+            ready = await self._ready_managed_profile(
+                agent, require_native_console=True
             )
-            if preflighted is None:
-                self._resync_store_to_durable_profile(agent)
+            if ready is None:
                 return
-            fresh = control.managed_agents.get(agent.id)
-            if fresh is None:
-                self._set_agent_operation_status(NO_MANAGED_PROFILE_MESSAGE)
-                return
-            if fresh.harness is not preflighted.harness:
-                self._sync_agent_to_profile(agent, fresh)
-                self._set_agent_operation_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
-                return
-            agent = self._sync_agent_to_profile(agent, fresh)
+            agent, fresh = ready
             live = control.agents_store.running.get(agent.id)
             if live is None:
                 self._set_agent_operation_status(
