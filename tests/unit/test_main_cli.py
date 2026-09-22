@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from filelock import Timeout
@@ -11,7 +12,9 @@ from filelock import Timeout
 from band_wezterm.__main__ import (
     COMMAND_NAME,
     SETUP_COMMAND,
+    RoomSelectionError,
     _parse_args,
+    _resolve_room_id,
     _run_control,
     main,
 )
@@ -56,7 +59,48 @@ def test_parse_setup_subcommand() -> None:
 
 def test_parse_room_subcommand() -> None:
     args = _parse_args(["room", "room-1"])
-    assert args.room_id == "room-1"
+    assert args.room == "room-1"
+
+
+def test_parse_room_without_a_reference_opens_control_picker() -> None:
+    assert _parse_args(["room"]).room is None
+
+
+@pytest.mark.asyncio
+async def test_room_reference_resolves_an_exact_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = MagicMock()
+    client.list_my_chats = AsyncMock(
+        return_value=[MagicMock(id="room-1", title="Planning")]
+    )
+    client.aclose = AsyncMock()
+    monkeypatch.setattr("band_wezterm.__main__.BandClient", lambda _auth: client)
+
+    assert await _resolve_room_id("planning") == "room-1"
+    client.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_unknown_room_reference_explains_how_to_choose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = MagicMock()
+    client.list_my_chats = AsyncMock(return_value=[])
+    client.aclose = AsyncMock()
+    monkeypatch.setattr("band_wezterm.__main__.BandClient", lambda _auth: client)
+
+    with pytest.raises(RoomSelectionError, match="Run `band` to choose a room"):
+        await _resolve_room_id("missing")
+
+
+def test_main_help_is_a_discoverable_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["help"]) == 0
+    help_text = capsys.readouterr().out
+    assert "NAME_OR_ID" in help_text
+    assert "choose one in Control" in help_text
 
 
 def test_setup_help_mentions_active_config(
@@ -124,8 +168,9 @@ def test_main_setup_oserror(
 
 
 def test_run_control_uses_the_current_wezterm_pane(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setattr("band_wezterm.__main__._control_lock_path", lambda: tmp_path / "lock")
     monkeypatch.setenv("WEZTERM_PANE", "81")
     room_ids: list[str | None] = []
     monkeypatch.setattr(
@@ -137,10 +182,11 @@ def test_run_control_uses_the_current_wezterm_pane(
 
 
 def test_run_control_starts_a_gui_outside_wezterm(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     started: list[tuple[Path, list[str]]] = []
     monkeypatch.delenv("WEZTERM_PANE", raising=False)
+    monkeypatch.setattr("band_wezterm.__main__._control_lock_path", lambda: tmp_path / "lock")
     monkeypatch.setattr(
         "band_wezterm.__main__.start_first_window",
         lambda cwd, command: started.append((cwd, command)),

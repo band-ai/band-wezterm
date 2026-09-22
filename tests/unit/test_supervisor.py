@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
-from band_wezterm.supervisor.protocol import SupervisorRequest, SupervisorState
+from band_wezterm.supervisor.protocol import (
+    SupervisorRequest,
+    SupervisorState,
+    WorkerRecord,
+    WorkerState,
+)
 from band_wezterm.supervisor.runtime import SupervisorServer
 
 
@@ -58,3 +65,93 @@ async def test_supervisor_requires_authenticated_ipc_and_serves_worker_inventory
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_supervisor_serializes_concurrent_lifecycle_requests(
+    tmp_path: Path,
+) -> None:
+    server = SupervisorServer(user_id="user-1", state_path=tmp_path / "state.json")
+    active = 0
+    maximum = 0
+
+    async def start(_agent_id: str, _cwd: Path) -> WorkerRecord:
+        nonlocal active, maximum
+        active += 1
+        maximum = max(maximum, active)
+        await asyncio.sleep(0)
+        active -= 1
+        return WorkerRecord(
+            agent_id="agent-1",
+            name="Agent",
+            pid=1,
+            control_socket="/tmp/worker.sock",
+            control_token="token",
+            cwd=str(tmp_path),
+            started_at=0,
+        )
+
+    server._start_worker = start  # type: ignore[method-assign]
+    request = SupervisorRequest(
+        token="token", action="start", agent_id="agent-1", cwd=str(tmp_path)
+    )
+    await asyncio.gather(server._dispatch(request), server._dispatch(request))
+
+    assert maximum == 1
+
+
+@pytest.mark.asyncio
+async def test_stop_of_unready_worker_terminates_its_process_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worker = WorkerRecord(
+        agent_id="agent-1",
+        name="Agent",
+        pid=os.getpid(),
+        control_socket=str(tmp_path / "missing.sock"),
+        control_token="token",
+        cwd=str(tmp_path),
+        started_at=0,
+    )
+    server = SupervisorServer(user_id="user-1", state_path=tmp_path / "state.json")
+    server._state = server._state.model_copy(
+        update={"workers": {worker.agent_id: worker}}
+    )
+    server._save_state = MagicMock()  # type: ignore[method-assign]
+    terminated: list[int] = []
+    monkeypatch.setattr("band_wezterm.supervisor.runtime.WORKER_START_GRACE_SECONDS", 0)
+    monkeypatch.setattr(
+        "band_wezterm.supervisor.runtime._terminate_worker", terminated.append
+    )
+
+    result = await server._stop_worker(worker.agent_id)
+
+    assert result is None
+    assert server._state.workers == {}
+    assert terminated == [worker.pid]
+
+
+def test_restarted_supervisor_adopts_persisted_worker_state(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    worker = WorkerRecord(
+        agent_id="agent-1",
+        name="Agent",
+        pid=1,
+        control_socket="/tmp/worker.sock",
+        control_token="token",
+        cwd=str(tmp_path),
+        started_at=0,
+        state=WorkerState.RUNNING,
+    )
+    state = SupervisorState(
+        user_id="user-1",
+        token="supervisor-token",
+        socket_path="/tmp/old.sock",
+        workers={worker.agent_id: worker},
+    )
+    state_path.write_text(state.model_dump_json())
+
+    server = SupervisorServer(user_id="user-1", state_path=state_path)
+    server._load_or_create_state()
+
+    assert server._state.workers == {worker.agent_id: worker}

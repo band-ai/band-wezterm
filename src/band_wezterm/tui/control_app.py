@@ -31,7 +31,6 @@ from band_wezterm.supervisor import SupervisorClient
 from band_wezterm.tui.host_pane import (
     WEZTERM_PANE_ENV,
     current_pane_id,
-    current_window_id,
 )
 from band_wezterm.tui.refresh import PANE_POLL_SECONDS
 from band_wezterm.tui.screens.agents import AgentsScreen
@@ -140,7 +139,6 @@ class ControlApp(App[None]):
         self.client.set_authentication_rejected_handler(
             self._post_authentication_rejected
         )
-        self.window_id = current_window_id()
         self.user_id: str | None = None
         self.agents_store = AgentsStore()
         self.rooms_store = RoomsStore()

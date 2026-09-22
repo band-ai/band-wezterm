@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import secrets
+import signal
 import subprocess
 import sys
 import tempfile
@@ -35,6 +36,7 @@ STATE_MODE: Final = 0o600
 DIRECTORY_MODE: Final = 0o700
 IPC_TIMEOUT_SECONDS: Final = 2
 WORKER_START_GRACE_SECONDS: Final = 10
+WORKER_STOP_RETRY_SECONDS: Final = 0.05
 
 
 class SupervisorServer:
@@ -45,6 +47,7 @@ class SupervisorServer:
         self._state_path = state_path
         self._state = self._new_state()
         self._server: asyncio.Server | None = None
+        self._lifecycle_lock = asyncio.Lock()
 
     async def run(self) -> None:
         self._load_or_create_state()
@@ -127,16 +130,21 @@ class SupervisorServer:
             case "ping":
                 return {"ok": True}
             case "list":
-                workers = await self._refresh_workers()
+                async with self._lifecycle_lock:
+                    workers = await self._refresh_workers()
                 return {
                     "ok": True,
                     "workers": [worker.model_dump(mode="json") for worker in workers],
                 }
             case "start" if request.agent_id and request.cwd:
-                worker = await self._start_worker(request.agent_id, Path(request.cwd))
+                async with self._lifecycle_lock:
+                    worker = await self._start_worker(
+                        request.agent_id, Path(request.cwd)
+                    )
                 return {"ok": True, "worker": worker.model_dump(mode="json")}
             case "stop" if request.agent_id:
-                worker = await self._stop_worker(request.agent_id)
+                async with self._lifecycle_lock:
+                    worker = await self._stop_worker(request.agent_id)
                 return {
                     "ok": True,
                     "worker": None
@@ -144,7 +152,8 @@ class SupervisorServer:
                     else worker.model_dump(mode="json"),
                 }
             case "stop_all":
-                await self._stop_all_workers()
+                async with self._lifecycle_lock:
+                    await self._stop_all_workers()
                 return {"ok": True}
             case _:
                 raise ValueError("unsupported supervisor request")
@@ -232,8 +241,10 @@ class SupervisorServer:
         worker = self._state.workers.get(agent_id)
         if worker is None:
             return None
-        status = await _worker_request(worker, "stop")
+        status = await _request_worker_stop(worker)
         if status is None:
+            if _pid_alive(worker.pid):
+                _terminate_worker(worker.pid)
             workers = dict(self._state.workers)
             workers.pop(agent_id, None)
         else:
@@ -264,6 +275,26 @@ async def _worker_request(worker: WorkerRecord, action: str) -> WorkerResponse |
         return WorkerResponse.model_validate_json(line)
     except (TimeoutError, OSError, ValidationError):
         return None
+
+
+async def _request_worker_stop(worker: WorkerRecord) -> WorkerResponse | None:
+    """Wait briefly for a freshly spawned worker before force-stopping it."""
+    status = await _worker_request(worker, "stop")
+    if status is not None or worker.state is not WorkerState.STARTING:
+        return status
+    deadline = time.monotonic() + WORKER_START_GRACE_SECONDS
+    while _pid_alive(worker.pid) and time.monotonic() < deadline:
+        await asyncio.sleep(WORKER_STOP_RETRY_SECONDS)
+        status = await _worker_request(worker, "stop")
+        if status is not None:
+            return status
+    return None
+
+
+def _terminate_worker(pid: int) -> None:
+    """Terminate the detached worker process group after graceful stop fails."""
+    with suppress(ProcessLookupError):
+        os.killpg(pid, signal.SIGTERM)
 
 
 def _pid_alive(pid: int) -> bool:

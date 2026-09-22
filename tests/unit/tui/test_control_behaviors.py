@@ -34,7 +34,8 @@ from band_wezterm.client import (
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.roles import Role
-from band_wezterm.tui.control_app import ControlApp
+from band_wezterm.supervisor import WorkerRecord, WorkerState
+from band_wezterm.tui.control_app import ROOMS_SCREEN, ControlApp
 from band_wezterm.tui.managed_agent_actions import (
     NO_MANAGED_KEY_MESSAGE,
     NO_MANAGED_PROFILE_MESSAGE,
@@ -58,7 +59,6 @@ from band_wezterm.tui.screens.rooms import (
     RoomsScreen,
 )
 from band_wezterm.tui.screens.rooms import selector as room_selector
-from band_wezterm.tui.screens.settings import SettingsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
 from band_wezterm.tui.screens.workspace import (
     AGENT_ACTION_SELECTION_MESSAGE,
@@ -83,9 +83,7 @@ UX_ROLE = Role(
 
 
 def register_status(screen: RegisterAgentScreen) -> str:
-    return str(
-        screen.query_one(register_selector(RegisterId.STATUS), Static).render()
-    )
+    return str(screen.query_one(register_selector(RegisterId.STATUS), Static).render())
 
 
 def highlighted_option_id(screen: RegisterAgentScreen) -> str | None:
@@ -185,7 +183,9 @@ async def test_workspace_refresh_reconciles_removed_room_selection(
         assert control_app.rooms_store.selected_id == replacement_room.id
 
 
-async def test_workspace_opens_selected_room(control_app: ControlApp, band_client: MagicMock) -> None:
+async def test_workspace_opens_selected_room(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
     selected_room = room(ROOM_ID, "Planning")
     band_client.list_my_chats.return_value = [selected_room]
 
@@ -199,6 +199,19 @@ async def test_workspace_opens_selected_room(control_app: ControlApp, band_clien
 
         assert isinstance(control_app.screen, RoomDetailScreen)
         assert control_app.rooms_store.selected_id == selected_room.id
+
+
+async def test_workspace_tab_focuses_rooms_and_opens_the_selected_room(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    band_client.list_my_chats.return_value = [room(ROOM_ID, "Planning")]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("tab", "enter")
+        await settle(pilot)
+
+        assert isinstance(control_app.screen, RoomDetailScreen)
 
 
 async def test_workspace_room_focus_cannot_apply_agent_action(
@@ -258,9 +271,9 @@ async def test_register_records_role_model_and_effort(
         await pilot.press("down", "enter")
         await settle(pilot)
         assert screen.step is WizardStep.NAME
-        assert "/" not in screen.query_one(
-            register_selector(RegisterId.TEXT), Input
-        ).value
+        assert (
+            "/" not in screen.query_one(register_selector(RegisterId.TEXT), Input).value
+        )
 
         await pilot.press("enter")
         await settle(pilot)
@@ -346,7 +359,6 @@ async def test_register_submit_returns_to_name_when_draft_name_is_illegal(
     band_client.create_agent.assert_not_called()
 
 
-
 async def test_add_participant_only_adds(
     control_app: ControlApp, band_client: MagicMock
 ) -> None:
@@ -415,13 +427,13 @@ async def test_two_running_agents_can_create_a_room_and_receive_mentions(
     band_client.list_participants.side_effect = lambda _room_id: list(participants)
     band_client.add_participant.side_effect = add_participant
     band_client.send_message.side_effect = send_message
-    monkeypatch.setattr("band_wezterm.tui.agent_teardown.kill_panes", lambda _panes: None)
     control_app.agents_store.mark_running(first.id, PaneId(11), console=PaneId(10))
     control_app.agents_store.mark_running(second.id, PaneId(13), console=PaneId(12))
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
-        await pilot.press("ctrl+o", "n")
+        control_app._show(ROOMS_SCREEN)
+        await pilot.press("n")
         title = control_app.screen.query_one(room_selector(RoomId.DRAFT_TITLE), Input)
         title.value = created_room.title
         await title.action_submit()
@@ -497,25 +509,26 @@ async def test_stale_rejected_jwt_does_not_clear_a_new_session(
         host_auth.sign_out.assert_not_awaited()
 
 
-async def test_unmount_stops_every_agent_tab_the_host_started(
-    control_app: ControlApp, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    killed: list[PaneId] = []
-    monkeypatch.setattr(
-        "band_wezterm.tui.agent_teardown.kill_panes",
-        killed.extend,
+async def test_unmount_retains_detached_workers(control_app: ControlApp) -> None:
+    worker = WorkerRecord(
+        agent_id=RUNNING_AGENT_ID,
+        name="Alpha",
+        pid=1,
+        control_socket="/tmp/worker.sock",
+        control_token="token",
+        cwd="/tmp",
+        started_at=0,
+        state=WorkerState.RUNNING,
     )
-    control_app.agents_store.mark_running(
-        RUNNING_AGENT_ID,
-        AGENT_PANE,
-        console=PaneId(10),
-    )
+    control_app.supervisor.list_workers.return_value = (worker,)
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
 
-    assert killed == [PaneId(10), AGENT_PANE]
-    assert control_app.agents_store.running == {}
+    assert (
+        control_app.agents_store.worker_state(RUNNING_AGENT_ID) is WorkerState.RUNNING
+    )
+    control_app.supervisor.stop_all.assert_not_awaited()
 
 
 async def test_opening_a_room_loads_message_history(
@@ -579,49 +592,55 @@ async def test_room_roster_shows_local_agent_runtime(
         assert str(indicator.render()) == "●"
 
 
-async def test_closing_agent_tab_updates_runtime_from_room_view(
-    control_app: ControlApp,
-    band_client: MagicMock,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_room_view_projects_worker_state_from_supervisor(
+    control_app: ControlApp, band_client: MagicMock
 ) -> None:
     member = agent(RUNNING_AGENT_ID, "Alpha")
     band_client.list_participants.return_value = [participant(member)]
-    control_app.agents_store.mark_running(RUNNING_AGENT_ID, AGENT_PANE)
-    monkeypatch.setattr("band_wezterm.tui.control_app.list_panes", list)
+    worker = WorkerRecord(
+        agent_id=RUNNING_AGENT_ID,
+        name=member.name,
+        pid=1,
+        control_socket="/tmp/worker.sock",
+        control_token="token",
+        cwd="/tmp",
+        started_at=0,
+        state=WorkerState.RUNNING,
+    )
+    control_app.supervisor.list_workers.return_value = (worker,)
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
         control_app.open_room(room(ROOM_ID, "Core"))
         await settle(pilot)
-        worker = control_app._reconcile_agent_panes()
-        await worker.wait()
+        control_app.supervisor.list_workers.return_value = ()
+        await control_app._reconcile_workers()
         await settle(pilot)
 
         assert control_app.agents_store.is_running(RUNNING_AGENT_ID) is False
-        assert control_app.agents_store.status == "1 agent tab(s) closed — marked stopped."
 
 
 async def test_room_roster_starts_selected_managed_agent(
     control_app: ControlApp,
     band_client: MagicMock,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     member = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
     band_client.list_participants.return_value = [participant(member)]
-    band_client.managed_agent_api_key.return_value = "band_a_managed"
-    control_app.window_id = 42
     control_app.managed_agents.record(
-        ManagedAgentProfile(agent_id=IDLE_AGENT_ID, name="Beta", harness=HarnessId.CODEX)
+        ManagedAgentProfile(
+            agent_id=IDLE_AGENT_ID, name="Beta", harness=HarnessId.CODEX
+        )
     )
-    monkeypatch.setattr(
-        "band_wezterm.tui.managed_agent_actions.prepare_agent_launch",
-        lambda _context, **_kwargs: object(),
+    control_app.supervisor.start.return_value = WorkerRecord(
+        agent_id=IDLE_AGENT_ID,
+        name=member.name,
+        pid=1,
+        control_socket="/tmp/worker.sock",
+        control_token="token",
+        cwd="/tmp",
+        started_at=0,
+        state=WorkerState.STARTING,
     )
-
-    async def spawn(_context: object, _resources: object) -> AgentPanes:
-        return AgentPanes(console=PaneId(99), bridge=PaneId(100))
-
-    monkeypatch.setattr("band_wezterm.tui.managed_agent_actions.spawn_agent_panes", spawn)
     target = room(ROOM_ID, "Core")
 
     async with control_app.run_test() as pilot:
@@ -633,26 +652,28 @@ async def test_room_roster_starts_selected_managed_agent(
 
     assert control_app.agents_store.is_running(IDLE_AGENT_ID)
     assert "Started Beta" in control_app.rooms_store.status
+    control_app.supervisor.start.assert_awaited_once()
 
 
 async def test_room_roster_stops_selected_managed_agent(
     control_app: ControlApp,
     band_client: MagicMock,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     member = agent(RUNNING_AGENT_ID, "Alpha")
     band_client.list_participants.return_value = [participant(member)]
-    control_app.agents_store.mark_running(
-        RUNNING_AGENT_ID, bridge=PaneId(100), console=PaneId(99)
+    worker = WorkerRecord(
+        agent_id=RUNNING_AGENT_ID,
+        name=member.name,
+        pid=1,
+        control_socket="/tmp/worker.sock",
+        control_token="token",
+        cwd="/tmp",
+        started_at=0,
+        state=WorkerState.RUNNING,
     )
-    stopped: list[tuple[PaneId, ...]] = []
-
-    def kill(panes: tuple[PaneId, ...]) -> None:
-        stopped.append(panes)
-
-    monkeypatch.setattr(
-        "band_wezterm.tui.agent_teardown.kill_panes",
-        kill,
+    control_app.supervisor.list_workers.return_value = (worker,)
+    control_app.supervisor.stop.return_value = worker.model_copy(
+        update={"state": WorkerState.STOPPING}
     )
     target = room(ROOM_ID, "Core")
 
@@ -663,12 +684,14 @@ async def test_room_roster_stops_selected_managed_agent(
         await pilot.press("t")
         await settle(pilot)
 
-    assert stopped == [(PaneId(99), PaneId(100))]
-    assert not control_app.agents_store.is_running(RUNNING_AGENT_ID)
-    assert control_app.rooms_store.status == "Stopped Alpha."
+    assert (
+        control_app.agents_store.worker_state(RUNNING_AGENT_ID) is WorkerState.STOPPING
+    )
+    assert control_app.rooms_store.status == "Stopping Alpha."
+    control_app.supervisor.stop.assert_awaited_once_with(RUNNING_AGENT_ID)
 
 
-async def test_start_agent_default_spawns_static_status_tab(
+async def test_start_agent_requests_a_detached_worker(
     control_app: ControlApp,
     band_client: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
@@ -695,9 +718,7 @@ async def test_start_agent_default_spawns_static_status_tab(
         spawned.append((window_id, cwd, command))
         return PaneId(99)
 
-    monkeypatch.setattr(
-        "band_wezterm.agent.launch.spawn_additional_tab", fake_spawn
-    )
+    monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", fake_spawn)
     monkeypatch.setattr(
         "band_wezterm.agent.launch.set_tab_title", lambda *_a, **_k: None
     )
@@ -715,13 +736,15 @@ async def test_start_agent_default_spawns_static_status_tab(
         lambda _launch: (_ for _ in ()).throw(AssertionError("static mode")),
     )
 
-    class _Pane:
-        def __init__(self, pane_id: int) -> None:
-            self.pane_id = pane_id
-
-    monkeypatch.setattr(
-        "band_wezterm.tui.control_app.list_panes",
-        lambda: [_Pane(99)],
+    control_app.supervisor.start.return_value = WorkerRecord(
+        agent_id=IDLE_AGENT_ID,
+        name=target.name,
+        pid=99,
+        control_socket="/tmp/worker.sock",
+        control_token="token",
+        cwd=str(tmp_path),
+        started_at=0,
+        state=WorkerState.STARTING,
     )
 
     async with control_app.run_test() as pilot:
@@ -729,20 +752,13 @@ async def test_start_agent_default_spawns_static_status_tab(
         await pilot.press("s")
         await settle(pilot)
         assert control_app.agents_store.is_running(IDLE_AGENT_ID)
-        panes = control_app.agents_store.running[IDLE_AGENT_ID]
-        assert panes.console == PaneId(99)
-        assert panes.bridge == PaneId(99)
-        assert panes.ids == (PaneId(99),)
 
-    assert len(spawned) == 1
-    window_id, _cwd, bridge_command = spawned[0]
-    assert window_id == 42
-    assert "band_wezterm.agent" in bridge_command
-    assert "band_wezterm.agent.console" not in bridge_command
+    control_app.supervisor.start.assert_awaited_once()
+    assert spawned == []
     split.assert_not_called()
     assert len(preflight_kwargs) == 1
     assert preflight_kwargs[0]["require_native_console"] is False
-    assert "status tab" in (control_app.agents_store.status or "")
+    assert "detached worker" in (control_app.agents_store.status or "")
 
 
 async def test_start_agent_spawns_private_console_and_band_bridge(
@@ -777,9 +793,7 @@ async def test_start_agent_spawns_private_console_and_band_bridge(
         split.append((pane_id, cwd, command))
         return PaneId(100)
 
-    monkeypatch.setattr(
-        "band_wezterm.agent.launch.spawn_additional_tab", fake_spawn
-    )
+    monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", fake_spawn)
     monkeypatch.setattr(
         "band_wezterm.agent.launch.set_tab_title", lambda *_a, **_k: None
     )
@@ -852,7 +866,9 @@ async def test_start_agent_surfaces_missing_native_console_before_spawning(
     band_client.managed_agent_api_key.return_value = "band_a_managed"
     control_app.window_id = 42
     control_app.managed_agents.record(
-        ManagedAgentProfile(agent_id=IDLE_AGENT_ID, name="Beta", harness=HarnessId.CODEX)
+        ManagedAgentProfile(
+            agent_id=IDLE_AGENT_ID, name="Beta", harness=HarnessId.CODEX
+        )
     )
     monkeypatch.setattr(
         "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
@@ -985,7 +1001,9 @@ async def test_failed_start_retains_pane_ownership_when_cleanup_fails(
     band_client.managed_agent_api_key.return_value = "band_a_managed"
     control_app.window_id = 42
     control_app.managed_agents.record(
-        ManagedAgentProfile(agent_id=IDLE_AGENT_ID, name="Beta", harness=HarnessId.CODEX)
+        ManagedAgentProfile(
+            agent_id=IDLE_AGENT_ID, name="Beta", harness=HarnessId.CODEX
+        )
     )
     monkeypatch.setattr(
         "band_wezterm.agent.launch.spawn_additional_tab",
@@ -1061,9 +1079,7 @@ async def test_start_agent_repreflights_through_chained_midflight_reconfigure(
         spawned.append(command)
         return PaneId(99)
 
-    monkeypatch.setattr(
-        "band_wezterm.agent.launch.spawn_additional_tab", fake_spawn
-    )
+    monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", fake_spawn)
     monkeypatch.setattr(
         "band_wezterm.agent.launch.set_tab_title", lambda *_a, **_k: None
     )
@@ -1150,42 +1166,33 @@ async def test_start_agent_requires_managed_profile(
 async def test_sign_out_returns_to_sign_in(
     control_app: ControlApp, host_auth: MagicMock
 ) -> None:
-    """Ctrl+L clears the session and shows Sign In."""
+    """Sign out remains reachable inside Settings without a global chord."""
     host_auth.sign_out = AsyncMock()
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
         assert isinstance(control_app.screen, AgentsScreen)
-        await pilot.press("ctrl+l")
+        control_app.action_show_settings()
+        await pilot.press("s")
         await settle(pilot)
         assert isinstance(control_app.screen, SignInScreen)
         assert control_app.user_id is None
     host_auth.sign_out.assert_awaited_once()
 
 
-async def test_sign_out_reaches_sign_in_when_agent_teardown_fails(
+async def test_sign_out_stops_detached_workers_before_clearing_access(
     control_app: ControlApp,
     host_auth: MagicMock,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    control_app.agents_store.mark_running(
-        RUNNING_AGENT_ID,
-        PaneId(12),
-        console=PaneId(11),
-    )
-    monkeypatch.setattr(
-        "band_wezterm.tui.agent_teardown.kill_panes",
-        lambda _panes: (_ for _ in ()).throw(OSError("mux unavailable")),
-    )
-
     async with control_app.run_test() as pilot:
         await settle(pilot)
-        await pilot.press("ctrl+l")
+        control_app.action_show_settings()
+        await pilot.press("s")
         await settle(pilot)
         assert isinstance(control_app.screen, SignInScreen)
 
     host_auth.sign_out.assert_awaited_once()
-    assert control_app.agents_store.running == {}
+    control_app.supervisor.stop_all.assert_awaited_once()
 
 
 async def test_workspace_failure_after_browser_sign_in_is_retryable(
@@ -1213,7 +1220,10 @@ async def test_realtime_roster_change_refreshes_participants(
 ) -> None:
     first = agent(RUNNING_AGENT_ID, "Alpha")
     second = agent(IDLE_AGENT_ID, "Beta")
-    band_client.list_participants.side_effect = [[participant(first)], [participant(first), participant(second)]]
+    band_client.list_participants.side_effect = [
+        [participant(first)],
+        [participant(first), participant(second)],
+    ]
     target = room(ROOM_ID, "Core")
 
     async with control_app.run_test() as pilot:
@@ -1224,11 +1234,16 @@ async def test_realtime_roster_change_refreshes_participants(
         assert isinstance(screen, RoomDetailScreen)
         screen.on_room_detail_screen_incoming(
             RoomDetailScreen.Incoming(
-                RealtimeEvent(kind=RealtimeEventKind.PARTICIPANT_JOINED, room_id=ROOM_ID)
+                RealtimeEvent(
+                    kind=RealtimeEventKind.PARTICIPANT_JOINED, room_id=ROOM_ID
+                )
             )
         )
         await settle(pilot)
-        assert [row.identity.name for row in screen.query(IdentityRow)] == ["Alpha", "Beta"]
+        assert [row.identity.name for row in screen.query(IdentityRow)] == [
+            "Alpha",
+            "Beta",
+        ]
 
 
 async def test_room_reload_replaces_its_realtime_listener(
@@ -1271,9 +1286,7 @@ async def test_failed_send_keeps_composer_draft_for_retry(
         await settle(pilot)
         control_app.open_room(target)
         await settle(pilot)
-        composer = control_app.screen.query_one(
-            room_selector(RoomId.COMPOSER), Input
-        )
+        composer = control_app.screen.query_one(room_selector(RoomId.COMPOSER), Input)
         composer.value = draft
         await composer.action_submit()
         await settle(pilot)
@@ -1302,31 +1315,21 @@ async def test_escape_cancels_pending_browser_sign_in(
     host_auth.cancel_sign_in.assert_called_once()
 
 
-async def test_global_navigation_reaches_every_base_screen(
+async def test_global_wezterm_chords_do_not_navigate_control(
     control_app: ControlApp,
 ) -> None:
     async with control_app.run_test() as pilot:
         await settle(pilot)
         assert isinstance(control_app.screen, AgentsScreen)
 
-        await pilot.press("ctrl+o")
-        await settle(pilot)
-        assert isinstance(control_app.screen, RoomsScreen)
-
-        await pilot.press("ctrl+comma")
-        await settle(pilot)
-        assert isinstance(control_app.screen, SettingsScreen)
-
-        await pilot.press("escape")
-        await settle(pilot)
-        assert isinstance(control_app.screen, RoomsScreen)
-
-        await pilot.press("ctrl+a")
+        await pilot.press("ctrl+o", "ctrl+comma", "ctrl+a")
         await settle(pilot)
         assert isinstance(control_app.screen, AgentsScreen)
 
 
-async def test_reconfigure_opens_wizard(control_app: ControlApp, band_client: MagicMock) -> None:
+async def test_reconfigure_opens_wizard(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
     band_client.list_my_agents.return_value = [
         agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX),
     ]
@@ -1501,7 +1504,9 @@ async def test_register_rejects_an_unavailable_harness_before_creating_agent(
     unavailable = "Native opencode CLI is unavailable"
     monkeypatch.setattr(
         "band_wezterm.tui.screens.register_agent.preflight_managed_agent",
-        lambda _harness: (_ for _ in ()).throw(NativeConsoleUnavailableError(unavailable)),
+        lambda _harness: (_ for _ in ()).throw(
+            NativeConsoleUnavailableError(unavailable)
+        ),
     )
 
     async with control_app.run_test() as pilot:
@@ -1588,7 +1593,9 @@ async def test_delete_reconciles_an_agent_already_missing_remotely(
     band_client.list_my_agents.return_value = []
     band_client.delete_agent.side_effect = ApiError(status_code=404)
     control_app.managed_agents.record(
-        ManagedAgentProfile(agent_id=target.id, name=target.name, harness=HarnessId.CODEX)
+        ManagedAgentProfile(
+            agent_id=target.id, name=target.name, harness=HarnessId.CODEX
+        )
     )
 
     async with control_app.run_test() as pilot:
@@ -1629,7 +1636,6 @@ async def test_reload_reports_completion_and_refreshes_both_catalogs(
     assert band_client.list_my_agents.await_count == 3
 
 
-
 async def test_delete_room_requires_confirmation(
     control_app: ControlApp, band_client: MagicMock
 ) -> None:
@@ -1649,7 +1655,7 @@ async def test_delete_room_requires_confirmation(
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
-        await pilot.press("ctrl+o")
+        control_app._show(ROOMS_SCREEN)
         await settle(pilot)
         assert isinstance(control_app.screen, RoomsScreen)
         await pilot.press("delete")
@@ -1682,7 +1688,7 @@ async def test_delete_room_from_detail_returns_to_list(
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
-        await pilot.press("ctrl+o")
+        control_app._show(ROOMS_SCREEN)
         await settle(pilot)
         assert isinstance(control_app.screen, RoomsScreen)
         await pilot.press("enter")
@@ -1696,6 +1702,7 @@ async def test_delete_room_from_detail_returns_to_list(
         band_client.delete_room.assert_awaited()
         assert isinstance(control_app.screen, RoomsScreen)
         assert control_app.rooms_store.find(ROOM_ID) is None
+
 
 async def test_register_surfaces_cleanup_failure_when_delete_fails(
     control_app: ControlApp,
@@ -1758,7 +1765,9 @@ async def test_start_agent_surfaces_harness_unavailable(
         raise HarnessUnavailableError(unavailable)
 
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
-    monkeypatch.setattr("band_wezterm.tui.managed_agent_actions.preflight_managed_agent", boom)
+    monkeypatch.setattr(
+        "band_wezterm.tui.managed_agent_actions.preflight_managed_agent", boom
+    )
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
@@ -1881,7 +1890,9 @@ async def test_start_agent_aborts_when_harness_changes_after_preflight(
             )
         return result
 
-    monkeypatch.setattr(AgentsScreen, "_preflight_launch_profile", drift_after_preflight)
+    monkeypatch.setattr(
+        AgentsScreen, "_preflight_launch_profile", drift_after_preflight
+    )
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
         "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",
@@ -1923,7 +1934,9 @@ async def test_start_agent_aborts_when_profile_removed_after_preflight(
             self.control.managed_agents.remove(agent_id)
         return result
 
-    monkeypatch.setattr(AgentsScreen, "_preflight_launch_profile", remove_after_preflight)
+    monkeypatch.setattr(
+        AgentsScreen, "_preflight_launch_profile", remove_after_preflight
+    )
     monkeypatch.setattr("band_wezterm.agent.launch.spawn_additional_tab", spawn)
     monkeypatch.setattr(
         "band_wezterm.tui.managed_agent_actions.preflight_managed_agent",

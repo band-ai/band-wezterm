@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from textual import work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, ListView, Static
@@ -31,6 +34,12 @@ AGENT_ACTION_SELECTION_MESSAGE = "Select an agent in the Agents pane first."
 
 class WorkspaceScreen(agents.AgentsScreen):
     """Side-by-side catalog projection backed by the shared app stores."""
+
+    BINDINGS: ClassVar[list[Binding]] = [
+        *agents.AgentsScreen.BINDINGS,
+        Binding("tab", "focus_rooms", "Rooms"),
+        Binding("shift+r", "app.show_rooms", "All rooms"),
+    ]
 
     DEFAULT_CSS = """
     WorkspaceScreen #workspace-panels {
@@ -170,11 +179,13 @@ class WorkspaceScreen(agents.AgentsScreen):
         agents_panel = self.query_one(f"#{WORKSPACE_AGENTS_ID}", Vertical)
         if focused is not None and agents_panel in focused.ancestors_with_self:
             return True
-        self.rooms.set_status(
-            RoomStatusSource.ACTION, AGENT_ACTION_SELECTION_MESSAGE
-        )
+        self.rooms.set_status(RoomStatusSource.ACTION, AGENT_ACTION_SELECTION_MESSAGE)
         self.mutate_reactive(WorkspaceScreen.rooms)
         return False
+
+    def action_focus_rooms(self) -> None:
+        """Make the room list the active panel without leaving the split view."""
+        self.query_one(rooms.selector(rooms.Id.LIST), ListView).focus()
 
     def action_new_agent(self) -> None:
         if self._agent_action_available():

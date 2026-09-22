@@ -44,6 +44,10 @@ class ControlLaunchError(RuntimeError):
     """Another Band Control launch did not complete in time."""
 
 
+class RoomSelectionError(ValueError):
+    """A room reference does not select exactly one accessible room."""
+
+
 def _control_lock_path() -> Path:
     return Path.home() / LOCAL_STATE_DIRNAME / CONTROL_LOCK_FILENAME
 
@@ -78,12 +82,12 @@ def _control_command(*, room_id: str | None) -> list[str]:
     return command
 
 
-def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+def _argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=COMMAND_NAME,
         description=(
-            "Open Band Control in this WezTerm pane. Use `band room ROOM_ID` "
-            "to make this pane a room view. "
+            "Open Band Control in this WezTerm pane. Use `band room NAME_OR_ID` "
+            "to open a room directly, or `band room` to choose one in Control. "
             f"`{SETUP_COMMAND}` wires the Band WezTerm plugin into your config."
         ),
     )
@@ -100,14 +104,19 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     room = subparsers.add_parser(
         "room",
-        help="Open a specific Band room in this pane",
+        help="Open a room by title or ID, or choose one in Control",
     )
-    room.add_argument("room_id")
+    room.add_argument("room", nargs="?")
     subparsers.add_parser("status", help="List detached managed agents")
     stop = subparsers.add_parser("stop", help="Gracefully stop a managed agent")
     stop.add_argument("agent_id", nargs="?")
     stop.add_argument("--all", action="store_true", dest="stop_all")
-    return parser.parse_args(argv)
+    subparsers.add_parser("help", help="Show command and workflow help")
+    return parser
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    return _argument_parser().parse_args(argv)
 
 
 def _run_setup() -> int:
@@ -168,6 +177,31 @@ async def _current_supervisor() -> SupervisorClient:
     return supervisor
 
 
+async def _resolve_room_id(reference: str) -> str:
+    """Resolve an exact room title or ID for the direct room command."""
+    auth = HostAuth()
+    client = BandClient(auth)
+    try:
+        rooms = await client.list_my_chats()
+    finally:
+        await client.aclose()
+    matches = [
+        room
+        for room in rooms
+        if room.id == reference or room.title.casefold() == reference.casefold()
+    ]
+    if len(matches) == 1:
+        return matches[0].id
+    if not matches:
+        raise RoomSelectionError(
+            f"No accessible room matches {reference!r}. Run `band` to choose a room."
+        )
+    choices = ", ".join(f"{room.title} ({room.id})" for room in matches)
+    raise RoomSelectionError(
+        f"{reference!r} matches multiple rooms: {choices}. Use the room ID instead."
+    )
+
+
 async def _run_status() -> int:
     supervisor = await _current_supervisor()
     workers = await supervisor.list_workers()
@@ -201,6 +235,9 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.command == SETUP_COMMAND:
         return _run_setup()
+    if args.command == "help":
+        _argument_parser().print_help()
+        return 0
     try:
         if args.command == "status":
             return asyncio.run(_run_status())
@@ -208,9 +245,13 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(
                 _run_stop(agent_id=args.agent_id, all_workers=args.stop_all)
             )
-        room_id = getattr(args, "room_id", None)
+        room_id = (
+            asyncio.run(_resolve_room_id(args.room))
+            if args.command == "room" and args.room is not None
+            else None
+        )
         return _run_control(room_id=room_id)
-    except (ControlLaunchError, ValueError, WezTermCliError) as exc:
+    except (ControlLaunchError, RoomSelectionError, ValueError, WezTermCliError) as exc:
         print(exc, file=sys.stderr)
         return 1
 
