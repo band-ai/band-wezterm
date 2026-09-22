@@ -17,7 +17,9 @@ from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.wezterm_cli import PaneId, WindowId
 
 
-def _context(*, interactive: bool, cwd: Path) -> AgentLaunchContext:
+def _context(
+    *, interactive: bool, cwd: Path, focus_pane: PaneId | None = None
+) -> AgentLaunchContext:
     agent = AgentRecord(
         id="a1",
         name="Beta",
@@ -34,6 +36,7 @@ def _context(*, interactive: bool, cwd: Path) -> AgentLaunchContext:
         window_id=WindowId(42),
         cwd=cwd,
         interactive_console=interactive,
+        focus_pane=focus_pane,
     )
 
 
@@ -61,8 +64,14 @@ async def test_spawn_static_opens_bridge_tab_only(
         "band_wezterm.agent.launch.write_api_key_file",
         lambda _key: tmp_path / "key",
     )
+    activated: list[PaneId] = []
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.activate_pane", activated.append
+    )
 
-    context = _context(interactive=False, cwd=tmp_path)
+    context = _context(
+        interactive=False, cwd=tmp_path, focus_pane=PaneId(1)
+    )
     resources = prepare_agent_launch(context)
     assert resources.console_command == []
     panes = await spawn_agent_panes(context, resources)
@@ -71,6 +80,7 @@ async def test_spawn_static_opens_bridge_tab_only(
     assert len(spawned) == 1
     assert "band_wezterm.agent" in spawned[0]
     assert "band_wezterm.agent.console" not in spawned[0]
+    assert activated == [PaneId(1)]
 
 
 @pytest.mark.asyncio
@@ -112,10 +122,41 @@ async def test_spawn_interactive_opens_console_then_bridge(
         lambda **_kwargs: ["python", "-m", "band_wezterm.agent.console"],
     )
 
-    context = _context(interactive=True, cwd=tmp_path)
+    activated: list[PaneId] = []
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.activate_pane", activated.append
+    )
+
+    context = _context(
+        interactive=True, cwd=tmp_path, focus_pane=PaneId(1)
+    )
     resources = prepare_agent_launch(context)
     panes = await spawn_agent_panes(context, resources)
     assert panes.console == PaneId(7)
     assert panes.bridge == PaneId(8)
     assert "band_wezterm.agent.console" in spawned[0]
     assert "band_wezterm.agent" in splits[0]
+    assert activated == [PaneId(1)]
+
+
+@pytest.mark.asyncio
+async def test_spawn_skips_focus_restore_without_control_pane(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.spawn_additional_tab",
+        lambda *_a, **_k: PaneId(7),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.set_tab_title", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.write_api_key_file",
+        lambda _key: tmp_path / "key",
+    )
+    activated: list[PaneId] = []
+    monkeypatch.setattr("band_wezterm.agent.launch.activate_pane", activated.append)
+
+    context = _context(interactive=False, cwd=tmp_path)
+    await spawn_agent_panes(context, prepare_agent_launch(context))
+    assert activated == []
