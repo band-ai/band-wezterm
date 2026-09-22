@@ -75,10 +75,8 @@ async def test_rooms_lists_titles_and_ids(
     monkeypatch.setattr("band_wezterm.__main__.BandClient", lambda _auth: client)
 
     assert await _run_rooms() == 0
-    assert capsys.readouterr().out.splitlines() == [
-        "Planning\troom-1",
-        "Delivery\troom-2",
-    ]
+    output = capsys.readouterr().out
+    assert all(value in output for value in ("Rooms", "Planning", "Delivery", "room-1"))
 
 
 @pytest.mark.asyncio
@@ -109,13 +107,17 @@ async def test_status_separates_rooms_and_agents(
     )
 
     assert await _run_status() == 0
-    assert capsys.readouterr().out.splitlines() == [
-        "Rooms",
-        "Planning\troom-1\tband room room-1",
-        "",
-        "Agents",
-        "Architect\tagent-1\trunning\tband agent stop agent-1",
-    ]
+    output = capsys.readouterr().out
+    assert all(
+        value in output
+        for value in (
+            "Rooms",
+            "Planning",
+            "Agents",
+            "Architect",
+            "stop",
+        )
+    )
 
 
 def test_bare_band_shows_the_resource_commands(
@@ -125,6 +127,20 @@ def test_bare_band_shows_the_resource_commands(
     help_text = capsys.readouterr().out
     assert "agent" in help_text
     assert "room" in help_text
+
+
+def test_room_command_starts_the_textual_view_outside_cyclopts_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+    opened: list[str | None] = []
+    monkeypatch.setattr(
+        "band_wezterm.__main__.run_control_app",
+        lambda *, initial_room_id=None: opened.append(initial_room_id) or 0,
+    )
+
+    assert main(["room"]) == 0
+    assert opened == [None]
 
 
 @pytest.mark.asyncio
@@ -142,10 +158,17 @@ async def test_agents_list_includes_the_next_lifecycle_command(
     )
 
     assert await _run_agents() == 0
-    assert capsys.readouterr().out.splitlines() == [
-        "Agents",
-        "Architect\tagent-1\tstopped\tband agent start agent-1",
-    ]
+    output = capsys.readouterr().out
+    assert all(
+        value in output
+        for value in (
+            "Agents",
+            "Architect",
+            "stopped",
+            "start",
+            "band agent ACTION AGENT_ID",
+        )
+    )
 
 
 @pytest.mark.asyncio

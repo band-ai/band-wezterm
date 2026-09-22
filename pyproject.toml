@@ -21,6 +21,7 @@ dependencies = [
     "textual>=1.0.0",
     "phoenix-channels-python-client>=0.2.4",
     "cyclopts>=4.25.3",
+    "rich>=13.0.0",
 ]
 
 [project.urls]

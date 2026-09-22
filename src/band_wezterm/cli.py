@@ -39,7 +39,7 @@ AGENT_ACTION_HELP: Final[dict[AgentAction, str]] = {
 
 
 SetupHandler = Callable[[], int]
-RoomHandler = Callable[[str | None], Awaitable[int]]
+RoomHandler = Callable[[str | None], int]
 AsyncHandler = Callable[[], Awaitable[int]]
 AgentHandler = Callable[[AgentAction, str], Awaitable[int]]
 
@@ -80,9 +80,9 @@ def create_app(
         return setup()
 
     @app.command(name=Command.ROOM.value)
-    async def room_command(reference: str | None = None) -> int:
+    def room_command(reference: str | None = None) -> int:
         """Open a room by title or ID, or choose a room."""
-        return await room(reference)
+        return room(reference)
 
     @app.command(name=Command.ROOMS.value)
     async def rooms_command() -> int:

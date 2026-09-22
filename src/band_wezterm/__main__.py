@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Final
 
 from band_wezterm.auth.host_auth import HostAuth
-from band_wezterm.cli import COMMAND_NAME, AgentAction, Command, create_app
+from band_wezterm.cli import COMMAND_NAME, AgentAction, create_app
+from band_wezterm.cli_output import AgentOutput, RoomOutput, print_agents, print_rooms
 from band_wezterm.client import AgentRecord, BandClient, RoomRecord
+from band_wezterm.diagnostics import log_event
 from band_wezterm.setup_wezterm import (
     SetupAction,
     SetupConfigError,
@@ -25,10 +27,6 @@ from band_wezterm.wezterm_cli import (
 )
 
 TUI_MODULE: Final = "band_wezterm.tui"
-STATUS_ROOMS_HEADING: Final = "Rooms"
-STATUS_AGENTS_HEADING: Final = "Agents"
-STATUS_EMPTY_ROOMS: Final = "No accessible rooms."
-STATUS_EMPTY_AGENTS: Final = "No managed agents are running."
 
 
 class RoomSelectionError(ValueError):
@@ -89,9 +87,11 @@ def _run_view(
     return _start_view_without_cli(cwd, room_id=room_id)
 
 
-async def _run_room(reference: str | None) -> int:
+def _run_room(reference: str | None) -> int:
     try:
-        room_id = None if reference is None else await _resolve_room_id(reference)
+        room_id = (
+            None if reference is None else asyncio.run(_resolve_room_id(reference))
+        )
         return _run_view(room_id=room_id)
     except (RoomSelectionError, ValueError, WezTermCliError) as exc:
         print(exc, file=sys.stderr)
@@ -163,22 +163,13 @@ async def _resolve_room_id(reference: str) -> str:
 
 async def _run_rooms() -> int:
     rooms = await _list_rooms()
-    if not rooms:
-        print("No accessible rooms.")
-        return 0
-    for room in rooms:
-        print(f"{room.title}\t{room.id}")
+    print_rooms([_room_output(room) for room in rooms])
     return 0
 
 
 async def _run_status() -> int:
     rooms = await _list_rooms()
-    print(STATUS_ROOMS_HEADING)
-    if not rooms:
-        print(STATUS_EMPTY_ROOMS)
-    for room in rooms:
-        print(f"{room.title}\t{room.id}\t{COMMAND_NAME} {Command.ROOM.value} {room.id}")
-    print()
+    print_rooms([_room_output(room) for room in rooms])
     await _run_agents()
     return 0
 
@@ -186,19 +177,28 @@ async def _run_status() -> int:
 async def _run_agents() -> int:
     agents, supervisor = await asyncio.gather(_list_agents(), _current_supervisor())
     workers = {worker.agent_id: worker for worker in await supervisor.list_workers()}
-    print(STATUS_AGENTS_HEADING)
-    if not agents:
-        print(STATUS_EMPTY_AGENTS)
-        return 0
+    rows: list[AgentOutput] = []
     for agent in agents:
         worker = workers.get(agent.id)
         state = "stopped" if worker is None else worker.state.value
         action = AgentAction.START if worker is None else AgentAction.STOP
-        print(
-            f"{agent.name}\t{agent.id}\t{state}\t{COMMAND_NAME} "
-            f"{Command.AGENT.value} {action.value} {agent.id}"
+        rows.append(
+            AgentOutput(
+                name=agent.name,
+                state=state,
+                agent_id=agent.id,
+                action=action.value,
+            )
         )
+    print_agents(rows)
     return 0
+
+
+def _room_output(room: RoomRecord) -> RoomOutput:
+    return RoomOutput(
+        title=room.title,
+        room_id=room.id,
+    )
 
 
 async def _run_agent_action(action: AgentAction, agent_id: str) -> int:
@@ -246,7 +246,12 @@ def main(argv: list[str] | None = None) -> int:
         status=_run_status,
         agent=_run_agent_action,
     )
-    return asyncio.run(app.run_async(argv))
+    try:
+        return app(argv)
+    except Exception as error:
+        log_event("command failed", error_type=type(error).__name__)
+        print(f"Band command failed: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
