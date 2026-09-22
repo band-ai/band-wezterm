@@ -904,21 +904,23 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             case _:
                 return None
 
+
+    def _agent_record_for(self, participant: ParticipantRecord) -> AgentRecord:
+        profile = self.control.managed_agents.get(participant.id)
+        return AgentRecord(
+            id=participant.id,
+            name=participant.name,
+            kind=participant.kind,
+            color=participant.color,
+            harness=profile.harness if profile is not None else None,
+        )
+
     def action_start_participant(self) -> None:
         participant = self._highlighted_agent_participant()
         if participant is None:
             self._set_status(NO_AGENT_PARTICIPANT_MESSAGE)
             return
-        profile = self.control.managed_agents.get(participant.id)
-        self.start_managed_agent(
-            AgentRecord(
-                id=participant.id,
-                name=participant.name,
-                kind=participant.kind,
-                color=participant.color,
-                harness=profile.harness if profile is not None else None,
-            )
-        )
+        self.start_managed_agent(self._agent_record_for(participant))
 
     def action_stop_participant(self) -> None:
         participant = self._highlighted_agent_participant()
@@ -932,16 +934,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         if participant is None:
             self._set_status(NO_AGENT_PARTICIPANT_MESSAGE)
             return
-        profile = self.control.managed_agents.get(participant.id)
-        self.open_interactive_console(
-            AgentRecord(
-                id=participant.id,
-                name=participant.name,
-                kind=participant.kind,
-                color=participant.color,
-                harness=profile.harness if profile is not None else None,
-            )
-        )
+        self.open_interactive_console(self._agent_record_for(participant))
 
     def _set_agent_operation_status(self, status: str) -> None:
         self._set_status(status)
