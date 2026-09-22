@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Iterable, Mapping
+from enum import StrEnum
 from pathlib import Path
 from typing import Final
 
@@ -26,6 +27,12 @@ _OSC_SUFFIX: Final = "\007"
 _FOCUS_USER_VAR: Final = "band.focus"
 _FOCUS_PAYLOAD: Final = "1"
 DEFAULT_BRIDGE_PANE_PERCENT: Final = 20
+DEFAULT_CONSOLE_ATTACH_PERCENT: Final = 80
+
+
+class SplitDirection(StrEnum):
+    BOTTOM = "bottom"
+    TOP = "top"
 
 
 class WindowId(RootModel[int]):
@@ -165,9 +172,14 @@ def split_pane(
     command: list[str],
     *,
     percent: int = DEFAULT_BRIDGE_PANE_PERCENT,
+    direction: SplitDirection = SplitDirection.BOTTOM,
 ) -> PaneId:
-    """Add a compact bottom pane to an existing tab."""
-    stdout = _run(split_pane_args(pane_id, cwd, command, percent=percent))
+    """Split ``pane_id`` and run ``command`` in the new pane."""
+    stdout = _run(
+        split_pane_args(
+            pane_id, cwd, command, percent=percent, direction=direction
+        )
+    )
     return PaneId(int(stdout.splitlines()[-1].strip()))
 
 
@@ -408,6 +420,7 @@ def split_pane_args(
     command: list[str],
     *,
     percent: int = DEFAULT_BRIDGE_PANE_PERCENT,
+    direction: SplitDirection = SplitDirection.BOTTOM,
 ) -> list[str]:
     """Pure split command builder for unit tests."""
     if not 1 <= percent <= 99:
@@ -417,7 +430,7 @@ def split_pane_args(
         "split-pane",
         "--pane-id",
         str(pane_id.root),
-        "--bottom",
+        f"--{direction.value}",
         "--percent",
         str(percent),
         "--cwd",

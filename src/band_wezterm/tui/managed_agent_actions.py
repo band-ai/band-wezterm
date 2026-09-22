@@ -12,6 +12,7 @@ from band_wezterm.agent.adapters import HarnessUnavailableError
 from band_wezterm.agent.launch import (
     AgentLaunchContext,
     AgentLaunchResources,
+    attach_interactive_console,
     prepare_agent_launch,
     rollback_agent_launch,
     spawn_agent_panes,
@@ -40,6 +41,11 @@ NO_MANAGED_PROFILE_MESSAGE: Final = (
 STARTING_AGENT_MESSAGE: Final = "Starting {name}…"
 AGENT_STARTING_MESSAGE: Final = "Agent is already starting."
 ALREADY_STOPPED_MESSAGE: Final = "{name} is already stopped."
+NOT_RUNNING_MESSAGE: Final = "{name} is not running — Start it first."
+ALREADY_INTERACTIVE_MESSAGE: Final = (
+    "{name} already has an interactive console."
+)
+ATTACHING_CONSOLE_MESSAGE: Final = "Opening interactive console for {name}…"
 PANE_CLEANUP_FAILED_MESSAGE: Final = (
     "Agent start failed and its panes could not be closed; use Stop to retry cleanup."
 )
@@ -91,6 +97,29 @@ class ManagedAgentActions:
             )
             return
         self._stop_managed_agent(agent_id, agent_name, panes)
+
+    def open_interactive_console(self, agent: AgentRecord) -> None:
+        """Attach a native harness console to a running static agent tab."""
+        store = self._control_screen.control.agents_store
+        panes = store.running.get(agent.id)
+        if panes is None:
+            self._set_agent_operation_status(
+                NOT_RUNNING_MESSAGE.format(name=agent.name)
+            )
+            return
+        if not panes.is_static:
+            self._set_agent_operation_status(
+                ALREADY_INTERACTIVE_MESSAGE.format(name=agent.name)
+            )
+            return
+        if store.is_starting(agent.id):
+            self._set_agent_operation_status(AGENT_STARTING_MESSAGE)
+            return
+        store.begin_start(agent.id)
+        self._set_agent_operation_status(
+            ATTACHING_CONSOLE_MESSAGE.format(name=agent.name)
+        )
+        self._attach_interactive_console(agent, panes)
 
     def _sync_agent_to_profile(
         self, agent: AgentRecord, profile: ManagedAgentProfile
@@ -236,6 +265,67 @@ class ManagedAgentActions:
                 return await self._control_screen.control.opencode_server.ensure()
             case _:
                 return None
+
+    @work(group="managed-agent-attach-console")
+    async def _attach_interactive_console(
+        self, agent: AgentRecord, panes: AgentPanes
+    ) -> None:
+        control = self._control_screen.control
+        try:
+            profile = control.managed_agents.get(agent.id)
+            if profile is None:
+                self._set_agent_operation_status(NO_MANAGED_PROFILE_MESSAGE)
+                return
+            agent = self._sync_agent_to_profile(agent, profile)
+            preflighted = await self._preflight_launch_profile(
+                agent.id,
+                profile,
+                require_native_console=True,
+            )
+            if preflighted is None:
+                self._resync_store_to_durable_profile(agent)
+                return
+            fresh = control.managed_agents.get(agent.id)
+            if fresh is None:
+                self._set_agent_operation_status(NO_MANAGED_PROFILE_MESSAGE)
+                return
+            if fresh.harness is not preflighted.harness:
+                self._sync_agent_to_profile(agent, fresh)
+                self._set_agent_operation_status(PROFILE_HARNESS_UNSTABLE_MESSAGE)
+                return
+            agent = self._sync_agent_to_profile(agent, fresh)
+            live = control.agents_store.running.get(agent.id)
+            if live is None:
+                self._set_agent_operation_status(
+                    NOT_RUNNING_MESSAGE.format(name=agent.name)
+                )
+                return
+            if not live.is_static:
+                self._set_agent_operation_status(
+                    ALREADY_INTERACTIVE_MESSAGE.format(name=agent.name)
+                )
+                return
+            console = await attach_interactive_console(
+                agent=agent,
+                profile=fresh,
+                bridge=live.bridge,
+                cwd=Path.cwd(),
+                focus_pane=_control_focus_pane(),
+            )
+            control.agents_store.mark_running(
+                agent.id, live.bridge, console=console
+            )
+            self._set_agent_operation_status(
+                f"Opened interactive console for {agent.name} "
+                f"({fresh.harness.value})."
+            )
+        except Exception as error:
+            self._set_agent_operation_status(
+                format_platform_error(error, operation="open interactive console")
+            )
+        finally:
+            control.agents_store.finish_start(agent.id)
+            self._refresh_agent_operation_view()
 
     @work(exclusive=True, group="managed-agent-stop")
     async def _stop_managed_agent(

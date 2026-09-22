@@ -125,7 +125,9 @@ tab and leaves Control focused. By default the tab is a static Band bridge
 status pane (agent name, harness, model, online state) — not an interactive
 native CLI.
 
-Enable **Interactive agent console** in Settings to restore the previous layout:
+On a running static agent, press **`i`** (Console) in Agents or a room roster to attach the native harness TUI to that tab without restarting.
+
+Enable **Interactive agent console** in Settings to restore the previous layout at Start:
 
 - the harness's native interactive CLI as the main pane; input there belongs to
   that private harness session and is never sent to Band;

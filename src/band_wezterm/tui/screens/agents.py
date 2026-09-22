@@ -148,6 +148,7 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
         Binding("delete", "delete_agent", "Delete"),
         Binding("backspace", "delete_agent", "Delete", show=False),
         Binding("s", "start_agent", "Start"),
+        Binding("i", "open_console", "Console"),
         Binding("x", "stop_agent", "Stop"),
         Binding("o", "open_role_library", "Roles"),
         Binding("w", "new_role", "New role"),
@@ -425,6 +426,13 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
             self._set_status(NO_SELECTION_MESSAGE)
             return
         self.stop_managed_agent(agent.id, agent.name)
+
+    def action_open_console(self) -> None:
+        agent = self._highlighted_agent()
+        if agent is None:
+            self._set_status(NO_SELECTION_MESSAGE)
+            return
+        self.open_interactive_console(agent)
 
     def _set_agent_operation_status(self, status: str) -> None:
         self._set_status(status)

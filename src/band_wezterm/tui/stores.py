@@ -107,8 +107,13 @@ class AgentPanes:
     bridge: PaneId
 
     @property
+    def is_static(self) -> bool:
+        """True when the tab is bridge-only (no private native console)."""
+        return self.console == self.bridge
+
+    @property
     def ids(self) -> tuple[PaneId, ...]:
-        if self.console == self.bridge:
+        if self.is_static:
             return (self.console,)
         return (self.console, self.bridge)
 

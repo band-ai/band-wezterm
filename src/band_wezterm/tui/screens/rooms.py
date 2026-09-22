@@ -645,6 +645,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         Binding("backspace", "delete_room", "Delete", show=False),
         Binding("m", "focus_composer", "Compose"),
         Binding("s", "start_participant", "Start"),
+        Binding("i", "open_console", "Console"),
         Binding("t", "stop_participant", "Stop"),
         Binding("r", "reload", "Reload"),
         Binding("e", "event_filter", "Events"),
@@ -918,6 +919,22 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             self._set_status(NO_AGENT_PARTICIPANT_MESSAGE)
             return
         self.stop_managed_agent(participant.id, participant.name)
+
+    def action_open_console(self) -> None:
+        participant = self._highlighted_agent_participant()
+        if participant is None:
+            self._set_status(NO_AGENT_PARTICIPANT_MESSAGE)
+            return
+        profile = self.control.managed_agents.get(participant.id)
+        self.open_interactive_console(
+            AgentRecord(
+                id=participant.id,
+                name=participant.name,
+                kind=participant.kind,
+                color=participant.color,
+                harness=profile.harness if profile is not None else None,
+            )
+        )
 
     def _set_agent_operation_status(self, status: str) -> None:
         self._set_status(status)
