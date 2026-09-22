@@ -415,7 +415,7 @@ async def test_two_running_agents_can_create_a_room_and_receive_mentions(
     band_client.list_participants.side_effect = lambda _room_id: list(participants)
     band_client.add_participant.side_effect = add_participant
     band_client.send_message.side_effect = send_message
-    monkeypatch.setattr("band_wezterm.tui.control_app.kill_panes", lambda _panes: None)
+    monkeypatch.setattr("band_wezterm.tui.agent_teardown.kill_panes", lambda _panes: None)
     control_app.agents_store.mark_running(first.id, PaneId(11), console=PaneId(10))
     control_app.agents_store.mark_running(second.id, PaneId(13), console=PaneId(12))
 
@@ -502,7 +502,7 @@ async def test_unmount_stops_every_agent_tab_the_host_started(
 ) -> None:
     killed: list[PaneId] = []
     monkeypatch.setattr(
-        "band_wezterm.tui.control_app.kill_panes",
+        "band_wezterm.tui.agent_teardown.kill_panes",
         killed.extend,
     )
     control_app.agents_store.mark_running(
@@ -651,7 +651,7 @@ async def test_room_roster_stops_selected_managed_agent(
         stopped.append(panes)
 
     monkeypatch.setattr(
-        "band_wezterm.tui.managed_agent_actions.kill_panes",
+        "band_wezterm.tui.agent_teardown.kill_panes",
         kill,
     )
     target = room(ROOM_ID, "Core")
@@ -996,7 +996,7 @@ async def test_failed_start_retains_pane_ownership_when_cleanup_fails(
         lambda *_args: (_ for _ in ()).throw(OSError("title unavailable")),
     )
     monkeypatch.setattr(
-        "band_wezterm.agent.launch.kill_panes",
+        "band_wezterm.tui.agent_teardown.kill_panes",
         lambda _panes: (_ for _ in ()).throw(OSError("mux unavailable")),
     )
     monkeypatch.setattr(
@@ -1174,7 +1174,7 @@ async def test_sign_out_reaches_sign_in_when_agent_teardown_fails(
         console=PaneId(11),
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.control_app.kill_panes",
+        "band_wezterm.tui.agent_teardown.kill_panes",
         lambda _panes: (_ for _ in ()).throw(OSError("mux unavailable")),
     )
 
@@ -1537,7 +1537,7 @@ async def test_delete_requires_confirmation(
         console=PaneId(99),
     )
     monkeypatch.setattr(
-        "band_wezterm.tui.screens.agents.kill_panes",
+        "band_wezterm.tui.agent_teardown.kill_panes",
         killed.extend,
     )
     async with control_app.run_test() as pilot:
