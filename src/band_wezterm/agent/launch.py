@@ -25,6 +25,7 @@ from band_wezterm.wezterm_cli import (
     PaneId,
     WezTermCliError,
     WindowId,
+    activate_pane,
     kill_panes,
     set_tab_title,
     spawn_additional_tab,
@@ -42,6 +43,7 @@ class AgentLaunchContext:
     window_id: WindowId
     cwd: Path
     interactive_console: bool = False
+    focus_pane: PaneId | None = None
 
 
 @dataclass
@@ -99,7 +101,11 @@ def prepare_agent_launch(
 async def spawn_agent_panes(
     context: AgentLaunchContext, resources: AgentLaunchResources
 ) -> AgentPanes:
-    """Open and title the agent tab; leave Control focused (do not activate)."""
+    """Open and title the agent tab, then restore focus to Control.
+
+    ``wezterm cli spawn`` always activates the new tab; re-activating
+    ``focus_pane`` keeps the user on Control.
+    """
     if context.interactive_console:
         console = await _spawn_pane(
             lambda: spawn_additional_tab(
@@ -112,16 +118,24 @@ async def spawn_agent_panes(
             lambda: split_pane(console, context.cwd, resources.bridge_command),
             resources.acquired_panes,
         )
-        return AgentPanes(bridge=bridge, console=console)
+        panes = AgentPanes(bridge=bridge, console=console)
+    else:
+        bridge = await _spawn_pane(
+            lambda: spawn_additional_tab(
+                context.window_id, context.cwd, resources.bridge_command
+            ),
+            resources.acquired_panes,
+        )
+        await asyncio.to_thread(set_tab_title, bridge, context.agent.name)
+        panes = AgentPanes(bridge=bridge, console=bridge)
+    await _restore_control_focus(context.focus_pane)
+    return panes
 
-    bridge = await _spawn_pane(
-        lambda: spawn_additional_tab(
-            context.window_id, context.cwd, resources.bridge_command
-        ),
-        resources.acquired_panes,
-    )
-    await asyncio.to_thread(set_tab_title, bridge, context.agent.name)
-    return AgentPanes(bridge=bridge, console=bridge)
+
+async def _restore_control_focus(focus_pane: PaneId | None) -> None:
+    if focus_pane is None:
+        return
+    await asyncio.to_thread(activate_pane, focus_pane)
 
 
 async def rollback_agent_launch(resources: AgentLaunchResources) -> AgentPanes | None:
