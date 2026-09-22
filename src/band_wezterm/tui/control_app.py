@@ -35,6 +35,11 @@ from band_wezterm.local_state import StarredRooms
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.osc import OscKey, emit_many_to_stdout
 from band_wezterm.preferences import PreferencesStore
+from band_wezterm.tui.host_pane import (
+    WEZTERM_PANE_ENV,
+    current_pane_id,
+    current_window_id,
+)
 from band_wezterm.tui.refresh import PANE_POLL_SECONDS
 from band_wezterm.tui.screens.agents import AgentsScreen
 from band_wezterm.tui.screens.rooms import RoomDetailScreen, RoomsScreen
@@ -43,20 +48,15 @@ from band_wezterm.tui.screens.sign_in import SignInScreen
 from band_wezterm.tui.screens.workspace import WorkspaceScreen
 from band_wezterm.tui.stores import AgentsStore, AgentStatusSource, RoomsStore
 from band_wezterm.wezterm_cli import (
-    PaneId,
     WezTermCliError,
-    WindowId,
     kill_panes,
     list_panes,
     set_tab_title,
     set_window_title,
-    window_id_for_pane,
 )
 
 CONTROL_PROCESS_ENV: Final = "BAND_WEZTERM_CONTROL"
 CONTROL_PROCESS_FLAG: Final = "1"
-WEZTERM_PANE_ENV: Final = "WEZTERM_PANE"
-
 HOST_HUMAN_NAME: Final = "You"
 
 SIGN_IN_SCREEN: Final = "sign_in"
@@ -100,27 +100,6 @@ def ensure_terminal_color() -> None:
     os.environ.setdefault("COLORTERM", "truecolor")
     if os.environ.get("TERM") in (None, "", "dumb"):
         os.environ["TERM"] = "xterm-256color"
-
-
-def current_pane_id() -> PaneId | None:
-    pane = os.environ.get(WEZTERM_PANE_ENV)
-    if not pane:
-        return None
-    try:
-        return PaneId(int(pane))
-    except ValueError:
-        return None
-
-
-def current_window_id() -> WindowId | None:
-    """Resolve the band window from the pane this process was spawned into."""
-    pane_id = current_pane_id()
-    if pane_id is None:
-        return None
-    try:
-        return window_id_for_pane(pane_id)
-    except Exception:
-        return None
 
 
 def name_control_tab() -> None:
