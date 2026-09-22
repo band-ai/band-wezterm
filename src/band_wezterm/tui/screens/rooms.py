@@ -56,6 +56,7 @@ from band_wezterm.tui.chat_events import (
 )
 from band_wezterm.tui.managed_agent_actions import ManagedAgentActions
 from band_wezterm.tui.refresh import CATALOG_POLL_SECONDS
+from band_wezterm.tui.roster_order import order_roster
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.screens.chat_event_detail import ChatEventDetailScreen
 from band_wezterm.tui.screens.event_type_filter import EventTypeFilterScreen
@@ -830,7 +831,16 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
                 format_platform_error(error, operation="load room roster"),
             )
         else:
-            store.replace_participants(participants)
+            store.replace_participants(
+                order_roster(
+                    participants,
+                    user_id=self.control.user_id,
+                    local_agent_ids=(
+                        profile.agent_id
+                        for profile in self.control.managed_agents.all()
+                    ),
+                )
+            )
             store.clear_status(RoomStatusSource.ROSTER)
         self.mutate_reactive(RoomDetailScreen.store)
 
