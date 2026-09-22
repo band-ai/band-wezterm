@@ -13,7 +13,7 @@ from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import (
@@ -23,7 +23,6 @@ from textual.widgets import (
     Label,
     ListItem,
     ListView,
-    Markdown,
     Static,
 )
 
@@ -39,10 +38,27 @@ from band_wezterm.client import (
 )
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, AvatarKind
+from band_wezterm.platform_models import DEFAULT_MESSAGE_TYPE
 from band_wezterm.tui.catalog_loaders import list_rooms
+from band_wezterm.tui.chat_events import (
+    DISCLOSURE_COLLAPSED,
+    DISCLOSURE_EXPANDED,
+    FILTERED_EMPTY_CHAT,
+    apply_verbose,
+    badge_label,
+    error_display_content,
+    event_preview,
+    hidden_summary,
+    is_always_expanded,
+    metadata_pretty,
+    verbose_active,
+    visible_messages,
+)
 from band_wezterm.tui.managed_agent_actions import ManagedAgentActions
 from band_wezterm.tui.refresh import CATALOG_POLL_SECONDS
 from band_wezterm.tui.screens import ControlScreen
+from band_wezterm.tui.screens.chat_event_detail import ChatEventDetailScreen
+from band_wezterm.tui.screens.event_type_filter import EventTypeFilterScreen
 from band_wezterm.tui.stores import (
     ROOM_FILTER_LABELS,
     RoomFilter,
@@ -105,6 +121,7 @@ class Id(StrEnum):
     PICKER_LIST = "room-picker-list"
     CHAT = "room-chat"
     CHAT_SCROLL = "room-chat-scroll"
+    CHAT_HIDDEN = "room-chat-hidden"
     COMPOSER = "room-composer"
     DETAIL_STATUS = "room-detail-status"
 
@@ -119,34 +136,60 @@ def mention_keys(participant: ParticipantRecord) -> tuple[str, ...]:
     return tuple(dict.fromkeys(key for key in keys if key))
 
 
-def resolve_mention(
+def resolve_mentions(
     body: str, participants: Iterable[ParticipantRecord]
-) -> tuple[ParticipantRecord, str] | None:
-    """First canonical `@handle` that names a participant, plus the remaining body."""
+) -> tuple[list[ParticipantRecord], str] | None:
+    """Every distinct `@handle` left-to-right, plus the body with those tokens removed.
+
+    Longer keys win at the same offset (so ``@Developer 6753`` beats ``@Developer``);
+    canonical handles beat name aliases of equal length.
+    """
     candidates = sorted(
         (
             (key, participant, key == participant.handle)
             for participant in participants
             for key in mention_keys(participant)
         ),
-        key=lambda candidate: (candidate[2], len(candidate[0])),
+        key=lambda candidate: (len(candidate[0]), candidate[2]),
         reverse=True,
     )
-    for key, participant, _is_handle in candidates:
-        match = re.search(
-            rf"(?<!\S)@{re.escape(key)}(?=\s|$)", body, flags=re.IGNORECASE
+    found: list[ParticipantRecord] = []
+    seen_ids: set[str] = set()
+    remaining = body
+    while True:
+        best: tuple[int, int, ParticipantRecord] | None = None
+        for key, participant, _is_handle in candidates:
+            match = re.search(
+                rf"(?<!\S)@{re.escape(key)}(?=\s|$)", remaining, flags=re.IGNORECASE
+            )
+            if match is None:
+                continue
+            start, end = match.start(), match.end()
+            if best is None or start < best[0] or (start == best[0] and end > best[1]):
+                best = (start, end, participant)
+        if best is None:
+            break
+        start, end, participant = best
+        if participant.id not in seen_ids:
+            found.append(participant)
+            seen_ids.add(participant.id)
+        remaining = re.sub(
+            r" {2,}", " ", f"{remaining[:start]}{remaining[end:]}".strip()
         )
-        if match is not None:
-            remainder = f"{body[: match.start()]} {body[match.end() :]}".strip()
-            return participant, remainder
-    return None
+    if not found:
+        return None
+    return found, remaining
 
 
-def chat_markdown(messages: Iterable[MessageRecord]) -> str:
-    rendered = [
-        f"**{message.author_name}**\n\n{message.content}" for message in messages
-    ]
-    return "\n\n---\n\n".join(rendered) or EMPTY_CHAT
+def resolve_mention(
+    body: str, participants: Iterable[ParticipantRecord]
+) -> tuple[ParticipantRecord, str] | None:
+    """First of :func:`resolve_mentions` — kept for single-recipient call sites."""
+    resolved = resolve_mentions(body, participants)
+    if resolved is None:
+        return None
+    mentioned, remainder = resolved
+    return mentioned[0], remainder
 
 
 async def refill(list_view: ListView, rows: Sequence[ListItem]) -> None:
@@ -162,6 +205,7 @@ _MESSAGE_EVENT_KINDS = frozenset(
         RealtimeEventKind.MESSAGE,
         RealtimeEventKind.MESSAGE_CREATED,
         RealtimeEventKind.MESSAGE_UPDATED,
+        RealtimeEventKind.EVENT_CREATED,
     }
 )
 _ROSTER_EVENT_KINDS = frozenset(
@@ -173,11 +217,17 @@ def message_from_event(event: RealtimeEvent) -> MessageRecord | None:
     if event.kind not in _MESSAGE_EVENT_KINDS:
         return None
     payload = event.payload or {}
-    content = payload.get("content") or payload.get("body")
-    if not content:
+    if "content" in payload:
+        content = payload.get("content")
+    elif "body" in payload:
+        content = payload.get("body")
+    else:
+        content = None
+    if content is None:
         return None
     metadata = payload.get("metadata")
     meta = metadata if isinstance(metadata, dict) else None
+    raw_type = payload.get("message_type")
     return MessageRecord(
         id=str(payload.get("id") or event.kind.value),
         content=display_message_content(str(content), meta),
@@ -187,7 +237,75 @@ def message_from_event(event: RealtimeEvent) -> MessageRecord | None:
             or payload.get("sender")
             or "unknown"
         ),
+        message_type=str(raw_type or DEFAULT_MESSAGE_TYPE),
+        metadata=meta,
     )
+
+
+class ChatEventRow(ListItem):
+    """One timeline event: author, badge, body or collapsed preview."""
+
+    DEFAULT_CSS = """
+    ChatEventRow {
+        height: auto;
+        padding: 0 1 1 1;
+        border-bottom: solid $panel;
+    }
+    ChatEventRow .event-author {
+        text-style: bold;
+    }
+    ChatEventRow .event-badge {
+        color: $accent;
+    }
+    ChatEventRow .event-preview {
+        color: $text-muted;
+    }
+    ChatEventRow .event-body {
+        height: auto;
+    }
+    """
+
+    def __init__(self, message: MessageRecord, *, expanded: bool) -> None:
+        super().__init__()
+        self.message = message
+        self.expanded = expanded
+
+    def compose(self) -> ComposeResult:
+        message = self.message
+        yield Static(message.author_name, classes="event-author")
+        message_type = message.message_type or DEFAULT_MESSAGE_TYPE
+        if is_always_expanded(message_type):
+            if message_type == "error":
+                body = error_display_content(message.content, message.metadata)
+            elif message_type == "thought":
+                body = (
+                    f"[{badge_label(message_type)}] {message.content}"
+                    if message.content
+                    else f"[{badge_label(message_type)}]"
+                )
+            else:
+                body = message.content
+            yield Static(body or "(empty)", classes="event-body", markup=False)
+            return
+        badge = badge_label(message_type)
+        if self.expanded:
+            disclosure = DISCLOSURE_EXPANDED
+            yield Static(
+                f"[{badge}] {disclosure}",
+                classes="event-badge",
+                markup=False,
+            )
+            yield Static(message.content or "(empty)", classes="event-body", markup=False)
+            pretty = metadata_pretty(message.metadata)
+            if pretty is not None:
+                yield Static(pretty, classes="event-body", markup=False)
+        else:
+            preview = event_preview(message.content)
+            yield Static(
+                f"[{badge}] {preview}  {DISCLOSURE_COLLAPSED}",
+                classes="event-preview",
+                markup=False,
+            )
 
 
 class RoomRow(ListItem):
@@ -529,6 +647,10 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         Binding("s", "start_participant", "Start"),
         Binding("t", "stop_participant", "Stop"),
         Binding("r", "reload", "Reload"),
+        Binding("e", "event_filter", "Events"),
+        Binding("v", "toggle_verbose", "Verbose"),
+        Binding("d", "event_detail", "Detail"),
+        Binding("space", "toggle_chat_expand", "Expand", show=False),
         Binding("escape", "back", "Back"),
     ]
 
@@ -546,6 +668,17 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
     }
     RoomDetailScreen #room-chat-scroll {
         width: 1fr;
+    }
+    RoomDetailScreen #room-chat-hidden {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+    }
+    RoomDetailScreen #room-chat {
+        height: 1fr;
+    }
+    RoomDetailScreen #room-chat > ListItem {
+        height: auto;
     }
     RoomDetailScreen #room-picker {
         display: none;
@@ -578,6 +711,8 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         self._pending_delete: bool = False
         self._roster_mutation_pending = False
         self._send_draft: str | None = None
+        self._expanded_message_ids: set[str] = set()
+        self._pre_verbose_types: tuple[str, ...] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -589,8 +724,9 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             with Vertical(id=Id.ROSTER.value):
                 yield Static(ROSTER_TITLE)
                 yield ListView()
-            with VerticalScroll(id=Id.CHAT_SCROLL.value):
-                yield Markdown(EMPTY_CHAT, id=Id.CHAT.value)
+            with Vertical(id=Id.CHAT_SCROLL.value):
+                yield Static("", id=Id.CHAT_HIDDEN.value)
+                yield ListView(id=Id.CHAT.value)
         with Vertical(id=Id.PICKER.value):
             yield Static(PICKER_TITLE)
             yield ListView(id=Id.PICKER_LIST.value)
@@ -620,13 +756,34 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         )
         await self._render_roster(store)
         await self._render_picker(store)
-        await self.query_one(selector(Id.CHAT), Markdown).update(
-            chat_markdown(store.messages)
-        )
-        self.query_one(selector(Id.CHAT_SCROLL), VerticalScroll).scroll_end(
-            animate=False
-        )
+        await self._render_chat(store)
         self.query_one(selector(Id.DETAIL_STATUS), Static).update(store.status)
+
+    def _allowed_event_types(self) -> tuple[str, ...]:
+        return self.control.preferences.current.chat_event_types
+
+    def _chat_view(self) -> ListView:
+        return self.query_one(selector(Id.CHAT), ListView)
+
+    async def _render_chat(self, store: RoomsStore) -> None:
+        allowed = self._allowed_event_types()
+        visible = visible_messages(store.messages, allowed)
+        hidden = hidden_summary(store.messages, allowed)
+        self.query_one(selector(Id.CHAT_HIDDEN), Static).update(hidden)
+        if not store.messages:
+            rows: list[ListItem] = [ListItem(Static(EMPTY_CHAT))]
+        elif not visible:
+            rows = [ListItem(Static(FILTERED_EMPTY_CHAT))]
+        else:
+            rows = [
+                ChatEventRow(
+                    message,
+                    expanded=message.id in self._expanded_message_ids,
+                )
+                for message in visible
+            ]
+        await refill(self._chat_view(), rows)
+        self._chat_view().scroll_end(animate=False)
 
     async def _render_roster(self, store: RoomsStore) -> None:
         running_ids = self.control.agents_store.running_ids
@@ -826,6 +983,9 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         self.mutate_reactive(RoomDetailScreen.store)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if event.list_view.id == Id.CHAT and isinstance(event.item, ChatEventRow):
+            self._toggle_chat_expand(event.item)
+            return
         if event.list_view.id != Id.PICKER_LIST or not isinstance(
             event.item, IdentityRow
         ):
@@ -856,6 +1016,62 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
 
     # --- chat --------------------------------------------------------------
 
+    def action_event_filter(self) -> None:
+        self.app.push_screen(
+            EventTypeFilterScreen(
+                self._allowed_event_types(),
+                self.store.messages,
+            )
+        )
+
+    def on_event_type_filter_screen_changed(
+        self, event: EventTypeFilterScreen.Changed
+    ) -> None:
+        self._pre_verbose_types = None
+        self.control.preferences.update(chat_event_types=event.allowed)
+        self.mutate_reactive(RoomDetailScreen.store)
+
+    def action_toggle_verbose(self) -> None:
+        current = self._allowed_event_types()
+        if verbose_active(current):
+            restored = apply_verbose(
+                current, enabled=False, previous=self._pre_verbose_types
+            )
+            self._pre_verbose_types = None
+            self.control.preferences.update(chat_event_types=restored)
+        else:
+            self._pre_verbose_types = current
+            self.control.preferences.update(
+                chat_event_types=apply_verbose(
+                    current, enabled=True, previous=None
+                )
+            )
+        self.mutate_reactive(RoomDetailScreen.store)
+
+    def action_event_detail(self) -> None:
+        row = self._chat_view().highlighted_child
+        if not isinstance(row, ChatEventRow):
+            return
+        self.app.push_screen(ChatEventDetailScreen(row.message))
+
+    def action_toggle_chat_expand(self) -> None:
+        chat = self._chat_view()
+        if not chat.has_focus:
+            return
+        row = chat.highlighted_child
+        if isinstance(row, ChatEventRow):
+            self._toggle_chat_expand(row)
+
+    def _toggle_chat_expand(self, row: ChatEventRow) -> None:
+        message = row.message
+        if is_always_expanded(message.message_type or DEFAULT_MESSAGE_TYPE):
+            return
+        if message.id in self._expanded_message_ids:
+            self._expanded_message_ids.discard(message.id)
+        else:
+            self._expanded_message_ids.add(message.id)
+        self.mutate_reactive(RoomDetailScreen.store)
+
     def action_focus_composer(self) -> None:
         self.query_one(selector(Id.COMPOSER), MarkdownComposer).focus()
 
@@ -877,26 +1093,28 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         if event.input.id != Id.COMPOSER:
             return
         body = event.value.strip()
-        mention = resolve_mention(body, self.store.participants)
-        if mention is None:
+        resolved = resolve_mentions(body, self.store.participants)
+        if resolved is None:
             self._set_status(MENTION_REQUIRED_MESSAGE)
             return
-        participant, remainder = mention
+        mentioned, remainder = resolved
         if self._send_draft is not None:
             return
         self._send_draft = event.input.value
-        self._send_message(participant, remainder, event.input.value)
+        self._send_message(mentioned, remainder, event.input.value)
 
     @work(group="room-send")
     async def _send_message(
-        self, participant: ParticipantRecord, body: str, draft: str
+        self, mentioned: list[ParticipantRecord], body: str, draft: str
     ) -> None:
         try:
             message = await self.control.client.send_message(
                 self.room.id,
                 body,
-                mention_id=participant.id,
-                mention_name=participant.name,
+                mentions=[
+                    (participant.id, participant.name) for participant in mentioned
+                ],
+                sender_name=self._host_author_name(),
             )
         except Exception as error:
             self._set_status(format_platform_error(error, operation="send message"))
@@ -953,6 +1171,15 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             return
         self.store.append_message(message)
         self.mutate_reactive(RoomDetailScreen.store)
+
+    def _host_author_name(self) -> str:
+        """Roster display name for the signed-in human, else a stable fallback."""
+        user_id = self.control.user_id
+        if user_id is not None:
+            for participant in self.store.participants:
+                if participant.id == user_id:
+                    return participant.name
+        return "You"
 
     def _set_status(self, status: str) -> None:
         self.store.status = status

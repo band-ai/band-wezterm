@@ -32,3 +32,11 @@ def test_preferences_interactive_agent_console_defaults_off() -> None:
 def test_preferences_reject_out_of_range() -> None:
     with pytest.raises(ValidationError):
         HostPreferences(rooms_page_size=2)
+
+
+def test_preferences_chat_event_types_round_trip(tmp_path: Path) -> None:
+    store = PreferencesStore(tmp_path / "prefs.json")
+    store.update(chat_event_types=("text", "tool_call"))
+    reloaded = PreferencesStore(tmp_path / "prefs.json")
+    assert "tool_call" in reloaded.current.chat_event_types
+    assert "text" in reloaded.current.chat_event_types

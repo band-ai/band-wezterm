@@ -7,6 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from band_wezterm.config import CHAT_MESSAGES_LIMIT, LOCAL_STATE_DIRNAME
+from band_wezterm.tui.chat_events import DEFAULT_ALLOWED_TYPES, normalize_allowed_types
 
 DEFAULT_ROOMS_PAGE_SIZE = 20
 MIN_ROOMS_PAGE_SIZE = 5
@@ -25,6 +26,7 @@ class HostPreferences(BaseModel):
     diagnostic_log: bool = True
     diagnostic_log_verbose: bool = False
     interactive_agent_console: bool = False
+    chat_event_types: tuple[str, ...] = DEFAULT_ALLOWED_TYPES
 
     @field_validator("rooms_page_size")
     @classmethod
@@ -43,6 +45,17 @@ class HostPreferences(BaseModel):
                 f"chat_messages_limit must be {MIN_CHAT_MESSAGES_LIMIT}-{MAX_CHAT_MESSAGES_LIMIT}"
             )
         return value
+
+    @field_validator("chat_event_types", mode="before")
+    @classmethod
+    def _chat_event_types(cls, value: object) -> tuple[str, ...]:
+        if value is None:
+            return DEFAULT_ALLOWED_TYPES
+        if isinstance(value, str):
+            return normalize_allowed_types([value])
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return normalize_allowed_types(str(item) for item in value)
+        raise TypeError("chat_event_types must be a sequence of strings")
 
 
 def default_preferences_path() -> Path:

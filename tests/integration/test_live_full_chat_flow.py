@@ -82,8 +82,7 @@ async def test_live_full_chat_agent_and_human_round_trips() -> None:
             await client.send_message(
                 room_id,
                 TURN_ONE_PROMPT,
-                mention_id=agent_id,
-                mention_name=record.name,
+                mentions=[(agent_id, record.name)],
             )
         ).id
         after_one = await wait_for_reply_token(
@@ -98,8 +97,7 @@ async def test_live_full_chat_agent_and_human_round_trips() -> None:
             await client.send_message(
                 room_id,
                 TURN_TWO_PROMPT,
-                mention_id=agent_id,
-                mention_name=record.name,
+                mentions=[(agent_id, record.name)],
             )
         ).id
         after_two = await wait_for_reply_token(

@@ -15,6 +15,7 @@ from band_wezterm.config import (
     BAND_WORKSPACE_NAME,
     CONTROL_TAB_TITLE,
     LOCAL_STATE_DIRNAME,
+    WINDOW_TITLE,
 )
 from band_wezterm.setup_wezterm import (
     SetupAction,
@@ -37,7 +38,6 @@ from band_wezterm.wezterm_cli import (
 )
 
 CONTROL_MODULE: Final = "band_wezterm.tui"
-WINDOW_TITLE: Final = "Band"
 COMMAND_NAME: Final = "band"
 SETUP_COMMAND: Final = "setup"
 CONTROL_LOCK_FILENAME: Final = "control-launch.lock"

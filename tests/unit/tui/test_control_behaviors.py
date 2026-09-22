@@ -382,7 +382,7 @@ async def test_two_running_agents_can_create_a_room_and_receive_mentions(
     second = agent(IDLE_AGENT_ID, "Developer 6753", harness=HarnessId.CLAUDE)
     created_room = room(ROOM_ID, "Pair review")
     participants: list[ParticipantRecord] = []
-    sent: list[tuple[str, str, str]] = []
+    sent: list[tuple[str, str, tuple[str, ...]]] = []
 
     async def add_participant(_room_id: str, participant_id: str) -> None:
         record = next(item for item in (first, second) if item.id == participant_id)
@@ -397,11 +397,17 @@ async def test_two_running_agents_can_create_a_room_and_receive_mentions(
         )
 
     async def send_message(
-        room_id: str, body: str, *, mention_id: str, mention_name: str
+        room_id: str,
+        body: str,
+        *,
+        mentions: list[tuple[str, str]],
+        sender_name: str,
     ) -> MessageRecord:
-        sent.append((room_id, body, mention_id))
+        sent.append((room_id, body, tuple(mention_id for mention_id, _ in mentions)))
         return MessageRecord(
-            id=f"message-{len(sent)}", content=body, author_name=mention_name
+            id=f"message-{len(sent)}",
+            content=body,
+            author_name=sender_name,
         )
 
     band_client.list_my_agents.return_value = [first, second]
@@ -441,10 +447,14 @@ async def test_two_running_agents_can_create_a_room_and_receive_mentions(
         composer.value = "@Developer 6753 review the implementation"
         await composer.action_submit()
         await settle(pilot)
+        composer.value = "@Alpha @Developer 6753 Hello team"
+        await composer.action_submit()
+        await settle(pilot)
 
     assert sent == [
-        (ROOM_ID, "inspect the plan", RUNNING_AGENT_ID),
-        (ROOM_ID, "review the implementation", IDLE_AGENT_ID),
+        (ROOM_ID, "inspect the plan", (RUNNING_AGENT_ID,)),
+        (ROOM_ID, "review the implementation", (IDLE_AGENT_ID,)),
+        (ROOM_ID, "Hello team", (RUNNING_AGENT_ID, IDLE_AGENT_ID)),
     ]
 
 

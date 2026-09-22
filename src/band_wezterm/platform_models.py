@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from band_wezterm.identity import AvatarKind, HarnessId, agent_accent, initials
 from band_wezterm.room_color import room_accent
 
+DEFAULT_MESSAGE_TYPE = "text"
+
 
 class ParticipantRole(StrEnum):
     MEMBER = "member"
@@ -22,6 +24,7 @@ class RealtimeEventKind(StrEnum):
     MESSAGE = "message"
     MESSAGE_CREATED = "message_created"
     MESSAGE_UPDATED = "message_updated"
+    EVENT_CREATED = "event_created"
     PARTICIPANT_JOINED = "participant_joined"
     PARTICIPANT_LEFT = "participant_left"
     UNKNOWN = "unknown"
@@ -61,6 +64,8 @@ class MessageRecord(BaseModel):
     id: str
     content: str
     author_name: str
+    message_type: str = DEFAULT_MESSAGE_TYPE
+    metadata: Mapping[str, Any] | None = None
 
 
 class RealtimeEvent(BaseModel):
@@ -122,17 +127,21 @@ def display_message_content(
 def message_record_from_api(message: object) -> MessageRecord:
     """Map a Fern ChatMessage (or compatible object) into the host record."""
     metadata = getattr(message, "metadata", None)
+    meta = metadata if isinstance(metadata, Mapping) else None
+    raw_type = getattr(message, "message_type", None)
     return MessageRecord(
         id=str(message.id),
         content=display_message_content(
             str(getattr(message, "content", "") or ""),
-            metadata if isinstance(metadata, Mapping) else None,
+            meta,
         ),
         author_name=str(
             getattr(message, "sender_name", None)
             or getattr(message, "sender_id", None)
             or "unknown"
         ),
+        message_type=str(raw_type or DEFAULT_MESSAGE_TYPE),
+        metadata=meta,
     )
 
 

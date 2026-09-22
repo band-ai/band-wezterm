@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from band_wezterm.client import (
+    BandClient,
     RealtimeEvent,
     RealtimeEventKind,
     display_message_content,
@@ -36,11 +40,28 @@ def test_message_record_from_api_oldest_fields() -> None:
         sender_name="user1 ci",
         sender_id="u1",
         metadata={"mentions": [{"id": "aaaa", "name": "omp"}]},
+        message_type="text",
     )
     record = message_record_from_api(message)
     assert record.id == "m1"
     assert record.author_name == "user1 ci"
     assert record.content == "@omp hello"
+    assert record.message_type == "text"
+    assert record.metadata == {"mentions": [{"id": "aaaa", "name": "omp"}]}
+
+
+def test_message_record_from_api_keeps_tool_type() -> None:
+    message = SimpleNamespace(
+        id="m2",
+        content="ToolSearch",
+        sender_name="Architect",
+        sender_id="a1",
+        metadata={"tool": "search"},
+        message_type="tool_call",
+    )
+    record = message_record_from_api(message)
+    assert record.message_type == "tool_call"
+    assert record.metadata == {"tool": "search"}
 
 
 def test_message_from_event_ignores_participant_left() -> None:
@@ -66,3 +87,52 @@ def test_message_from_event_maps_sender_name() -> None:
     assert record is not None
     assert record.author_name == "omp"
     assert record.content == "pong"
+    assert record.message_type == "text"
+
+
+def test_message_from_event_created_maps_type_and_empty_content() -> None:
+    event = RealtimeEvent(
+        kind=RealtimeEventKind.EVENT_CREATED,
+        room_id="r1",
+        payload={
+            "id": "e1",
+            "content": "",
+            "message_type": "tool_call",
+            "sender_name": "Architect",
+            "metadata": {"name": "ToolSearch"},
+        },
+    )
+    record = message_from_event(event)
+    assert record is not None
+    assert record.message_type == "tool_call"
+    assert record.content == ""
+    assert record.metadata == {"name": "ToolSearch"}
+
+
+@pytest.mark.asyncio
+async def test_send_message_builds_row_from_request_not_empty_ack() -> None:
+    """MessageSentResponse is delivery-only; the timeline row uses the request."""
+    client = BandClient.__new__(BandClient)
+    ack = SimpleNamespace(id="msg-42", recipients=[], success=True)
+    client._messages = MagicMock()
+    client._messages.send_my_chat_message = AsyncMock(
+        return_value=SimpleNamespace(data=ack)
+    )
+
+    record = await BandClient.send_message(
+        client,
+        "room-1",
+        "Hello team",
+        mentions=[("a1", "aaaaa"), ("q1", "qqq")],
+        sender_name="user1 ci",
+    )
+    assert record.id == "msg-42"
+    assert record.author_name == "user1 ci"
+    assert record.content == "@aaaaa @qqq Hello team"
+    assert record.message_type == "text"
+    assert record.metadata == {
+        "mentions": [
+            {"id": "a1", "name": "aaaaa"},
+            {"id": "q1", "name": "qqq"},
+        ]
+    }

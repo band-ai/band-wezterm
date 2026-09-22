@@ -7,7 +7,7 @@ from textual.app import App, ComposeResult
 
 from band_wezterm.client import ParticipantRecord
 from band_wezterm.identity import AvatarKind
-from band_wezterm.tui.screens.rooms import resolve_mention
+from band_wezterm.tui.screens.rooms import resolve_mention, resolve_mentions
 from band_wezterm.tui.widgets import MarkdownComposer, MentionSuggester
 
 PARTICIPANT_ID = "0f5d0b7c-1a3e-4c5b-9d2f-6a7b8c9d0e1f"
@@ -85,6 +85,50 @@ def test_resolve_mention_prefers_a_canonical_handle_over_a_name_alias() -> None:
     resolved = resolve_mention("@Dup hello", [alias_owner, handle_owner])
 
     assert resolved == (handle_owner, "hello")
+
+
+def test_resolve_mentions_wakes_every_tagged_participant_left_to_right() -> None:
+    pm = ParticipantRecord(
+        id="pm",
+        name="Product Manager hql5sv",
+        handle="Product Manager hql5sv",
+        kind=AvatarKind.AGENT,
+        color="#7ee787",
+    )
+    aaaaa = ParticipantRecord(
+        id="aaaaa",
+        name="aaaaa",
+        handle="aaaaa",
+        kind=AvatarKind.AGENT,
+        color="#7ee787",
+    )
+    qqq = ParticipantRecord(
+        id="qqq",
+        name="qqq",
+        handle="qqq",
+        kind=AvatarKind.AGENT,
+        color="#7ee787",
+    )
+
+    resolved = resolve_mentions(
+        "@Product Manager hql5sv @aaaaa @qqq Hello team",
+        [pm, aaaaa, qqq],
+    )
+
+    assert resolved is not None
+    mentioned, remainder = resolved
+    assert mentioned == [pm, aaaaa, qqq]
+    assert remainder == "Hello team"
+
+
+def test_resolve_mentions_dedupes_repeat_tags() -> None:
+    recipient = participant()
+
+    resolved = resolve_mentions(
+        "@Developer 6753 ping @Developer 6753 again", [recipient]
+    )
+
+    assert resolved == ([recipient], "ping again")
 
 
 @pytest.mark.asyncio
