@@ -1,4 +1,4 @@
-"""`band` entrypoint — open a Control or room view in the current pane."""
+"""`band` entrypoint — open a Band home or room view in the current pane."""
 
 from __future__ import annotations
 
@@ -86,15 +86,15 @@ def _argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=COMMAND_NAME,
         description=(
-            "Open Band Control in this WezTerm pane. Use `band room NAME_OR_ID` "
-            "to open a room directly, or `band room` to choose one in Control. "
+            "Open Band home in this WezTerm pane. Use `band room NAME_OR_ID` "
+            "to open a room directly, or `band room` to choose and manage rooms. "
             f"`{SETUP_COMMAND}` wires the Band WezTerm plugin into your config."
         ),
     )
     parser.add_argument(
         "--restart",
         action="store_true",
-        help="Open a fresh Control view (kept for command compatibility)",
+        help="Open a fresh Band home view (kept for command compatibility)",
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser(
@@ -104,7 +104,7 @@ def _argument_parser() -> argparse.ArgumentParser:
     )
     room = subparsers.add_parser(
         "room",
-        help="Open a room by title or ID, or choose one in Control",
+        help="Open a room by title or ID, or choose and manage rooms",
     )
     room.add_argument("room", nargs="?")
     subparsers.add_parser("rooms", help="List accessible rooms and their IDs")
@@ -162,7 +162,7 @@ def _run_control_locked(*, room_id: str | None) -> int:
 def _start_control_without_cli(cwd: Path, *, room_id: str | None) -> int:
     """Recover when a GUI closes between a CLI lookup and spawn."""
     start_first_window(cwd, _control_command(room_id=room_id))
-    print("Control tab opened in a new WezTerm window.")
+    print("Band home opened in a new WezTerm window.")
     return 0
 
 

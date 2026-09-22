@@ -126,7 +126,7 @@ def test_main_help_is_a_discoverable_command(
     assert main(["help"]) == 0
     help_text = capsys.readouterr().out
     assert "NAME_OR_ID" in help_text
-    assert "choose one in Control" in help_text
+    assert "choose and manage rooms" in help_text
 
 
 def test_setup_help_mentions_active_config(

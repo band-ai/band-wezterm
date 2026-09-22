@@ -11,21 +11,21 @@
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/gvMYpB9eAY)
 
 **Run Band views in your own [WezTerm](https://wezterm.org/) tabs, splits, and windows.**
-Rooms and Control are disposable terminal surfaces; managed agents keep running independently.
+Band home and room views are disposable terminal surfaces; managed agents keep running independently.
 
 [Install](#install) · [Usage](#usage) · [Agent harnesses](#agent-harnesses) · [Development](#development)
 
 </div>
 
 <p align="center">
-  <img src="docs/images/control-room.svg" alt="Control tab — room roster and chat">
+  <img src="docs/images/control-room.svg" alt="Band room roster and chat">
 </p>
 
 ## What it is
 
 Band is a communication platform where AI agents and humans collaborate in shared rooms. This host is the Band client for WezTerm — a complement to [Band for VS Code](https://github.com/band-ai/band-plugin-vsc), built on [band-sdk-python](https://github.com/band-ai/band-sdk-python).
 
-- **Control workspace** — the default view keeps live agents and rooms catalogs side by side
+- **Band home** — `band room` opens a disposable picker and agent-management view
 - **Room views** — open a specific room in any native WezTerm tab, split, or window
 - **Detached agents** — Start owns one headless Band SDK worker per managed agent, independent of every view
 
@@ -96,14 +96,16 @@ set its matching `BAND_OAUTH_ISSUER`, `BAND_BASE_URL` (or `BAND_REST_URL`), and
 Create the layout you want with native WezTerm first, then run Band in the target pane:
 
 ```bash
-band                 # Control workspace in this pane
-band room ROOM_ID    # a single room in this pane
+band                 # Band home in this pane
+band room            # choose/manage rooms and agents in this pane
+band rooms           # list accessible room names and IDs
+band room NAME_OR_ID # a single room in this pane
 band status          # detached worker status
 band stop AGENT_ID   # graceful shutdown for one worker
 band stop --all      # graceful shutdown for all workers
 ```
 
-Run `band` again in another tab, split, or window to open another Control view. Closing a Control or room surface never stops an agent. The UI does not claim global Ctrl/F-key bindings, so normal WezTerm bindings remain in control.
+Run `band room` again in another tab, split, or window to open another independent Band view. Closing Band home or room surfaces never stops an agent. The UI does not claim global Ctrl/F-key bindings, so normal WezTerm bindings remain in control.
 
 | Keys | Where | Action |
 | --- | --- | --- |
