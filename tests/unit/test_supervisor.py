@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from band_wezterm.supervisor.protocol import (
+    SupervisorAction,
     SupervisorRequest,
     SupervisorState,
     WorkerRecord,
@@ -53,13 +54,13 @@ async def test_supervisor_requires_authenticated_ipc_and_serves_worker_inventory
 
         rejected = await _request(
             state.socket_path,
-            SupervisorRequest(token="wrong", action="ping"),
+            SupervisorRequest(token="wrong", action=SupervisorAction.PING),
         )
         assert rejected["ok"] is False
 
         inventory = await _request(
             state.socket_path,
-            SupervisorRequest(token=state.token, action="list"),
+            SupervisorRequest(token=state.token, action=SupervisorAction.LIST),
         )
         assert inventory == {"ok": True, "workers": []}
     finally:
@@ -93,7 +94,10 @@ async def test_supervisor_serializes_concurrent_lifecycle_requests(
 
     server._start_worker = start  # type: ignore[method-assign]
     request = SupervisorRequest(
-        token="token", action="start", agent_id="agent-1", cwd=str(tmp_path)
+        token="token",
+        action=SupervisorAction.START,
+        agent_id="agent-1",
+        cwd=str(tmp_path),
     )
     await asyncio.gather(server._dispatch(request), server._dispatch(request))
 

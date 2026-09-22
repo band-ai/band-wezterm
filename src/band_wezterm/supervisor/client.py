@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from band_wezterm.config import LOCAL_STATE_DIRNAME
 from band_wezterm.supervisor.protocol import (
+    SupervisorAction,
     SupervisorRequest,
     SupervisorState,
     WorkerRecord,
@@ -85,7 +86,7 @@ class SupervisorClient:
             await self._wait_until_ready()
 
     async def list_workers(self) -> tuple[WorkerRecord, ...]:
-        payload = await self._request("list")
+        payload = await self._request(SupervisorAction.LIST)
         workers = payload.get("workers", [])
         try:
             return tuple(WorkerRecord.model_validate(worker) for worker in workers)
@@ -95,7 +96,9 @@ class SupervisorClient:
             ) from error
 
     async def start(self, agent_id: str, *, cwd: Path) -> WorkerRecord:
-        payload = await self._request("start", agent_id=agent_id, cwd=str(cwd))
+        payload = await self._request(
+            SupervisorAction.START, agent_id=agent_id, cwd=str(cwd)
+        )
         try:
             return WorkerRecord.model_validate(payload["worker"])
         except (KeyError, ValidationError) as error:
@@ -104,7 +107,7 @@ class SupervisorClient:
             ) from error
 
     async def stop(self, agent_id: str) -> WorkerRecord | None:
-        payload = await self._request("stop", agent_id=agent_id)
+        payload = await self._request(SupervisorAction.STOP, agent_id=agent_id)
         worker = payload.get("worker")
         if worker is None:
             return None
@@ -116,11 +119,11 @@ class SupervisorClient:
             ) from error
 
     async def stop_all(self) -> None:
-        await self._request("stop_all")
+        await self._request(SupervisorAction.STOP_ALL)
 
     async def _is_healthy(self) -> bool:
         try:
-            await self._request("ping")
+            await self._request(SupervisorAction.PING)
         except SupervisorError:
             return False
         return True
@@ -163,7 +166,11 @@ class SupervisorClient:
             ) from error
 
     async def _request(
-        self, action: str, *, agent_id: str | None = None, cwd: str | None = None
+        self,
+        action: SupervisorAction,
+        *,
+        agent_id: str | None = None,
+        cwd: str | None = None,
     ) -> dict[str, object]:
         try:
             state = self._state()

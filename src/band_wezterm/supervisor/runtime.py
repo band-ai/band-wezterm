@@ -23,8 +23,10 @@ from band_wezterm.auth.credentials import ManagedAgentKeyStore
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.supervisor.client import supervisor_socket_directory
 from band_wezterm.supervisor.protocol import (
+    SupervisorAction,
     SupervisorRequest,
     SupervisorState,
+    WorkerAction,
     WorkerRecord,
     WorkerRequest,
     WorkerResponse,
@@ -127,22 +129,22 @@ class SupervisorServer:
 
     async def _dispatch(self, request: SupervisorRequest) -> dict[str, object]:
         match request.action:
-            case "ping":
+            case SupervisorAction.PING:
                 return {"ok": True}
-            case "list":
+            case SupervisorAction.LIST:
                 async with self._lifecycle_lock:
                     workers = await self._refresh_workers()
                 return {
                     "ok": True,
                     "workers": [worker.model_dump(mode="json") for worker in workers],
                 }
-            case "start" if request.agent_id and request.cwd:
+            case SupervisorAction.START if request.agent_id and request.cwd:
                 async with self._lifecycle_lock:
                     worker = await self._start_worker(
                         request.agent_id, Path(request.cwd)
                     )
                 return {"ok": True, "worker": worker.model_dump(mode="json")}
-            case "stop" if request.agent_id:
+            case SupervisorAction.STOP if request.agent_id:
                 async with self._lifecycle_lock:
                     worker = await self._stop_worker(request.agent_id)
                 return {
@@ -151,7 +153,7 @@ class SupervisorServer:
                     if worker is None
                     else worker.model_dump(mode="json"),
                 }
-            case "stop_all":
+            case SupervisorAction.STOP_ALL:
                 async with self._lifecycle_lock:
                     await self._stop_all_workers()
                 return {"ok": True}
@@ -161,7 +163,7 @@ class SupervisorServer:
     async def _refresh_workers(self) -> tuple[WorkerRecord, ...]:
         refreshed: dict[str, WorkerRecord] = {}
         for agent_id, worker in self._state.workers.items():
-            status = await _worker_request(worker, "status")
+            status = await _worker_request(worker, WorkerAction.STATUS)
             if status is None:
                 if _pid_alive(worker.pid) and (
                     worker.state is WorkerState.STARTING
@@ -259,7 +261,9 @@ class SupervisorServer:
             await self._stop_worker(agent_id)
 
 
-async def _worker_request(worker: WorkerRecord, action: str) -> WorkerResponse | None:
+async def _worker_request(
+    worker: WorkerRecord, action: WorkerAction
+) -> WorkerResponse | None:
     try:
         reader, writer = await asyncio.open_unix_connection(worker.control_socket)
         try:
@@ -279,13 +283,13 @@ async def _worker_request(worker: WorkerRecord, action: str) -> WorkerResponse |
 
 async def _request_worker_stop(worker: WorkerRecord) -> WorkerResponse | None:
     """Wait briefly for a freshly spawned worker before force-stopping it."""
-    status = await _worker_request(worker, "stop")
+    status = await _worker_request(worker, WorkerAction.STOP)
     if status is not None or worker.state is not WorkerState.STARTING:
         return status
     deadline = time.monotonic() + WORKER_START_GRACE_SECONDS
     while _pid_alive(worker.pid) and time.monotonic() < deadline:
         await asyncio.sleep(WORKER_STOP_RETRY_SECONDS)
-        status = await _worker_request(worker, "stop")
+        status = await _worker_request(worker, WorkerAction.STOP)
         if status is not None:
             return status
     return None

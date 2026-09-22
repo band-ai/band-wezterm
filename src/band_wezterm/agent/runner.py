@@ -34,7 +34,12 @@ from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.pane_identity import announce_agent_pane, announce_runtime_status
-from band_wezterm.supervisor.protocol import WorkerRequest, WorkerResponse, WorkerState
+from band_wezterm.supervisor.protocol import (
+    WorkerAction,
+    WorkerRequest,
+    WorkerResponse,
+    WorkerState,
+)
 
 AGENT_TAB_TITLE = "Band agent"
 AGENT_TAB_ONLINE = "Online — listening to Band rooms"
@@ -88,9 +93,9 @@ class WorkerController:
             if not secrets.compare_digest(request.token, self._token):
                 raise PermissionError("authentication failed")
             match request.action:
-                case "status":
+                case WorkerAction.STATUS:
                     response = WorkerResponse(ok=True, state=self._state)
-                case "stop":
+                case WorkerAction.STOP:
                     self._state = WorkerState.STOPPING
                     self.stop_requested.set()
                     response = WorkerResponse(ok=True, state=self._state)

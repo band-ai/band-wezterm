@@ -16,6 +16,23 @@ class WorkerState(StrEnum):
     ERROR = "error"
 
 
+class SupervisorAction(StrEnum):
+    """Commands accepted by the per-user supervisor."""
+
+    PING = "ping"
+    LIST = "list"
+    START = "start"
+    STOP = "stop"
+    STOP_ALL = "stop_all"
+
+
+class WorkerAction(StrEnum):
+    """Commands accepted by a detached managed worker."""
+
+    STATUS = "status"
+    STOP = "stop"
+
+
 class WorkerRecord(BaseModel):
     """Durable locator for one detached worker process."""
 
@@ -48,7 +65,7 @@ class SupervisorRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     token: str
-    action: str
+    action: SupervisorAction
     agent_id: str | None = None
     cwd: str | None = None
 
@@ -59,7 +76,7 @@ class WorkerRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     token: str
-    action: str
+    action: WorkerAction
 
 
 class WorkerResponse(BaseModel):
