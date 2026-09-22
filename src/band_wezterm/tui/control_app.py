@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from contextlib import suppress
+from enum import StrEnum
 from typing import ClassVar, Final
 
 from textual.app import App
@@ -43,14 +44,18 @@ from band_wezterm.wezterm_cli import WezTermCliError, set_tab_title, set_window_
 
 CONTROL_PROCESS_ENV: Final = "BAND_WEZTERM_CONTROL"
 CONTROL_PROCESS_FLAG: Final = "1"
-
-SIGN_IN_SCREEN: Final = "sign_in"
-WORKSPACE_SCREEN: Final = "workspace"
-AGENTS_SCREEN: Final = "agents"
-ROOMS_SCREEN: Final = "rooms"
-SETTINGS_SCREEN: Final = "settings"
 # App default screen + the active base screen; anything above is an overlay.
 BASE_STACK_DEPTH: Final = 2
+
+
+class AppScreen(StrEnum):
+    """Every navigable Band app screen."""
+
+    SIGN_IN = "sign_in"
+    WORKSPACE = "workspace"
+    AGENTS = "agents"
+    ROOMS = "rooms"
+    SETTINGS = "settings"
 
 
 class AuthenticationRejected(Message):
@@ -103,11 +108,11 @@ class ControlApp(App[None]):
     TITLE = WINDOW_TITLE
 
     SCREENS: ClassVar[dict[str, Callable[[], Screen[None]]]] = {
-        SIGN_IN_SCREEN: SignInScreen,
-        WORKSPACE_SCREEN: WorkspaceScreen,
-        AGENTS_SCREEN: AgentsScreen,
-        ROOMS_SCREEN: RoomsScreen,
-        SETTINGS_SCREEN: SettingsScreen,
+        AppScreen.SIGN_IN: SignInScreen,
+        AppScreen.WORKSPACE: WorkspaceScreen,
+        AppScreen.AGENTS: AgentsScreen,
+        AppScreen.ROOMS: RoomsScreen,
+        AppScreen.SETTINGS: SettingsScreen,
     }
 
     def __init__(
@@ -152,7 +157,7 @@ class ControlApp(App[None]):
         if self.host_auth.has_stored_tokens():
             self.run_worker(self._restore_workspace(), group="workspace")
             return
-        self.push_screen(SIGN_IN_SCREEN)
+        self.push_screen(AppScreen.SIGN_IN)
 
     async def on_unmount(self) -> None:
         """Closing one view never affects detached managed workers."""
@@ -167,7 +172,7 @@ class ControlApp(App[None]):
         except Exception as error:
             message = format_platform_error(error, operation="open workspace")
             self.notify(message, severity="error")
-            self.push_screen(SIGN_IN_SCREEN)
+            self.push_screen(AppScreen.SIGN_IN)
 
     async def enter_workspace(self) -> None:
         """Identify the signed-in human, then open the shared workspace."""
@@ -177,7 +182,7 @@ class ControlApp(App[None]):
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
         announce_control_human(self.user_id)
         log_event("workspace entered", user_id=self.user_id)
-        self._show(WORKSPACE_SCREEN)
+        self._show(AppScreen.WORKSPACE)
         await self._open_initial_room()
 
     async def _open_initial_room(self) -> None:
@@ -195,16 +200,16 @@ class ControlApp(App[None]):
     # --- navigation ---------------------------------------------------------
 
     def action_show_agents(self) -> None:
-        self._show(AGENTS_SCREEN)
+        self._show(AppScreen.AGENTS)
 
     def action_show_rooms(self) -> None:
-        self._show(ROOMS_SCREEN)
+        self._show(AppScreen.ROOMS)
 
     def action_show_workspace(self) -> None:
-        self._show(WORKSPACE_SCREEN)
+        self._show(AppScreen.WORKSPACE)
 
     def action_show_settings(self) -> None:
-        self.push_screen(SETTINGS_SCREEN)
+        self.push_screen(AppScreen.SETTINGS)
 
     def action_sign_out(self) -> None:
         self.run_worker(self._sign_out(), group="auth")
@@ -259,7 +264,7 @@ class ControlApp(App[None]):
             self.rooms_store = RoomsStore()
             while len(self.screen_stack) > 1:
                 self.pop_screen()
-            self.push_screen(SIGN_IN_SCREEN)
+            self.push_screen(AppScreen.SIGN_IN)
             return True
         finally:
             self._ending_session = False
@@ -298,7 +303,7 @@ class ControlApp(App[None]):
             case RoomDetailScreen() as screen:
                 screen.mutate_reactive(RoomDetailScreen.store)
 
-    def _show(self, screen_name: str) -> None:
+    def _show(self, screen_name: AppScreen) -> None:
         """Switch a view without losing its in-memory room draft."""
         while len(self.screen_stack) > BASE_STACK_DEPTH:
             self.pop_screen()
@@ -327,7 +332,10 @@ class ControlApp(App[None]):
         self.rooms_store.remove_room(room_id)
 
 
-def run_control_app(*, initial_room_id: str | None = None) -> int:
+def run_control_app(
+    *,
+    initial_room_id: str | None = None,
+) -> int:
     """Run a disposable Band home or room view in this process."""
     mark_control_process()
     ensure_terminal_color()

@@ -35,7 +35,7 @@ from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.roles import Role
 from band_wezterm.supervisor import WorkerRecord, WorkerState
-from band_wezterm.tui.control_app import ROOMS_SCREEN, ControlApp
+from band_wezterm.tui.control_app import AppScreen, ControlApp
 from band_wezterm.tui.managed_agent_actions import (
     NO_MANAGED_KEY_MESSAGE,
     NO_MANAGED_PROFILE_MESSAGE,
@@ -432,7 +432,7 @@ async def test_two_running_agents_can_create_a_room_and_receive_mentions(
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
-        control_app._show(ROOMS_SCREEN)
+        control_app._show(AppScreen.ROOMS)
         await pilot.press("n")
         title = control_app.screen.query_one(room_selector(RoomId.DRAFT_TITLE), Input)
         title.value = created_room.title
@@ -1655,7 +1655,7 @@ async def test_delete_room_requires_confirmation(
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
-        control_app._show(ROOMS_SCREEN)
+        control_app._show(AppScreen.ROOMS)
         await settle(pilot)
         assert isinstance(control_app.screen, RoomsScreen)
         await pilot.press("delete")
@@ -1688,7 +1688,7 @@ async def test_delete_room_from_detail_returns_to_list(
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
-        control_app._show(ROOMS_SCREEN)
+        control_app._show(AppScreen.ROOMS)
         await settle(pilot)
         assert isinstance(control_app.screen, RoomsScreen)
         await pilot.press("enter")

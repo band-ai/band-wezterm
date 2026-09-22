@@ -22,7 +22,7 @@ NO_MANAGED_PROFILE_MESSAGE: Final = (
     "No local profile — register or reconfigure after upgrade."
 )
 NO_MANAGED_KEY_MESSAGE: Final = (
-    "No managed API key for this agent — re-register it from Control "
+    "No managed API key for this agent — re-register it from `band agents` "
     "(keys are one-time at registration)."
 )
 STARTING_AGENT_MESSAGE: Final = "Starting {name}…"
@@ -38,7 +38,7 @@ PANE_CLEANUP_FAILED_MESSAGE: Final = (
 
 
 class ManagedAgentActions:
-    """Launch and stop one locally managed agent from a Control screen."""
+    """Launch and stop one locally managed agent from a Band screen."""
 
     @property
     def _control_screen(self) -> ControlScreen:

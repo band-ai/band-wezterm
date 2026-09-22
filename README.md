@@ -96,16 +96,18 @@ set its matching `BAND_OAUTH_ISSUER`, `BAND_BASE_URL` (or `BAND_REST_URL`), and
 Create the layout you want with native WezTerm first, then run Band in the target pane:
 
 ```bash
-band                 # Band home in this pane
-band room            # choose/manage rooms and agents in this pane
+band                 # show command help
+band room            # choose and manage rooms in this pane
+band agents           # open agent management in this pane
 band rooms           # list accessible room names and IDs
 band room NAME_OR_ID # a single room in this pane
-band status          # detached worker status
-band stop AGENT_ID   # graceful shutdown for one worker
-band stop --all      # graceful shutdown for all workers
+band status          # rooms and detached-agent status
+band agent start AGENT_ID   # start a detached worker
+band agent stop AGENT_ID    # gracefully stop a detached worker
+band agent status AGENT_ID  # inspect one detached worker
 ```
 
-Run `band room` again in another tab, split, or window to open another independent Band view. Closing Band home or room surfaces never stops an agent. The UI does not claim global Ctrl/F-key bindings, so normal WezTerm bindings remain in control.
+Run `band room` again in another tab, split, or window to open another independent Band view. Closing Band surfaces never stops an agent. The UI does not claim global Ctrl/F-key bindings, so normal WezTerm bindings remain in control.
 
 | Keys | Where | Action |
 | --- | --- | --- |
@@ -136,7 +138,7 @@ supervisor to launch one detached worker, powered by the matching
 worker owns the Band SDK subscription for that agent's rooms; no WezTerm pane
 owns it.
 
-Workers stop only through Stop, `band stop`, successful Sign out, deleting the
+Workers stop only through Stop, `band agent stop`, successful Sign out, deleting the
 agent, a fatal worker error, or machine/process shutdown. A new Band home view
 adopts still-running workers through authenticated local IPC. If a view closes,
 workers and their room subscriptions remain intact.
@@ -169,7 +171,7 @@ For OpenCode, Band automatically owns the local `opencode serve`
 backend used by Band bridges; private OpenCode tabs remain separate,
 profile-configured direct sessions.
 
-Managed agent API keys are one-time at registration. Agents registered before this host persisted keys cannot be Started — register a new agent from Control (the old platform identity can be deleted separately).
+Managed agent API keys are one-time at registration. Agents registered before this host persisted keys cannot be Started — register a new agent from `band agents` (the old platform identity can be deleted separately).
 
 ## Tests
 
@@ -197,8 +199,7 @@ Tokens and managed agent API keys live only in the OS keyring. OSC 1337 user-var
 just sync            # core + default-groups.dev from uv.lock
 just sync-agents     # plus every harness extra
 just setup           # WezTerm plugin
-just start           # open Band home
-just restart         # open a fresh Band home
+just start           # open the Band room picker
 just screenshots     # refresh the README Band-view SVGs
 ```
 

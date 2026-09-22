@@ -184,10 +184,7 @@ async def _write(name: str, capture: Capture, size: tuple[int, int]) -> Path:
 async def _main() -> None:
     _color()
     IMAGES.mkdir(parents=True, exist_ok=True)
-    with (
-        patch("band_wezterm.tui.control_app.kill_panes"),
-        patch("band_wezterm.pane_identity.announce_control_human"),
-    ):
+    with patch("band_wezterm.pane_identity.announce_control_human"):
         written = [
             await _write("workspace.svg", _capture_workspace, (110, 16)),
             await _write("control-room.svg", _capture_room, (110, 28)),

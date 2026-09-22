@@ -12,17 +12,9 @@ sync:
 sync-agents:
     uv sync --extra agents
 
-# Open a Band home view
+# Open the Band room picker
 start:
-    uv run band
-
-# Same as start
-attach:
-    uv run band
-
-# Open a fresh Band home view
-restart:
-    uv run band --restart
+    uv run band room
 
 # Install/update Band plugin snippet in active WezTerm config (idempotent)
 setup:

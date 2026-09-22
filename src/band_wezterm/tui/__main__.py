@@ -1,4 +1,4 @@
-"""`python -m band_wezterm.tui` — run the Control tab in this pane."""
+"""`python -m band_wezterm.tui` — run a Band view in this pane."""
 
 from __future__ import annotations
 

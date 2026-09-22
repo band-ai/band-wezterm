@@ -20,6 +20,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "textual>=1.0.0",
     "phoenix-channels-python-client>=0.2.4",
+    "cyclopts>=4.25.3",
 ]
 
 [project.urls]

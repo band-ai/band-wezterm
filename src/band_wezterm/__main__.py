@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import os
 import sys
@@ -10,7 +9,8 @@ from pathlib import Path
 from typing import Final
 
 from band_wezterm.auth.host_auth import HostAuth
-from band_wezterm.client import BandClient, RoomRecord
+from band_wezterm.cli import COMMAND_NAME, AgentAction, Command, create_app
+from band_wezterm.client import AgentRecord, BandClient, RoomRecord
 from band_wezterm.setup_wezterm import (
     SetupAction,
     SetupConfigError,
@@ -24,20 +24,18 @@ from band_wezterm.wezterm_cli import (
     start_first_window,
 )
 
-CONTROL_MODULE: Final = "band_wezterm.tui"
-COMMAND_NAME: Final = "band"
-SETUP_COMMAND: Final = "setup"
-SETUP_HELP: Final = (
-    "Install/update the Band WezTerm plugin snippet in the active "
-    "WezTerm config (WEZTERM_CONFIG_FILE, ~/.wezterm.lua, or XDG wezterm.lua)"
-)
+TUI_MODULE: Final = "band_wezterm.tui"
+STATUS_ROOMS_HEADING: Final = "Rooms"
+STATUS_AGENTS_HEADING: Final = "Agents"
+STATUS_EMPTY_ROOMS: Final = "No accessible rooms."
+STATUS_EMPTY_AGENTS: Final = "No managed agents are running."
 
 
 class RoomSelectionError(ValueError):
     """A room reference does not select exactly one accessible room."""
 
 
-def _control_command(*, room_id: str | None) -> list[str]:
+def _view_command(*, room_id: str | None) -> list[str]:
     """Spawn via ``env`` so NO_COLOR from the launcher cannot gray out Textual."""
     # macOS ``env`` has no ``--``; name=value then utility.
     command = [
@@ -47,49 +45,11 @@ def _control_command(*, room_id: str | None) -> list[str]:
         "COLORTERM=truecolor",
         sys.executable,
         "-m",
-        CONTROL_MODULE,
+        TUI_MODULE,
     ]
     if room_id is not None:
         command.extend(["--room-id", room_id])
     return command
-
-
-def _argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog=COMMAND_NAME,
-        description=(
-            "Open Band home in this WezTerm pane. Use `band room NAME_OR_ID` "
-            "to open a room directly, or `band room` to choose and manage rooms. "
-            f"`{SETUP_COMMAND}` wires the Band WezTerm plugin into your config."
-        ),
-    )
-    parser.add_argument(
-        "--restart",
-        action="store_true",
-        help="Open a fresh Band home view (kept for command compatibility)",
-    )
-    subparsers = parser.add_subparsers(dest="command")
-    subparsers.add_parser(
-        SETUP_COMMAND,
-        help=SETUP_HELP,
-        description=SETUP_HELP,
-    )
-    room = subparsers.add_parser(
-        "room",
-        help="Open a room by title or ID, or choose and manage rooms",
-    )
-    room.add_argument("room", nargs="?")
-    subparsers.add_parser("rooms", help="List accessible rooms and their IDs")
-    subparsers.add_parser("status", help="List detached managed agents")
-    stop = subparsers.add_parser("stop", help="Gracefully stop a managed agent")
-    stop.add_argument("agent_id", nargs="?")
-    stop.add_argument("--all", action="store_true", dest="stop_all")
-    subparsers.add_parser("help", help="Show command and workflow help")
-    return parser
-
-
-def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    return _argument_parser().parse_args(argv)
 
 
 def _run_setup() -> int:
@@ -119,17 +79,33 @@ def _run_setup() -> int:
     return 0
 
 
-def _run_control(*, room_id: str | None = None) -> int:
+def _run_view(
+    *,
+    room_id: str | None = None,
+) -> int:
     cwd = Path.cwd()
     if os.environ.get("WEZTERM_PANE"):
         return run_control_app(initial_room_id=room_id)
-    return _start_control_without_cli(cwd, room_id=room_id)
+    return _start_view_without_cli(cwd, room_id=room_id)
 
 
-def _start_control_without_cli(cwd: Path, *, room_id: str | None) -> int:
+async def _run_room(reference: str | None) -> int:
+    try:
+        room_id = None if reference is None else await _resolve_room_id(reference)
+        return _run_view(room_id=room_id)
+    except (RoomSelectionError, ValueError, WezTermCliError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+
+def _start_view_without_cli(
+    cwd: Path,
+    *,
+    room_id: str | None,
+) -> int:
     """Recover when a GUI closes between a CLI lookup and spawn."""
-    start_first_window(cwd, _control_command(room_id=room_id))
-    print("Band home opened in a new WezTerm window.")
+    start_first_window(cwd, _view_command(room_id=room_id))
+    print("Band view opened in a new WezTerm window.")
     return 0
 
 
@@ -155,6 +131,16 @@ async def _list_rooms() -> list[RoomRecord]:
         await client.aclose()
 
 
+async def _list_agents() -> list[AgentRecord]:
+    """Read the current user's registered agents."""
+    auth = HostAuth()
+    client = BandClient(auth)
+    try:
+        return await client.list_my_agents()
+    finally:
+        await client.aclose()
+
+
 async def _resolve_room_id(reference: str) -> str:
     """Resolve an exact room title or ID for the direct room command."""
     rooms = await _list_rooms()
@@ -167,7 +153,7 @@ async def _resolve_room_id(reference: str) -> str:
         return matches[0].id
     if not matches:
         raise RoomSelectionError(
-            f"No accessible room matches {reference!r}. Run `band` to choose a room."
+            f"No accessible room matches {reference!r}. Run `band room` to choose a room."
         )
     choices = ", ".join(f"{room.title} ({room.id})" for room in matches)
     raise RoomSelectionError(
@@ -186,59 +172,81 @@ async def _run_rooms() -> int:
 
 
 async def _run_status() -> int:
-    supervisor = await _current_supervisor()
-    workers = await supervisor.list_workers()
-    if not workers:
-        print("No managed agents are running.")
+    rooms = await _list_rooms()
+    print(STATUS_ROOMS_HEADING)
+    if not rooms:
+        print(STATUS_EMPTY_ROOMS)
+    for room in rooms:
+        print(f"{room.title}\t{room.id}\t{COMMAND_NAME} {Command.ROOM.value} {room.id}")
+    print()
+    await _run_agents()
+    return 0
+
+
+async def _run_agents() -> int:
+    agents, supervisor = await asyncio.gather(_list_agents(), _current_supervisor())
+    workers = {worker.agent_id: worker for worker in await supervisor.list_workers()}
+    print(STATUS_AGENTS_HEADING)
+    if not agents:
+        print(STATUS_EMPTY_AGENTS)
         return 0
-    for worker in workers:
+    for agent in agents:
+        worker = workers.get(agent.id)
+        state = "stopped" if worker is None else worker.state.value
+        action = AgentAction.START if worker is None else AgentAction.STOP
         print(
-            f"{worker.name}\t{worker.agent_id}\t{worker.state.value}\tpid {worker.pid}"
+            f"{agent.name}\t{agent.id}\t{state}\t{COMMAND_NAME} "
+            f"{Command.AGENT.value} {action.value} {agent.id}"
         )
     return 0
 
 
-async def _run_stop(*, agent_id: str | None, all_workers: bool) -> int:
-    if all_workers == (agent_id is not None):
-        raise ValueError("Use `band stop AGENT_ID` or `band stop --all`.")
+async def _run_agent_action(action: AgentAction, agent_id: str) -> int:
+    """Perform one lifecycle operation on a managed agent."""
     supervisor = await _current_supervisor()
-    if all_workers:
-        await supervisor.stop_all()
-        print("Stop requested for all managed agents.")
-    else:
-        assert agent_id is not None
-        await supervisor.stop(agent_id)
-        print(f"Stop requested for {agent_id}.")
+    match action:
+        case AgentAction.START:
+            worker = await supervisor.start(agent_id, cwd=Path.cwd())
+            print(
+                f"{worker.name}\t{worker.agent_id}\t{worker.state.value}\tpid {worker.pid}"
+            )
+        case AgentAction.STOP:
+            worker = await supervisor.stop(agent_id)
+            if worker is None:
+                print(f"{agent_id} is already stopped.")
+            else:
+                print(f"{worker.name}\t{worker.agent_id}\t{worker.state.value}")
+        case AgentAction.STATUS:
+            worker = next(
+                (
+                    worker
+                    for worker in await supervisor.list_workers()
+                    if worker.agent_id == agent_id
+                ),
+                None,
+            )
+            if worker is None:
+                print(f"{agent_id} is stopped.")
+            else:
+                print(
+                    f"{worker.name}\t{worker.agent_id}\t{worker.state.value}\t"
+                    f"pid {worker.pid}\t{worker.cwd}"
+                )
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     if is_control_process():
         return run_control_app()
-    args = _parse_args(argv)
-    if args.command == SETUP_COMMAND:
-        return _run_setup()
-    if args.command == "help":
-        _argument_parser().print_help()
-        return 0
-    try:
-        if args.command == "status":
-            return asyncio.run(_run_status())
-        if args.command == "rooms":
-            return asyncio.run(_run_rooms())
-        if args.command == "stop":
-            return asyncio.run(
-                _run_stop(agent_id=args.agent_id, all_workers=args.stop_all)
-            )
-        room_id = (
-            asyncio.run(_resolve_room_id(args.room))
-            if args.command == "room" and args.room is not None
-            else None
-        )
-        return _run_control(room_id=room_id)
-    except (RoomSelectionError, ValueError, WezTermCliError) as exc:
-        print(exc, file=sys.stderr)
-        return 1
+    app = create_app(
+        setup=_run_setup,
+        room=_run_room,
+        rooms=_run_rooms,
+        agents=_run_agents,
+        status=_run_status,
+        agent=_run_agent_action,
+    )
+    return asyncio.run(app.run_async(argv))
 
 
 if __name__ == "__main__":
