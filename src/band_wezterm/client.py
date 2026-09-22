@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from uuid import UUID
 
 import httpx
@@ -34,6 +34,7 @@ from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.config import CHAT_MESSAGES_LIMIT, Settings, load_settings
 from band_wezterm.diagnostics import log_event
 from band_wezterm.platform_models import (
+    DEFAULT_MESSAGE_TYPE,
     AgentRecord,
     DirectoryResponse,
     MessageRecord,
@@ -302,19 +303,38 @@ class BandClient:
         room_id: UUID | str,
         body: str,
         *,
-        mention_id: str,
-        mention_name: str,
+        mentions: Sequence[tuple[str, str]],
+        sender_name: str,
     ) -> MessageRecord:
+        """Post ``body`` waking every ``(id, name)`` mention (platform requires ≥1).
+
+        The REST ack is delivery-only (id/recipients/success) — build the timeline
+        row from the request so offline agents still show the sent text locally.
+        """
+        if not mentions:
+            raise ValueError("send_message requires at least one mention")
+        mention_items = [
+            ChatMessageRequestMentionsItem(id=mention_id, name=mention_name)
+            for mention_id, mention_name in mentions
+        ]
+        prefix = " ".join(f"@{name}" for _, name in mentions)
+        content = f"{prefix} {body}".strip() if body else prefix
         response = await self._messages.send_my_chat_message(
             str(room_id),
-            message=ChatMessageRequest(
-                content=f"@{mention_name} {body}",
-                mentions=[
-                    ChatMessageRequestMentionsItem(id=mention_id, name=mention_name)
-                ],
-            ),
+            message=ChatMessageRequest(content=content, mentions=mention_items),
         )
-        return message_record_from_api(response.data)
+        return MessageRecord(
+            id=str(response.data.id),
+            content=content,
+            author_name=sender_name,
+            message_type=DEFAULT_MESSAGE_TYPE,
+            metadata={
+                "mentions": [
+                    {"id": mention_id, "name": mention_name}
+                    for mention_id, mention_name in mentions
+                ]
+            },
+        )
 
     async def list_messages(
         self,

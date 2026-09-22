@@ -76,8 +76,7 @@ def test_live_room_participant_flow_with_user_api_key() -> None:
                 await client.send_message(
                     room.id,
                     "ping from .env.test harness",
-                    mention_id=agent_id,
-                    mention_name=agent_name,
+                    mentions=[(agent_id, agent_name)],
                 )
                 await client.remove_participant(room.id, agent_id)
             except httpx.HTTPError as exc:

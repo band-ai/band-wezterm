@@ -22,7 +22,12 @@ from band_wezterm.agent.opencode_server import OpenCodeServerManager
 from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.catalogs import ModelCatalogService
 from band_wezterm.client import BandClient, RoomRecord
-from band_wezterm.config import CONTROL_TAB_TITLE, Settings, load_settings
+from band_wezterm.config import (
+    CONTROL_TAB_TITLE,
+    WINDOW_TITLE,
+    Settings,
+    load_settings,
+)
 from band_wezterm.diagnostics import configure_diagnostics, log_event
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentStatus, AvatarKind, agent_accent, initials
@@ -44,6 +49,7 @@ from band_wezterm.wezterm_cli import (
     kill_panes,
     list_panes,
     set_tab_title,
+    set_window_title,
     window_id_for_pane,
 )
 
@@ -118,18 +124,19 @@ def current_window_id() -> WindowId | None:
 
 
 def name_control_tab() -> None:
-    """Replace the process title (e.g. python3.14) with ``Control``."""
+    """Brand the tab ``Control`` and the OS window ``Band`` (not python3.x)."""
     pane_id = current_pane_id()
     if pane_id is None:
         return
     with suppress(WezTermCliError, OSError):
         set_tab_title(pane_id, CONTROL_TAB_TITLE)
+        set_window_title(pane_id, WINDOW_TITLE)
 
 
 class ControlApp(App[None]):
     """Single-window host UI: agents catalog and rooms, keyboard first."""
 
-    TITLE = CONTROL_TAB_TITLE
+    TITLE = WINDOW_TITLE
 
     SCREENS: ClassVar[dict[str, Callable[[], Screen[None]]]] = {
         SIGN_IN_SCREEN: SignInScreen,

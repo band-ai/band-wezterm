@@ -121,6 +121,19 @@ local function install_handlers()
     return elements
   end)
 
+  -- Default WezTerm title is "[n/m] python3.x"; brand Band host windows instead.
+  wezterm.on("format-window-title", function(tab, pane, tabs, panes, config)
+    for _, t in ipairs(tabs) do
+      if (t.tab_title or "") == "Control" then
+        return "Band"
+      end
+      local active = t.active_pane
+      if active ~= nil and pane_state[active.pane_id] ~= nil then
+        return "Band"
+      end
+    end
+  end)
+
   wezterm.on("update-status", function(window, pane)
     local state = pane_state[pane:pane_id()] or {}
     local slug = state["band.room.slug"] or state["band.room.name"]

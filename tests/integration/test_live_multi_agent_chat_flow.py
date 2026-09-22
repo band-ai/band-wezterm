@@ -75,8 +75,7 @@ async def test_live_two_harness_agents_share_a_room() -> None:
             await client.send_message(
                 room_id,
                 prompt,
-                mention_id=record.id,
-                mention_name=record.name,
+                mentions=[(record.id, record.name)],
             )
             messages = await wait_for_reply_token(
                 client, room_id, token=token, excluding=prompt

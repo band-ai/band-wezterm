@@ -65,8 +65,7 @@ async def test_live_harness_mention_gets_reply() -> None:
         await client.send_message(
             room_id,
             MENTION_PROMPT,
-            mention_id=agent_id,
-            mention_name=record.name,
+            mentions=[(agent_id, record.name)],
         )
         messages = await wait_for_reply_token(
             client, room_id, token=REPLY_TOKEN, excluding=MENTION_PROMPT
