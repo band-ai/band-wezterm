@@ -18,6 +18,7 @@ from band_wezterm.client import (
     RoomRecord,
 )
 from band_wezterm.identity import HARNESS_BADGES, HarnessBadge
+from band_wezterm.supervisor.protocol import WorkerRecord, WorkerState
 from band_wezterm.wezterm_cli import PaneId
 
 
@@ -128,6 +129,7 @@ class AgentsStore:
     search: str = ""
     filter: AgentFilter = AgentFilter.ALL
     running: dict[str, AgentPanes] = field(default_factory=dict)
+    workers: dict[str, WorkerRecord] = field(default_factory=dict)
     starting_ids: set[str] = field(default_factory=set)
     selected_id: str | None = None
     loading: bool = False
@@ -153,13 +155,16 @@ class AgentsStore:
 
     @property
     def catalog(self) -> list[AgentRecord]:
-        return (
-            self.agents if self.source is AgentSource.MINE else self.directory
-        )
+        return self.agents if self.source is AgentSource.MINE else self.directory
 
     @property
     def running_ids(self) -> frozenset[str]:
-        return frozenset(self.running)
+        return frozenset(self.running) | frozenset(
+            agent_id
+            for agent_id, worker in self.workers.items()
+            if worker.state
+            in {WorkerState.STARTING, WorkerState.RUNNING, WorkerState.STOPPING}
+        )
 
     @property
     def visible(self) -> list[AgentRecord]:
@@ -170,16 +175,11 @@ class AgentsStore:
             agent
             for agent in self.catalog
             if _matches_search(agent.name, self.search)
-            and (
-                chip is AgentFilter.ALL
-                or AGENT_FILTERS[chip](agent, running)
-            )
+            and (chip is AgentFilter.ALL or AGENT_FILTERS[chip](agent, running))
         ]
 
     def find(self, agent_id: str) -> AgentRecord | None:
-        return next(
-            (agent for agent in self.catalog if agent.id == agent_id), None
-        )
+        return next((agent for agent in self.catalog if agent.id == agent_id), None)
 
     def replace_agents(self, agents: Sequence[AgentRecord]) -> None:
         self.agents = list(agents)
@@ -233,7 +233,11 @@ class AgentsStore:
         self.selected_id = visible[0].id if visible else None
 
     def is_running(self, agent_id: str) -> bool:
-        return agent_id in self.running
+        return agent_id in self.running_ids
+
+    def worker_state(self, agent_id: str) -> WorkerState | None:
+        worker = self.workers.get(agent_id)
+        return None if worker is None else worker.state
 
     def is_starting(self, agent_id: str) -> bool:
         return agent_id in self.starting_ids
@@ -253,7 +257,15 @@ class AgentsStore:
     ) -> None:
         self.running[agent_id] = AgentPanes(console=console or bridge, bridge=bridge)
 
+    def replace_workers(self, workers: Iterable[WorkerRecord]) -> None:
+        """Project the supervisor's runtime inventory into this view-local store."""
+        self.workers = {worker.agent_id: worker for worker in workers}
+
+    def mark_worker(self, worker: WorkerRecord) -> None:
+        self.workers[worker.agent_id] = worker
+
     def mark_stopped(self, agent_id: str) -> AgentPanes | None:
+        self.workers.pop(agent_id, None)
         return self.running.pop(agent_id, None)
 
     def agents_with_missing_panes(
@@ -266,6 +278,7 @@ class AgentsStore:
             for agent_id, panes in self.running.items()
             if any(pane.root not in live for pane in panes.ids)
         )
+
 
 @dataclass
 class RoomsStore:
@@ -317,10 +330,7 @@ class RoomsStore:
             room
             for room in self.rooms
             if _matches_search(room.title, self.search)
-            and (
-                self.filter is RoomFilter.ALL
-                or room.id in self.starred_ids
-            )
+            and (self.filter is RoomFilter.ALL or room.id in self.starred_ids)
         ]
 
     @property
@@ -346,9 +356,7 @@ class RoomsStore:
             self.candidates = []
             self._messages = {}
             self.picker_open = False
-        self.starred_ids = frozenset(
-            sid for sid in self.starred_ids if sid != room_id
-        )
+        self.starred_ids = frozenset(sid for sid in self.starred_ids if sid != room_id)
         if self.selected_id is not None:
             self._reconcile_selection()
 
@@ -372,9 +380,7 @@ class RoomsStore:
         self.picker_open = False
         self.clear_detail_statuses()
 
-    def replace_participants(
-        self, participants: Sequence[ParticipantRecord]
-    ) -> None:
+    def replace_participants(self, participants: Sequence[ParticipantRecord]) -> None:
         self.participants = list(participants)
 
     def replace_messages(self, messages: Sequence[MessageRecord]) -> None:
@@ -384,9 +390,7 @@ class RoomsStore:
     def addable_candidates(self) -> list[AgentRecord]:
         """Add-only picker: agents already in the roster are never offered."""
         present = self.participant_ids
-        return [
-            agent for agent in self.candidates if agent.id not in present
-        ]
+        return [agent for agent in self.candidates if agent.id not in present]
 
     def remove_participant(self, participant_id: str) -> None:
         self.participants = [

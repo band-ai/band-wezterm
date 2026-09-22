@@ -17,7 +17,7 @@ from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error, is_missing_resource
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
 from band_wezterm.role_library import open_role_library
-from band_wezterm.tui.agent_teardown import stop_tracked_agent
+from band_wezterm.supervisor.protocol import WorkerState
 from band_wezterm.tui.catalog_loaders import list_managed_agents
 from band_wezterm.tui.managed_agent_actions import (
     AGENT_STARTING_MESSAGE,
@@ -47,9 +47,7 @@ SOURCE_LABELS: Final[dict[AgentSource, str]] = {
 }
 EMPTY_CATALOG: Final = "No agents match the current search and filter."
 NO_SELECTION_MESSAGE: Final = "Select an agent first."
-DELETE_CONFIRM_MESSAGE: Final = (
-    "Press Delete again to permanently remove {name}."
-)
+DELETE_CONFIRM_MESSAGE: Final = "Press Delete again to permanently remove {name}."
 REFRESHING_AGENTS_MESSAGE: Final = "Refreshing agents…"
 REFRESHED_AGENTS_MESSAGE: Final = "Refreshed {count} agents."
 REFRESHING_DIRECTORY_MESSAGE: Final = "Refreshing public directory…"
@@ -114,11 +112,17 @@ class AgentRow(ListItem):
     """
 
     def __init__(
-        self, agent: AgentRecord, *, running: bool, deleting: bool = False
+        self,
+        agent: AgentRecord,
+        *,
+        running: bool,
+        worker_state: WorkerState | None = None,
+        deleting: bool = False,
     ) -> None:
         super().__init__()
         self.agent = agent
         self.running = running
+        self.worker_state = worker_state
         self.deleting = deleting
 
     def compose(self) -> ComposeResult:
@@ -129,7 +133,13 @@ class AgentRow(ListItem):
             (
                 DELETING_LABEL
                 if self.deleting
-                else (AgentRuntime.RUNNING if self.running else AgentRuntime.IDLE).value
+                else (
+                    self.worker_state.value
+                    if self.worker_state is not None
+                    else (
+                        AgentRuntime.RUNNING if self.running else AgentRuntime.IDLE
+                    ).value
+                )
             ),
             classes="row-state",
         )
@@ -139,8 +149,6 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
     """Keyboard-first agents catalog projected from ``AgentsStore``."""
 
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding("ctrl+a", "app.show_agents", "Agents", show=False),
-        Binding("ctrl+o", "app.show_rooms", "Rooms", show=False),
         Binding("slash", "focus_search", "Search"),
         Binding("f", "focus_filters", "Filters"),
         Binding("n", "new_agent", "Register"),
@@ -148,12 +156,12 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
         Binding("delete", "delete_agent", "Delete"),
         Binding("backspace", "delete_agent", "Delete", show=False),
         Binding("s", "start_agent", "Start"),
-        Binding("i", "open_console", "Console"),
         Binding("x", "stop_agent", "Stop"),
         Binding("o", "open_role_library", "Roles"),
         Binding("w", "new_role", "New role"),
         Binding("d", "toggle_discover", "Discover"),
         Binding("r", "reload", "Reload"),
+        Binding("comma", "app.show_settings", "Settings"),
     ]
 
     DEFAULT_CSS = """
@@ -215,6 +223,7 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
             AgentRow(
                 agent,
                 running=store.is_running(agent.id),
+                worker_state=store.worker_state(agent.id),
                 deleting=store.is_deleting(agent.id),
             )
             for agent in visible
@@ -427,13 +436,6 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
             return
         self.stop_managed_agent(agent.id, agent.name)
 
-    def action_open_console(self) -> None:
-        agent = self._highlighted_agent()
-        if agent is None:
-            self._set_status(NO_SELECTION_MESSAGE)
-            return
-        self.open_interactive_console(agent)
-
     def _set_agent_operation_status(self, status: str) -> None:
         self._set_status(status)
 
@@ -463,7 +465,11 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
         self.store.remove_agent(agent.id)
 
     async def _stop_agent_for_delete(self, agent: AgentRecord) -> None:
-        await stop_tracked_agent(self.store, agent.id)
+        worker = await self.control.supervisor.stop(agent.id)
+        if worker is None:
+            self.store.mark_stopped(agent.id)
+        else:
+            self.store.mark_worker(worker)
 
     def _set_status(self, status: str) -> None:
         self.store.status = status

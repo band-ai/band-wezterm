@@ -16,13 +16,7 @@ from band_wezterm.__main__ import (
     main,
 )
 from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
-from band_wezterm.wezterm_cli import (
-    PaneId,
-    PaneInfo,
-    WezTermCliError,
-    WezTermNotFoundError,
-    WindowId,
-)
+from band_wezterm.wezterm_cli import WezTermNotFoundError
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +52,11 @@ def test_parse_setup_subcommand() -> None:
     args = _parse_args([SETUP_COMMAND])
     assert args.command == SETUP_COMMAND
     assert args.restart is False
+
+
+def test_parse_room_subcommand() -> None:
+    args = _parse_args(["room", "room-1"])
+    assert args.room_id == "room-1"
 
 
 def test_setup_help_mentions_active_config(
@@ -124,42 +123,30 @@ def test_main_setup_oserror(
     assert "Permission denied" in err
 
 
-def test_run_control_preserves_user_control_tab_in_band_workspace(
+def test_run_control_uses_the_current_wezterm_pane(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    existing = PaneInfo(
-        window_id=734,
-        pane_id=81,
-        workspace="band",
-        tab_title="Control",
-        title="zsh",
-    )
-    killed: list[WindowId] = []
-    monkeypatch.setattr("band_wezterm.__main__.find_control_pane", lambda: existing)
-    monkeypatch.setattr("band_wezterm.__main__.kill_window", killed.append)
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+    room_ids: list[str | None] = []
     monkeypatch.setattr(
-        "band_wezterm.__main__._spawn_control",
-        lambda _cwd: (WindowId(735), PaneId(82)),
+        "band_wezterm.__main__.run_control_app",
+        lambda *, initial_room_id=None: room_ids.append(initial_room_id) or 0,
     )
-    monkeypatch.setattr("band_wezterm.__main__.request_workspace_focus", lambda **_: None)
-    assert _run_control(restart=False) == 0
-    assert killed == []
+    assert _run_control(room_id="room-1") == 0
+    assert room_ids == ["room-1"]
 
 
-def test_run_control_starts_a_gui_when_cli_has_no_running_gui(
+def test_run_control_starts_a_gui_outside_wezterm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def no_gui() -> None:
-        raise WezTermCliError("failed to connect")
-
     started: list[tuple[Path, list[str]]] = []
-    monkeypatch.setattr("band_wezterm.__main__.find_control_pane", no_gui)
+    monkeypatch.delenv("WEZTERM_PANE", raising=False)
     monkeypatch.setattr(
         "band_wezterm.__main__.start_first_window",
         lambda cwd, command: started.append((cwd, command)),
     )
 
-    assert _run_control(restart=True) == 0
+    assert _run_control() == 0
     assert started == [
         (
             Path.cwd(),
@@ -174,33 +161,6 @@ def test_run_control_starts_a_gui_when_cli_has_no_running_gui(
             ],
         )
     ]
-
-
-def test_restart_starts_a_gui_when_closing_the_window_drops_cli(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    existing = PaneInfo(
-        window_id=734,
-        pane_id=81,
-        workspace="default",
-        tab_title="Control",
-        title="python",
-    )
-    started: list[tuple[Path, list[str]]] = []
-    monkeypatch.setattr("band_wezterm.__main__.find_control_pane", lambda: existing)
-    monkeypatch.setattr("band_wezterm.__main__.kill_window", lambda _window: None)
-
-    def spawn_without_gui(_cwd: Path) -> tuple[WindowId, PaneId]:
-        raise WezTermCliError("connection closed")
-
-    monkeypatch.setattr("band_wezterm.__main__._spawn_control", spawn_without_gui)
-    monkeypatch.setattr(
-        "band_wezterm.__main__.start_first_window",
-        lambda cwd, command: started.append((cwd, command)),
-    )
-
-    assert _run_control(restart=True) == 0
-    assert started
 
 
 def test_main_reports_a_concurrent_control_launch(

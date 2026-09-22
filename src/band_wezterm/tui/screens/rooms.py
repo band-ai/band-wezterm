@@ -14,6 +14,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.events import Resize
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import (
@@ -90,6 +91,7 @@ PICKER_TITLE: Final = "Add participant — Enter adds the highlighted agent"
 ROSTER_TITLE: Final = "Roster"
 EMPTY_ROOMS: Final = "No rooms match the filter."
 EMPTY_CHAT: Final = "*No messages yet.*"
+NEW_ACTIVITY_MESSAGE: Final = "New activity — End jumps to latest."
 EMPTY_CANDIDATES: Final = "Every one of your agents is already in this room."
 ROSTER_UPDATING_MESSAGE: Final = "Updating room roster…"
 NO_SELECTION_MESSAGE: Final = "Select a room first."
@@ -97,9 +99,7 @@ NO_PARTICIPANT_MESSAGE: Final = "Select a participant first."
 NO_AGENT_PARTICIPANT_MESSAGE: Final = "Select an agent participant first."
 MENTION_REQUIRED_MESSAGE: Final = "Messages must @mention a room participant."
 EMPTY_TITLE_MESSAGE: Final = "A room title is required."
-DELETE_CONFIRM_MESSAGE: Final = (
-    "Press Delete again to permanently remove {title}."
-)
+DELETE_CONFIRM_MESSAGE: Final = "Press Delete again to permanently remove {title}."
 
 ROOM_CHIPS: Final[tuple[Chip, ...]] = tuple(
     Chip(key=chip.value, label=label) for chip, label in ROOM_FILTER_LABELS.items()
@@ -296,7 +296,9 @@ class ChatEventRow(ListItem):
                 classes="event-badge",
                 markup=False,
             )
-            yield Static(message.content or "(empty)", classes="event-body", markup=False)
+            yield Static(
+                message.content or "(empty)", classes="event-body", markup=False
+            )
             pretty = metadata_pretty(message.metadata)
             if pretty is not None:
                 yield Static(pretty, classes="event-body", markup=False)
@@ -378,7 +380,9 @@ class IdentityRow(ListItem):
             else STOPPED_DOT_COLOR
         )
         yield Static(
-            Text(RUNTIME_DOT, Style(color=dot_color)) if self.runtime is not None else "",
+            Text(RUNTIME_DOT, Style(color=dot_color))
+            if self.runtime is not None
+            else "",
             classes="row-runtime",
         )
 
@@ -396,8 +400,6 @@ class RoomsScreen(ControlScreen):
     """Rooms list: client-side search, starring, creation."""
 
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding("ctrl+a", "app.show_agents", "Agents", show=False),
-        Binding("ctrl+o", "app.show_rooms", "Rooms", show=False),
         Binding("slash", "focus_search", "Search"),
         Binding("f", "focus_filters", "Filters"),
         Binding("n", "new_room", "New room"),
@@ -406,6 +408,7 @@ class RoomsScreen(ControlScreen):
         Binding("s", "toggle_star", "Star"),
         Binding("r", "reload", "Reload"),
         Binding("escape", "cancel", "Cancel", show=False),
+        Binding("comma", "app.show_settings", "Settings"),
     ]
 
     DEFAULT_CSS = """
@@ -454,11 +457,10 @@ class RoomsScreen(ControlScreen):
         self._load_rooms()
 
     def on_screen_resume(self) -> None:
-        """A draft never survives leaving the screen — reopen it from scratch."""
+        """Keep a view-local draft while navigating between Control surfaces."""
         if not self.is_mounted:
             return
         self._pending_delete_id = None
-        self._close_draft()
         self._load_rooms()
         self.mutate_reactive(RoomsScreen.store)
 
@@ -638,22 +640,21 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
     """One room: roster, add-only participant picker, chat."""
 
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding("ctrl+a", "app.show_agents", "Agents", show=False),
-        Binding("ctrl+o", "app.show_rooms", "Rooms", show=False),
         Binding("a", "add_participant", "Add participant"),
         Binding("x", "remove_participant", "Remove"),
         Binding("delete", "delete_room", "Delete"),
         Binding("backspace", "delete_room", "Delete", show=False),
         Binding("m", "focus_composer", "Compose"),
         Binding("s", "start_participant", "Start"),
-        Binding("i", "open_console", "Console"),
         Binding("t", "stop_participant", "Stop"),
         Binding("r", "reload", "Reload"),
         Binding("e", "event_filter", "Events"),
         Binding("v", "toggle_verbose", "Verbose"),
         Binding("d", "event_detail", "Detail"),
+        Binding("end", "jump_latest", "Latest", show=False),
         Binding("space", "toggle_chat_expand", "Expand", show=False),
         Binding("escape", "back", "Back"),
+        Binding("comma", "app.show_settings", "Settings"),
     ]
 
     DEFAULT_CSS = """
@@ -714,6 +715,8 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         self._roster_mutation_pending = False
         self._send_draft: str | None = None
         self._expanded_message_ids: set[str] = set()
+        self._rendered_message_ids: frozenset[str] = frozenset()
+        self._unseen_activity = 0
         self._pre_verbose_types: tuple[str, ...] | None = None
 
     def compose(self) -> ComposeResult:
@@ -743,6 +746,11 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         self._load_messages()
         self._connect_realtime()
 
+    def on_resize(self, event: Resize) -> None:
+        """Keep the roster useful without consuming a narrow terminal."""
+        roster = self.query_one(selector(Id.ROSTER), Vertical)
+        roster.styles.width = 34 if event.size.width >= 96 else "38%"
+
     async def on_unmount(self) -> None:
         self._release_realtime_listener()
         await self.control.client.unsubscribe_room(self.room.id)
@@ -771,7 +779,19 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         allowed = self._allowed_event_types()
         visible = visible_messages(store.messages, allowed)
         hidden = hidden_summary(store.messages, allowed)
-        self.query_one(selector(Id.CHAT_HIDDEN), Static).update(hidden)
+        chat = self._chat_view()
+        following = chat.scroll_y >= chat.max_scroll_y - 1
+        message_ids = frozenset(message.id for message in visible)
+        new_count = len(message_ids - self._rendered_message_ids)
+        if self._rendered_message_ids and new_count and not following:
+            self._unseen_activity += new_count
+        self._rendered_message_ids = message_ids
+        if following:
+            self._unseen_activity = 0
+        notice = NEW_ACTIVITY_MESSAGE if self._unseen_activity else ""
+        self.query_one(selector(Id.CHAT_HIDDEN), Static).update(
+            "  ".join(part for part in (hidden, notice) if part)
+        )
         if not store.messages:
             rows: list[ListItem] = [ListItem(Static(EMPTY_CHAT))]
         elif not visible:
@@ -784,13 +804,23 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
                 )
                 for message in visible
             ]
-        await refill(self._chat_view(), rows)
+        await refill(chat, rows)
+        if following:
+            chat.scroll_end(animate=False)
+
+    def action_jump_latest(self) -> None:
+        self._unseen_activity = 0
         self._chat_view().scroll_end(animate=False)
+        self.query_one(selector(Id.CHAT_HIDDEN), Static).update(
+            hidden_summary(self.store.messages, self._allowed_event_types())
+        )
 
     async def _render_roster(self, store: RoomsStore) -> None:
         running_ids = self.control.agents_store.running_ids
         self.query_one(selector(Id.COMPOSER), MarkdownComposer).set_mention_handles(
-            key for participant in store.participants for key in mention_keys(participant)
+            key
+            for participant in store.participants
+            for key in mention_keys(participant)
         )
         await refill(
             self._roster_view(),
@@ -904,7 +934,6 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             case _:
                 return None
 
-
     def _agent_record_for(self, participant: ParticipantRecord) -> AgentRecord:
         profile = self.control.managed_agents.get(participant.id)
         return AgentRecord(
@@ -928,13 +957,6 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             self._set_status(NO_AGENT_PARTICIPANT_MESSAGE)
             return
         self.stop_managed_agent(participant.id, participant.name)
-
-    def action_open_console(self) -> None:
-        participant = self._highlighted_agent_participant()
-        if participant is None:
-            self._set_status(NO_AGENT_PARTICIPANT_MESSAGE)
-            return
-        self.open_interactive_console(self._agent_record_for(participant))
 
     def _set_agent_operation_status(self, status: str) -> None:
         self._set_status(status)
@@ -995,7 +1017,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         else:
             store.set_status(
                 RoomStatusSource.PARTICIPANTS,
-                "" if store.addable_candidates() else EMPTY_CANDIDATES
+                "" if store.addable_candidates() else EMPTY_CANDIDATES,
             )
         self.mutate_reactive(RoomDetailScreen.store)
 
@@ -1059,9 +1081,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         else:
             self._pre_verbose_types = current
             self.control.preferences.update(
-                chat_event_types=apply_verbose(
-                    current, enabled=True, previous=None
-                )
+                chat_event_types=apply_verbose(current, enabled=True, previous=None)
             )
         self.mutate_reactive(RoomDetailScreen.store)
 

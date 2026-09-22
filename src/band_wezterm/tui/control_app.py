@@ -1,20 +1,13 @@
-"""Control tab app — owns auth, the platform client, the window and screens.
-
-The Control tab *is* the host: its process exiting shuts the host down and
-stops every agent tab it started.
-"""
+"""Control view for platform state and the detached local runtime."""
 
 from __future__ import annotations
 
-import asyncio
 import os
 from collections.abc import Callable
 from contextlib import suppress
 from typing import ClassVar, Final
 
-from textual import work
 from textual.app import App
-from textual.binding import Binding
 from textual.message import Message
 from textual.screen import Screen
 
@@ -34,7 +27,7 @@ from band_wezterm.local_state import StarredRooms
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.pane_identity import announce_control_human
 from band_wezterm.preferences import PreferencesStore
-from band_wezterm.tui.agent_teardown import kill_pane_ids, stop_tracked_agent
+from band_wezterm.supervisor import SupervisorClient
 from band_wezterm.tui.host_pane import (
     WEZTERM_PANE_ENV,
     current_pane_id,
@@ -47,12 +40,7 @@ from band_wezterm.tui.screens.settings import SettingsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
 from band_wezterm.tui.screens.workspace import WorkspaceScreen
 from band_wezterm.tui.stores import AgentsStore, AgentStatusSource, RoomsStore
-from band_wezterm.wezterm_cli import (
-    WezTermCliError,
-    list_panes,
-    set_tab_title,
-    set_window_title,
-)
+from band_wezterm.wezterm_cli import WezTermCliError, set_tab_title, set_window_title
 
 CONTROL_PROCESS_ENV: Final = "BAND_WEZTERM_CONTROL"
 CONTROL_PROCESS_FLAG: Final = "1"
@@ -111,7 +99,7 @@ def name_control_tab() -> None:
 
 
 class ControlApp(App[None]):
-    """Single-window host UI: agents catalog and rooms, keyboard first."""
+    """A disposable Control view over the shared local agent runtime."""
 
     TITLE = WINDOW_TITLE
 
@@ -122,20 +110,6 @@ class ControlApp(App[None]):
         ROOMS_SCREEN: RoomsScreen,
         SETTINGS_SCREEN: SettingsScreen,
     }
-
-    BINDINGS: ClassVar[list[Binding]] = [
-        # Ctrl+letter (not Ctrl+Shift): terminals collapse Shift on control
-        # chords, so ctrl+shift+a never arrives. Avoid Ctrl+digit (macOS Spaces)
-        # and F-keys (Fn). Ctrl+A/O are unbound in WezTerm defaults.
-        Binding("ctrl+a", "show_agents", "Agents"),
-        Binding("ctrl+o", "show_rooms", "Rooms"),
-        Binding("ctrl+home", "show_workspace", "Workspace", show=False),
-        Binding("f1", "show_agents", "Agents", show=False),
-        Binding("f2", "show_rooms", "Rooms", show=False),
-        Binding("ctrl+comma", "show_settings", "Settings"),
-        Binding("ctrl+l", "sign_out", "Sign out"),
-        Binding("ctrl+q", "quit", "Quit host"),
-    ]
 
     def __init__(
         self,
@@ -148,6 +122,8 @@ class ControlApp(App[None]):
         preferences: PreferencesStore | None = None,
         opencode_server: OpenCodeServerManager | None = None,
         model_catalogs: ModelCatalogService | None = None,
+        supervisor: SupervisorClient | None = None,
+        initial_room_id: str | None = None,
     ) -> None:
         super().__init__()
         self.settings = settings or load_settings()
@@ -160,6 +136,7 @@ class ControlApp(App[None]):
         self.model_catalogs = model_catalogs or ModelCatalogService(
             self.opencode_server
         )
+        self.supervisor = supervisor or SupervisorClient()
         self.client.set_authentication_rejected_handler(
             self._post_authentication_rejected
         )
@@ -169,19 +146,19 @@ class ControlApp(App[None]):
         self.rooms_store = RoomsStore()
         self._ending_session = False
         self._authentication_rejected_pending = False
+        self.initial_room_id = initial_room_id
 
     def on_mount(self) -> None:
         name_control_tab()
-        self.set_interval(PANE_POLL_SECONDS, self._reconcile_agent_panes)
+        self.set_interval(PANE_POLL_SECONDS, self._reconcile_workers)
         if self.host_auth.has_stored_tokens():
             self.run_worker(self._restore_workspace(), group="workspace")
             return
         self.push_screen(SIGN_IN_SCREEN)
 
     async def on_unmount(self) -> None:
-        """Host shutdown: every agent tab this host started goes with it."""
+        """Closing one view never affects detached managed workers."""
         self.client.set_authentication_rejected_handler(None)
-        await self._stop_managed_agents()
         await self.opencode_server.close()
         await self.client.aclose()
 
@@ -197,10 +174,25 @@ class ControlApp(App[None]):
     async def enter_workspace(self) -> None:
         """Identify the signed-in human, then open the shared workspace."""
         self.user_id = await self.client.whoami()
+        await self.supervisor.connect(self.user_id)
+        self.agents_store.replace_workers(await self.supervisor.list_workers())
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
         announce_control_human(self.user_id)
         log_event("workspace entered", user_id=self.user_id)
         self._show(WORKSPACE_SCREEN)
+        await self._open_initial_room()
+
+    async def _open_initial_room(self) -> None:
+        room_id = self.initial_room_id
+        if room_id is None:
+            return
+        self.initial_room_id = None
+        rooms = await self.client.list_my_chats()
+        room = next((candidate for candidate in rooms if candidate.id == room_id), None)
+        if room is None:
+            self.notify("That Band room is unavailable.", severity="error")
+            return
+        self.open_room(room)
 
     # --- navigation ---------------------------------------------------------
 
@@ -220,8 +212,8 @@ class ControlApp(App[None]):
         self.run_worker(self._sign_out(), group="auth")
 
     async def _sign_out(self) -> None:
-        """Clear tokens, stop agent panes, return to Sign In."""
-        if await self._return_to_sign_in():
+        """An explicit sign-out stops the managed workers before clearing access."""
+        if await self._return_to_sign_in(stop_workers=True):
             self.notify("Signed out.")
 
     def _post_authentication_rejected(self, credential_generation: int) -> None:
@@ -242,20 +234,26 @@ class ControlApp(App[None]):
 
     async def _handle_authentication_rejected(self) -> None:
         try:
-            if await self._return_to_sign_in():
+            if await self._return_to_sign_in(stop_workers=False):
                 self.notify(
                     "Your Band session expired. Sign in again.", severity="warning"
                 )
         finally:
             self._authentication_rejected_pending = False
 
-    async def _return_to_sign_in(self) -> bool:
+    async def _return_to_sign_in(self, *, stop_workers: bool) -> bool:
         """Clear a no-longer-valid session and show the sign-in gate."""
         if self._ending_session:
             return False
         self._ending_session = True
         try:
-            stopped_agents = await self._stop_managed_agents()
+            stopped_agents = not stop_workers or await self._stop_managed_agents()
+            if stop_workers and not stopped_agents:
+                self.notify(
+                    "Managed agents could not be stopped; sign-out was cancelled.",
+                    severity="error",
+                )
+                return False
             await self.opencode_server.close()
             await self.host_auth.sign_out()
             self.user_id = None
@@ -264,66 +262,36 @@ class ControlApp(App[None]):
             while len(self.screen_stack) > 1:
                 self.pop_screen()
             self.push_screen(SIGN_IN_SCREEN)
-            if not stopped_agents:
-                self.notify(
-                    "Some managed agent panes could not be stopped; retry from WezTerm.",
-                    severity="warning",
-                )
             return True
         finally:
             self._ending_session = False
 
     async def _stop_managed_agents(self) -> bool:
-        """Stop every tracked pair, retaining any pair whose teardown fails."""
-        for agent_id, panes in tuple(self.agents_store.running.items()):
-            try:
-                await stop_tracked_agent(self.agents_store, agent_id, panes)
-            except (WezTermCliError, OSError) as error:
-                format_platform_error(error, operation="stop managed agent panes")
-                continue
-        return not self.agents_store.running
+        """Request graceful shutdown for every worker in the shared runtime."""
+        try:
+            await self.supervisor.stop_all()
+        except Exception as error:
+            format_platform_error(error, operation="stop managed agents")
+            return False
+        self.agents_store.replace_workers(())
+        return True
 
-    @work(exclusive=True, group="agent-pane-reconciliation")
-    async def _reconcile_agent_panes(self) -> None:
-        """Treat either half of a closed managed-agent tab as stopped."""
-        store = self.agents_store
-        if not store.running:
+    async def _reconcile_workers(self) -> None:
+        """Refresh this view from the supervisor; no pane is a lifecycle signal."""
+        if self.user_id is None:
             return
         try:
-            panes = await asyncio.to_thread(list_panes)
-        except (WezTermCliError, OSError) as error:
-            self._report_agent_pane_error(error)
+            self.agents_store.replace_workers(await self.supervisor.list_workers())
+        except Exception as error:
+            self._report_worker_error(error)
             return
+        self._refresh_agent_runtime_view()
 
-        live_pane_ids = {pane.pane_id for pane in panes}
-        stopped = 0
-        for agent_id, agent_panes in store.agents_with_missing_panes(live_pane_ids):
-            survivors = tuple(
-                pane_id
-                for pane_id in agent_panes.ids
-                if pane_id.root in live_pane_ids
-            )
-            try:
-                await kill_pane_ids(survivors)
-            except (WezTermCliError, OSError) as error:
-                self._report_agent_pane_error(error)
-                continue
-            store.mark_stopped(agent_id)
-            stopped += 1
-        if stopped:
-            self._report_closed_agent_tabs(stopped)
-
-    def _report_agent_pane_error(self, error: BaseException) -> None:
-        message = format_platform_error(error, operation="reconcile agent panes")
+    def _report_worker_error(self, error: BaseException) -> None:
+        message = format_platform_error(error, operation="refresh managed agents")
         self.agents_store.set_status(AgentStatusSource.ACTION, message)
         self._refresh_agent_runtime_view()
         self.notify(message, severity="error")
-
-    def _report_closed_agent_tabs(self, stopped: int) -> None:
-        message = f"{stopped} agent tab(s) closed — marked stopped."
-        self.agents_store.set_status(AgentStatusSource.ACTION, message)
-        self._refresh_agent_runtime_view()
-        self.notify(message)
 
     def _refresh_agent_runtime_view(self) -> None:
         match self.screen:
@@ -333,8 +301,7 @@ class ControlApp(App[None]):
                 screen.mutate_reactive(RoomDetailScreen.store)
 
     def _show(self, screen_name: str) -> None:
-        """Switching top-level screens discards any in-progress draft."""
-        self.rooms_store.discard_draft()
+        """Switch a view without losing its in-memory room draft."""
         while len(self.screen_stack) > BASE_STACK_DEPTH:
             self.pop_screen()
         if len(self.screen_stack) < BASE_STACK_DEPTH:
@@ -362,10 +329,10 @@ class ControlApp(App[None]):
         self.rooms_store.remove_room(room_id)
 
 
-def run_control_app() -> int:
+def run_control_app(*, initial_room_id: str | None = None) -> int:
     """Run the Control tab in this process; returns the host exit code."""
     mark_control_process()
     ensure_terminal_color()
     configure_diagnostics()
-    ControlApp().run()
+    ControlApp(initial_room_id=initial_room_id).run()
     return 0
