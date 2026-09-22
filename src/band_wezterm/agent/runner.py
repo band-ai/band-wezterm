@@ -140,7 +140,11 @@ async def run(args: argparse.Namespace) -> int:
             config=config,
         )
         async with agent:
-            emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.RUNNING.value)
+            # Re-announce full identity once the PTY is live — early STARTING OSC
+            # can race spawn/focus restore and leave the tab uncolored.
+            announce_agent_pane(
+                agent_id, name, harness, runtime=AgentRuntime.RUNNING
+            )
             log_event("agent started", agent_id=agent_id, harness=harness or "unknown")
             print(
                 runtime_banner(
