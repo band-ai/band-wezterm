@@ -122,7 +122,7 @@ Run `band room` again in another tab, split, or window to open another independe
 **Settings** persist under `~/.band-wezterm/preferences.json` (chat message limit, rooms page size, and diagnostic toggles).
 
 <p align="center">
-  <img src="docs/images/workspace.svg" alt="Control tab — default workspace with agents and rooms">
+<img src="docs/images/workspace.svg" alt="Band home — rooms and agents">
 </p>
 <p align="center">
   <img src="docs/images/register-agent.svg" alt="Register agent — pick a runtime">
@@ -137,7 +137,7 @@ worker owns the Band SDK subscription for that agent's rooms; no WezTerm pane
 owns it.
 
 Workers stop only through Stop, `band stop`, successful Sign out, deleting the
-agent, a fatal worker error, or machine/process shutdown. A new Control view
+agent, a fatal worker error, or machine/process shutdown. A new Band home view
 adopts still-running workers through authenticated local IPC. If a view closes,
 workers and their room subscriptions remain intact.
 
@@ -165,7 +165,7 @@ uv sync --extra opencode     # OpenCode CLI auth
 ```
 
 Host-side harness auth (Claude / Codex / Copilot / OpenCode CLI or API keys) must already work on the machine — Start fails loud with an install hint when the extra is missing.
-For OpenCode, Control automatically owns the shared local `opencode serve`
+For OpenCode, Band automatically owns the local `opencode serve`
 backend used by Band bridges; private OpenCode tabs remain separate,
 profile-configured direct sessions.
 
@@ -197,9 +197,9 @@ Tokens and managed agent API keys live only in the OS keyring. OSC 1337 user-var
 just sync            # core + default-groups.dev from uv.lock
 just sync-agents     # plus every harness extra
 just setup           # WezTerm plugin
-just start           # open or attach Control
-just restart         # replace the Control window
-just screenshots     # refresh the README Control-tab SVGs
+just start           # open Band home
+just restart         # open a fresh Band home
+just screenshots     # refresh the README Band-view SVGs
 ```
 
 Repo-root `plugin/init.lua` is the WezTerm plugin source of truth (also shipped in the wheel). Edit that file, re-run `band setup`, then `wezterm.plugin.update_all()` from the Debug Overlay and reload. Or set `BAND_WEZTERM_PLUGIN_URL=file:///path/to/this/repo` to point WezTerm at the checkout ([WezTerm plugins](https://wezterm.org/config/plugins.html)).

@@ -1,4 +1,4 @@
-"""Control view for platform state and the detached local runtime."""
+"""Disposable Band view for platform state and detached local runtimes."""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ def name_control_tab() -> None:
 
 
 class ControlApp(App[None]):
-    """A disposable Control view over the shared local agent runtime."""
+    """A disposable Band view over the shared local agent runtime."""
 
     TITLE = WINDOW_TITLE
 

@@ -57,7 +57,7 @@ def supervisor_socket_directory() -> Path:
 
 
 class SupervisorClient:
-    """Authenticate a Control surface to one per-user detached supervisor."""
+    """Authenticate a disposable Band surface to one per-user supervisor."""
 
     def __init__(self, user_id: str | None = None) -> None:
         self._user_id = user_id

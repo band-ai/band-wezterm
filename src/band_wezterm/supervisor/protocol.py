@@ -60,7 +60,7 @@ class SupervisorState(BaseModel):
 
 
 class SupervisorRequest(BaseModel):
-    """One request from a disposable Control or room surface."""
+    """One request from a disposable Band home or room surface."""
 
     model_config = ConfigDict(frozen=True)
 

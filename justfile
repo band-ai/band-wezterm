@@ -12,15 +12,15 @@ sync:
 sync-agents:
     uv sync --extra agents
 
-# Open Control, or attach + raise if already running
+# Open a Band home view
 start:
     uv run band
 
-# Same as start — find Control, activate it, raise WezTerm
+# Same as start
 attach:
     uv run band
 
-# Kill the Control window and open a fresh one
+# Open a fresh Band home view
 restart:
     uv run band --restart
 
@@ -36,10 +36,10 @@ test:
 test-wezterm:
     uv run pytest tests/integration/test_wezterm_cli_live.py tests/integration/test_plugin_setup_live.py -q
 
-# Live platform Control PTY (needs BAND_API_KEY_USER in .env.test)
+# Live platform Band-view PTY (needs BAND_API_KEY_USER in .env.test)
 test-live:
     uv run pytest tests/integration/test_control_tab_pty.py -q
 
-# Refresh README Control-tab SVGs (no WezTerm or platform required)
+# Refresh README Band-view SVGs (no WezTerm or platform required)
 screenshots:
     uv run python docs/capture_screenshots.py

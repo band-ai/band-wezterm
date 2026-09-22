@@ -43,7 +43,7 @@ from band_wezterm.supervisor.protocol import (
 
 AGENT_TAB_TITLE = "Band agent"
 AGENT_TAB_ONLINE = "Online — listening to Band rooms"
-AGENT_TAB_HINT = "Read and send messages in Control. Press Ctrl+C to stop this agent."
+AGENT_TAB_HINT = "Read and send messages in a Band room view. Press Ctrl+C to stop this agent."
 DEFAULT_TUNING_VALUE = "automatic"
 WORKER_SOCKET_MODE: Final = 0o600
 
@@ -125,7 +125,7 @@ def _read_api_key(key_file: Path | None) -> str:
     env_key = os.environ.get(AGENT_API_KEY_ENV, "").strip()
     if not env_key:
         raise RuntimeError(
-            "Managed agent API key missing — re-register the agent from Control."
+            "Managed agent API key missing — re-register the agent from Band home."
         )
     return env_key
 

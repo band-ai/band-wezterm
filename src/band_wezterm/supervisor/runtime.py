@@ -197,7 +197,7 @@ class SupervisorServer:
             )
         if ManagedAgentKeyStore().get(agent_id) is None:
             raise ValueError(
-                "No managed API key — re-register this agent from Control."
+                "No managed API key — re-register this agent from Band home."
             )
         control_socket = supervisor_socket_directory() / f"worker-{uuid4().hex}.sock"
         control_token = secrets.token_urlsafe()
