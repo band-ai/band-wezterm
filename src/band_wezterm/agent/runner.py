@@ -125,7 +125,7 @@ def _read_api_key(key_file: Path | None) -> str:
     env_key = os.environ.get(AGENT_API_KEY_ENV, "").strip()
     if not env_key:
         raise RuntimeError(
-            "Managed agent API key missing — re-register the agent from Band home."
+            "Managed agent API key missing — re-register the agent from `band agent`."
         )
     return env_key
 

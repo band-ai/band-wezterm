@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Final
 from textual import work
 
 from band_wezterm.agent.adapters import HarnessUnavailableError
-from band_wezterm.agent.native_console import NativeConsoleUnavailableError
 from band_wezterm.agent.readiness import preflight_managed_agent
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
@@ -90,8 +89,6 @@ class ManagedAgentActions:
         self,
         agent_id: str,
         profile: ManagedAgentProfile,
-        *,
-        require_native_console: bool,
     ) -> ManagedAgentProfile | None:
         current = profile
         for _ in range(PREFLIGHT_HARNESS_STABILITY_ATTEMPTS):
@@ -103,9 +100,8 @@ class ManagedAgentActions:
                     cwd=Path.cwd(),
                     persona=current.persona,
                     tuning=current.tuning,
-                    require_native_console=require_native_console,
                 )
-            except (HarnessUnavailableError, NativeConsoleUnavailableError) as error:
+            except HarnessUnavailableError as error:
                 self._set_agent_operation_status(str(error))
                 return None
             fresh = self._control_screen.control.managed_agents.get(agent_id)
@@ -121,8 +117,6 @@ class ManagedAgentActions:
     async def _ready_managed_profile(
         self,
         agent: AgentRecord,
-        *,
-        require_native_console: bool,
     ) -> tuple[AgentRecord, ManagedAgentProfile] | None:
         """Load, preflight, and sync one durable profile for start or attach."""
         control = self._control_screen.control
@@ -134,7 +128,6 @@ class ManagedAgentActions:
         preflighted = await self._preflight_launch_profile(
             agent.id,
             profile,
-            require_native_console=require_native_console,
         )
         if preflighted is None:
             self._resync_store_to_durable_profile(agent)
@@ -155,9 +148,7 @@ class ManagedAgentActions:
     async def _start_managed_agent(self, agent: AgentRecord) -> None:
         control = self._control_screen.control
         try:
-            ready = await self._ready_managed_profile(
-                agent, require_native_console=False
-            )
+            ready = await self._ready_managed_profile(agent)
             if ready is None or control.agents_store.is_running(agent.id):
                 return
             resolved, profile = ready

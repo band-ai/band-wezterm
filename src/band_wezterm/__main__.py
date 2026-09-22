@@ -1,4 +1,4 @@
-"""`band` entrypoint — open a Band home or room view in the current pane."""
+"""`band` entrypoint for Band room and agent surfaces."""
 
 from __future__ import annotations
 
@@ -10,7 +10,13 @@ from typing import Final
 
 from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.cli import COMMAND_NAME, AgentAction, create_app
-from band_wezterm.cli_output import AgentOutput, RoomOutput, print_agents, print_rooms
+from band_wezterm.cli_output import (
+    AgentOutput,
+    RoomOutput,
+    print_agent,
+    print_agents,
+    print_rooms,
+)
 from band_wezterm.client import AgentRecord, BandClient, RoomRecord
 from band_wezterm.diagnostics import log_event
 from band_wezterm.setup_wezterm import (
@@ -215,15 +221,27 @@ async def _run_agent_action(action: AgentAction, agent_id: str) -> int:
     match action:
         case AgentAction.START:
             worker = await supervisor.start(agent_id, cwd=Path.cwd())
-            print(
-                f"{worker.name}\t{worker.agent_id}\t{worker.state.value}\tpid {worker.pid}"
+            print_agent(
+                AgentOutput(
+                    name=worker.name,
+                    state=worker.state.value,
+                    agent_id=worker.agent_id,
+                    action=AgentAction.STOP.value,
+                )
             )
         case AgentAction.STOP:
             worker = await supervisor.stop(agent_id)
             if worker is None:
                 print(f"{agent_id} is already stopped.")
             else:
-                print(f"{worker.name}\t{worker.agent_id}\t{worker.state.value}")
+                print_agent(
+                    AgentOutput(
+                        name=worker.name,
+                        state=worker.state.value,
+                        agent_id=worker.agent_id,
+                        action=AgentAction.START.value,
+                    )
+                )
         case AgentAction.STATUS:
             worker = next(
                 (
@@ -236,9 +254,13 @@ async def _run_agent_action(action: AgentAction, agent_id: str) -> int:
             if worker is None:
                 print(f"{agent_id} is stopped.")
             else:
-                print(
-                    f"{worker.name}\t{worker.agent_id}\t{worker.state.value}\t"
-                    f"pid {worker.pid}\t{worker.cwd}"
+                print_agent(
+                    AgentOutput(
+                        name=worker.name,
+                        state=worker.state.value,
+                        agent_id=worker.agent_id,
+                        action=AgentAction.STOP.value,
+                    )
                 )
     return 0
 

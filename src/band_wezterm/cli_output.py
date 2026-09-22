@@ -71,5 +71,10 @@ def print_agents(rows: list[AgentOutput]) -> None:
     console.print(AGENT_COMMAND_HINT)
 
 
+def print_agent(row: AgentOutput) -> None:
+    """Render one lifecycle result with the same contract as ``band agents``."""
+    print_agents([row])
+
+
 def _table(title: TableTitle) -> Table:
     return Table(title=title, header_style="bold cyan", expand=True)

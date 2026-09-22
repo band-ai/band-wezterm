@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from band_wezterm.client import AgentRecord
 from band_wezterm.identity import AvatarKind, HarnessId
+from band_wezterm.supervisor import WorkerRecord, WorkerState
 from band_wezterm.tui.stores import AgentFilter, AgentsStore
-from band_wezterm.wezterm_cli import PaneId
 
 
 def _agent(agent_id: str, name: str, *, harness: HarnessId | None = None) -> AgentRecord:
@@ -33,7 +33,18 @@ def test_select_filter_replaces_previous() -> None:
             _agent("2", "Beta", harness=HarnessId.CLAUDE),
         ],
     )
-    store.mark_running("1", PaneId(7))
+    store.mark_worker(
+        WorkerRecord(
+            agent_id="1",
+            name="Alpha",
+            pid=7,
+            control_socket="/tmp/worker.sock",
+            control_token="token",
+            cwd="/tmp",
+            started_at=0,
+            state=WorkerState.RUNNING,
+        )
+    )
     store.select_filter(AgentFilter.RUNNING)
     assert [agent.name for agent in store.visible] == ["Alpha"]
     store.select_filter(AgentFilter.CLAUDE)

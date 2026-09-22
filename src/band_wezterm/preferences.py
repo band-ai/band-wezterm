@@ -17,7 +17,7 @@ MAX_CHAT_MESSAGES_LIMIT = 100
 
 
 class HostPreferences(BaseModel):
-    """Local-only Control settings — not secrets, not platform config."""
+    """Local-only Band settings — not secrets, not platform config."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -25,7 +25,6 @@ class HostPreferences(BaseModel):
     chat_messages_limit: int = CHAT_MESSAGES_LIMIT
     diagnostic_log: bool = True
     diagnostic_log_verbose: bool = False
-    interactive_agent_console: bool = False
     chat_event_types: tuple[str, ...] = DEFAULT_ALLOWED_TYPES
 
     @field_validator("rooms_page_size")

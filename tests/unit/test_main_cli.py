@@ -192,7 +192,8 @@ async def test_agent_start_reports_the_detached_worker(
 
     assert await _run_agent_action(AgentAction.START, "agent-1") == 0
     supervisor.start.assert_awaited_once_with("agent-1", cwd=Path.cwd())
-    assert capsys.readouterr().out == "Architect\tagent-1\tstarting\tpid 42\n"
+    output = capsys.readouterr().out
+    assert all(value in output for value in ("Agents", "Architect", "starting", "stop"))
 
 
 def test_setup_help_mentions_active_config(

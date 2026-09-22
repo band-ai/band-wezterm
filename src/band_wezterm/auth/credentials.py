@@ -37,7 +37,7 @@ class NoApiKeyError(Exception):
         message = (
             f"Band sign-in required: {detail}"
             if detail
-            else "No Band sign-in found. Sign in from Band home first."
+            else "No Band sign-in found. Open `band room` or `band agent` to sign in."
         )
         super().__init__(message)
 

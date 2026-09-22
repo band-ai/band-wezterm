@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import shutil
 import subprocess
-import sys
 from collections.abc import Iterable, Mapping
 from enum import StrEnum
 from pathlib import Path
@@ -15,13 +13,7 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
 
-from band_wezterm.config import BAND_WORKSPACE_NAME, CONTROL_TAB_TITLE
-from band_wezterm.osc import format_focus_sequence
-
-# Short-lived pane that emits ``band.focus`` so Lua can SwitchToWorkspace.
-_FOCUS_RELAY_SLEEP_SECONDS = "0.05"
 DEFAULT_BRIDGE_PANE_PERCENT: Final = 20
-DEFAULT_CONSOLE_ATTACH_PERCENT: Final = 80
 
 
 class SplitDirection(StrEnum):
@@ -108,9 +100,9 @@ def _run(args: list[str], *, env: Mapping[str, str] | None = None) -> str:
 
 
 def spawn_first_tab(cwd: Path, command: list[str]) -> SpawnResult:
-    """Open a new visible window with the Control tab as the first pane.
+    """Open a new visible window with the Band surface as the first pane.
 
-    Correction #1: first Control uses ``--new-window`` (not ``--window-id``).
+    The first surface uses ``--new-window`` (not ``--window-id``).
     We intentionally omit ``--workspace``: WezTerm has no CLI to switch the GUI
     to a differently named workspace, so a ``band`` workspace stays hidden
     (wezterm#3542). Window title is set by the host instead.
@@ -132,7 +124,7 @@ def spawn_first_tab(cwd: Path, command: list[str]) -> SpawnResult:
 
 
 def start_first_window(cwd: Path, command: list[str]) -> None:
-    """Start a GUI and run Control when no GUI is available for ``cli``."""
+    """Start a GUI and run a Band surface when no GUI is available for ``cli``."""
     subprocess.Popen(
         [wezterm_bin(), *first_start_args(cwd, command)],
         stdout=subprocess.DEVNULL,
@@ -144,7 +136,7 @@ def start_first_window(cwd: Path, command: list[str]) -> None:
 def spawn_additional_tab(
     window_id: WindowId, cwd: Path, command: list[str]
 ) -> PaneId:
-    """Spawn a subsequent tab into an existing Control window (correction #1)."""
+    """Spawn a subsequent tab into an existing Band window."""
     stdout = _run(
         [
             "cli",
@@ -249,7 +241,7 @@ def list_panes(*, env: Mapping[str, str] | None = None) -> list[PaneInfo]:
 
 
 def window_id_for_pane(pane_id: PaneId) -> WindowId:
-    """Resolve a pane's window — the Control tab uses it to find its own."""
+    """Resolve the window that owns one Band surface pane."""
     return _window_id_for_pane(pane_id)
 
 
@@ -258,105 +250,6 @@ def _window_id_for_pane(pane_id: PaneId) -> WindowId:
         if entry.pane_id == pane_id.root:
             return WindowId(entry.window_id)
     raise WezTermCliError(f"pane {pane_id.root} not found in wezterm cli list")
-
-
-def is_control_pane(entry: PaneInfo) -> bool:
-    if entry.tab_title == CONTROL_TAB_TITLE:
-        return True
-    title = entry.title or ""
-    return "band_wezterm.tui" in title or title.endswith("band_wezterm")
-
-
-def find_control_pane() -> PaneInfo | None:
-    """Return the running Control pane, if any."""
-    controls = [entry for entry in list_panes() if is_control_pane(entry)]
-    if not controls:
-        return None
-    # Prefer a visible (non-legacy-workspace) Control when both exist.
-    for entry in controls:
-        if entry.workspace != BAND_WORKSPACE_NAME:
-            return entry
-    return controls[0]
-
-
-def panes_in_window(window_id: WindowId) -> list[PaneInfo]:
-    return [entry for entry in list_panes() if entry.window_id == window_id.root]
-
-
-def kill_window(window_id: WindowId) -> None:
-    """Kill every pane in ``window_id`` (best-effort)."""
-    for entry in panes_in_window(window_id):
-        try:
-            kill_pane(PaneId(entry.pane_id))
-        except WezTermCliError:
-            continue
-
-
-def _pane_dpi(entry: PaneInfo) -> int:
-    if not entry.size:
-        return 0
-    dpi = entry.size.get("dpi", 0)
-    return int(dpi) if isinstance(dpi, (int, float)) else 0
-
-
-def find_focus_relay_pane() -> PaneInfo | None:
-    """A rendered pane outside the legacy ``band`` workspace, for OSC focus."""
-    candidates = [
-        entry
-        for entry in list_panes()
-        if entry.workspace != BAND_WORKSPACE_NAME and _pane_dpi(entry) > 0
-    ]
-    return candidates[0] if candidates else None
-
-
-
-
-def request_workspace_focus(*, control_pane: PaneId) -> None:
-    """Ask the GUI to show Control — workspace switch (Lua) + activate + raise.
-
-    Legacy Control panes in the ``band`` workspace are invisible until the GUI
-    switches workspaces. Emit ``band.focus`` from a short-lived pane in a
-    *visible* window (OSC must come from pane output, not ``send-text`` input).
-    """
-    control = next(
-        (entry for entry in list_panes() if entry.pane_id == control_pane.root),
-        None,
-    )
-    needs_workspace_switch = (
-        control is not None and control.workspace == BAND_WORKSPACE_NAME
-    )
-    if needs_workspace_switch:
-        relay = find_focus_relay_pane()
-        if relay is not None:
-            # Pass OSC via env so shell quoting cannot corrupt the escape bytes.
-            with contextlib.suppress(WezTermCliError):
-                _run(
-                    [
-                        "cli",
-                        "spawn",
-                        "--window-id",
-                        str(relay.window_id),
-                        "--",
-                        "bash",
-                        "-lc",
-                        f'printf %s "$BAND_FOCUS_OSC"; sleep {_FOCUS_RELAY_SLEEP_SECONDS}',
-                    ],
-                    env={**os.environ, "BAND_FOCUS_OSC": format_focus_sequence()},
-                )
-    with contextlib.suppress(WezTermCliError):
-        activate_pane(control_pane)
-    raise_gui()
-
-
-def raise_gui() -> None:
-    """Bring the WezTerm application to the foreground (best-effort)."""
-    if sys.platform == "darwin":
-        subprocess.run(
-            ["osascript", "-e", 'tell application "WezTerm" to activate'],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
 
 
 def first_spawn_args(cwd: Path, command: list[str]) -> list[str]:

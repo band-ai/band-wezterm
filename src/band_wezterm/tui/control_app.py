@@ -91,7 +91,7 @@ def ensure_terminal_color() -> None:
 
 
 def name_control_tab() -> None:
-    """Brand the disposable Band home tab and OS window (not python3.x)."""
+    """Brand the disposable Band surface tab and OS window (not python3.x)."""
     pane_id = current_pane_id()
     if pane_id is None:
         return
@@ -333,7 +333,7 @@ def run_control_app(
     initial_room_id: str | None = None,
     initial_screen: AppScreen = AppScreen.ROOMS,
 ) -> int:
-    """Run a disposable Band home or room view in this process."""
+    """Run a disposable Band room or agent view in this process."""
     mark_control_process()
     ensure_terminal_color()
     configure_diagnostics()

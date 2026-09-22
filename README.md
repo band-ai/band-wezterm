@@ -98,9 +98,9 @@ Create the layout you want with native WezTerm first, then run Band in the targe
 ```bash
 band                 # show command help
 band room            # choose and manage rooms in this pane
-band agent             # open agent management in this pane
+band agent            # open agent management in this pane
 band agents            # list agent IDs and runtime state
-band rooms           # list accessible room names and IDs
+band rooms             # list accessible room names and IDs
 band room NAME_OR_ID # a single room in this pane
 band status          # rooms and detached-agent status
 band agent start AGENT_ID   # start a detached worker

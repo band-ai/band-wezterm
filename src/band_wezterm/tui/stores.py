@@ -19,7 +19,6 @@ from band_wezterm.client import (
 )
 from band_wezterm.identity import HARNESS_BADGES, HarnessBadge
 from band_wezterm.supervisor.protocol import WorkerRecord, WorkerState
-from band_wezterm.wezterm_cli import PaneId
 
 
 class AgentSource(StrEnum):
@@ -100,25 +99,6 @@ def _matches_search(haystack: str, needle: str) -> bool:
     return needle.strip().lower() in haystack.lower()
 
 
-@dataclass(frozen=True)
-class AgentPanes:
-    """The private console and Band bridge that form one managed agent tab."""
-
-    console: PaneId
-    bridge: PaneId
-
-    @property
-    def is_static(self) -> bool:
-        """True when the tab is bridge-only (no private native console)."""
-        return self.console == self.bridge
-
-    @property
-    def ids(self) -> tuple[PaneId, ...]:
-        if self.is_static:
-            return (self.console,)
-        return (self.console, self.bridge)
-
-
 @dataclass
 class AgentsStore:
     """Agents catalog: search, one exclusive chip (All = no filter), run state."""
@@ -128,7 +108,6 @@ class AgentsStore:
     source: AgentSource = AgentSource.MINE
     search: str = ""
     filter: AgentFilter = AgentFilter.ALL
-    running: dict[str, AgentPanes] = field(default_factory=dict)
     workers: dict[str, WorkerRecord] = field(default_factory=dict)
     starting_ids: set[str] = field(default_factory=set)
     selected_id: str | None = None
@@ -159,7 +138,7 @@ class AgentsStore:
 
     @property
     def running_ids(self) -> frozenset[str]:
-        return frozenset(self.running) | frozenset(
+        return frozenset(
             agent_id
             for agent_id, worker in self.workers.items()
             if worker.state
@@ -248,15 +227,6 @@ class AgentsStore:
     def finish_start(self, agent_id: str) -> None:
         self.starting_ids.discard(agent_id)
 
-    def mark_running(
-        self,
-        agent_id: str,
-        bridge: PaneId,
-        *,
-        console: PaneId | None = None,
-    ) -> None:
-        self.running[agent_id] = AgentPanes(console=console or bridge, bridge=bridge)
-
     def replace_workers(self, workers: Iterable[WorkerRecord]) -> None:
         """Project the supervisor's runtime inventory into this view-local store."""
         self.workers = {worker.agent_id: worker for worker in workers}
@@ -264,20 +234,8 @@ class AgentsStore:
     def mark_worker(self, worker: WorkerRecord) -> None:
         self.workers[worker.agent_id] = worker
 
-    def mark_stopped(self, agent_id: str) -> AgentPanes | None:
+    def mark_stopped(self, agent_id: str) -> None:
         self.workers.pop(agent_id, None)
-        return self.running.pop(agent_id, None)
-
-    def agents_with_missing_panes(
-        self, live_pane_ids: Iterable[int]
-    ) -> tuple[tuple[str, AgentPanes], ...]:
-        """Return managed agents whose coupled tab is no longer complete."""
-        live = set(live_pane_ids)
-        return tuple(
-            (agent_id, panes)
-            for agent_id, panes in self.running.items()
-            if any(pane.root not in live for pane in panes.ids)
-        )
 
 
 @dataclass
