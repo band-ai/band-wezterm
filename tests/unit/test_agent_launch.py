@@ -8,13 +8,14 @@ import pytest
 
 from band_wezterm.agent.launch import (
     AgentLaunchContext,
+    attach_interactive_console,
     prepare_agent_launch,
     spawn_agent_panes,
 )
 from band_wezterm.client import AgentRecord
 from band_wezterm.identity import AvatarKind, HarnessId, agent_accent
 from band_wezterm.managed_profiles import ManagedAgentProfile
-from band_wezterm.wezterm_cli import PaneId, WindowId
+from band_wezterm.wezterm_cli import PaneId, SplitDirection, WindowId
 
 
 def _context(
@@ -160,3 +161,58 @@ async def test_spawn_skips_focus_restore_without_control_pane(
     context = _context(interactive=False, cwd=tmp_path)
     await spawn_agent_panes(context, prepare_agent_launch(context))
     assert activated == []
+
+
+@pytest.mark.asyncio
+async def test_attach_interactive_console_splits_above_bridge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    splits: list[tuple[object, ...]] = []
+    activated: list[PaneId] = []
+
+    def fake_split(
+        pane_id: object,
+        cwd: object,
+        command: list[str],
+        *,
+        percent: int,
+        direction: SplitDirection,
+    ) -> PaneId:
+        splits.append((pane_id, cwd, command, percent, direction))
+        return PaneId(8)
+
+    monkeypatch.setattr("band_wezterm.agent.launch.split_pane", fake_split)
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.activate_pane", activated.append
+    )
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.build_native_console",
+        lambda _profile, *, cwd: object(),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.write_native_console_launch",
+        lambda _launch: tmp_path / "console.json",
+    )
+    monkeypatch.setattr(
+        "band_wezterm.agent.launch.native_console_command",
+        lambda **_kwargs: ["python", "-m", "band_wezterm.agent.console"],
+    )
+
+    context = _context(
+        interactive=False, cwd=tmp_path, focus_pane=PaneId(1)
+    )
+    console = await attach_interactive_console(
+        agent=context.agent,
+        profile=context.profile,
+        bridge=PaneId(7),
+        cwd=tmp_path,
+        focus_pane=PaneId(1),
+    )
+    assert console == PaneId(8)
+    assert len(splits) == 1
+    pane_id, _cwd, command, percent, direction = splits[0]
+    assert pane_id == PaneId(7)
+    assert "band_wezterm.agent.console" in command
+    assert percent == 80
+    assert direction is SplitDirection.TOP
+    assert activated == [PaneId(1)]

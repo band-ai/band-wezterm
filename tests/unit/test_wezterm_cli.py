@@ -10,6 +10,7 @@ import pytest
 from band_wezterm.wezterm_cli import (
     PaneId,
     PaneInfo,
+    SplitDirection,
     WindowId,
     additional_spawn_args,
     first_spawn_args,
@@ -148,3 +149,16 @@ def test_format_focus_sequence_is_osc_uservar() -> None:
     sequence = format_focus_sequence()
     assert sequence.startswith("\033]1337;SetUserVar=band.focus=")
     assert sequence.endswith("\007")
+
+
+def test_split_pane_args_top_direction() -> None:
+    args = split_pane_args(
+        PaneId(42),
+        Path("/tmp/work"),
+        ["python", "-m", "band_wezterm.agent.console"],
+        percent=80,
+        direction=SplitDirection.TOP,
+    )
+    assert "--top" in args
+    assert "--bottom" not in args
+    assert args[args.index("--percent") + 1] == "80"

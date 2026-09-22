@@ -22,7 +22,9 @@ from band_wezterm.client import AgentRecord
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.tui.stores import AgentPanes
 from band_wezterm.wezterm_cli import (
+    DEFAULT_CONSOLE_ATTACH_PERCENT,
     PaneId,
+    SplitDirection,
     WezTermCliError,
     WindowId,
     activate_pane,
@@ -136,6 +138,39 @@ async def _restore_control_focus(focus_pane: PaneId | None) -> None:
     if focus_pane is None:
         return
     await asyncio.to_thread(activate_pane, focus_pane)
+
+
+async def attach_interactive_console(
+    *,
+    agent: AgentRecord,
+    profile: ManagedAgentProfile,
+    bridge: PaneId,
+    cwd: Path,
+    focus_pane: PaneId | None = None,
+) -> PaneId:
+    """Split a native console above an existing Band bridge status tab."""
+    console = build_native_console(profile, cwd=cwd)
+    launch_file = write_native_console_launch(console)
+    try:
+        command = native_console_command(
+            agent_id=agent.id,
+            name=agent.name,
+            harness=profile.harness,
+            launch_file=launch_file,
+        )
+        console_pane = await asyncio.to_thread(
+            split_pane,
+            bridge,
+            cwd,
+            command,
+            percent=DEFAULT_CONSOLE_ATTACH_PERCENT,
+            direction=SplitDirection.TOP,
+        )
+    except Exception:
+        launch_file.unlink(missing_ok=True)
+        raise
+    await _restore_control_focus(focus_pane)
+    return console_pane
 
 
 async def rollback_agent_launch(resources: AgentLaunchResources) -> AgentPanes | None:
