@@ -6,16 +6,11 @@ import argparse
 import asyncio
 import os
 import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Final
 
-from filelock import FileLock, Timeout
-
 from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.client import BandClient, RoomRecord
-from band_wezterm.config import LOCAL_STATE_DIRNAME
 from band_wezterm.setup_wezterm import (
     SetupAction,
     SetupConfigError,
@@ -32,37 +27,14 @@ from band_wezterm.wezterm_cli import (
 CONTROL_MODULE: Final = "band_wezterm.tui"
 COMMAND_NAME: Final = "band"
 SETUP_COMMAND: Final = "setup"
-CONTROL_LOCK_FILENAME: Final = "control-launch.lock"
-CONTROL_LOCK_TIMEOUT_SECONDS: Final = 10
 SETUP_HELP: Final = (
     "Install/update the Band WezTerm plugin snippet in the active "
     "WezTerm config (WEZTERM_CONFIG_FILE, ~/.wezterm.lua, or XDG wezterm.lua)"
 )
 
 
-class ControlLaunchError(RuntimeError):
-    """Another Band Control launch did not complete in time."""
-
-
 class RoomSelectionError(ValueError):
     """A room reference does not select exactly one accessible room."""
-
-
-def _control_lock_path() -> Path:
-    return Path.home() / LOCAL_STATE_DIRNAME / CONTROL_LOCK_FILENAME
-
-
-@contextmanager
-def _control_launch_lock() -> Iterator[None]:
-    lock_path = _control_lock_path()
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with FileLock(lock_path, timeout=CONTROL_LOCK_TIMEOUT_SECONDS):
-            yield
-    except Timeout as error:
-        raise ControlLaunchError(
-            "Another Band Control launch is still in progress; try again shortly."
-        ) from error
 
 
 def _control_command(*, room_id: str | None) -> list[str]:
@@ -148,11 +120,6 @@ def _run_setup() -> int:
 
 
 def _run_control(*, room_id: str | None = None) -> int:
-    with _control_launch_lock():
-        return _run_control_locked(room_id=room_id)
-
-
-def _run_control_locked(*, room_id: str | None) -> int:
     cwd = Path.cwd()
     if os.environ.get("WEZTERM_PANE"):
         return run_control_app(initial_room_id=room_id)
@@ -269,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
             else None
         )
         return _run_control(room_id=room_id)
-    except (ControlLaunchError, RoomSelectionError, ValueError, WezTermCliError) as exc:
+    except (RoomSelectionError, ValueError, WezTermCliError) as exc:
         print(exc, file=sys.stderr)
         return 1
 

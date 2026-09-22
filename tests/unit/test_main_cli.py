@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from filelock import Timeout
 
 from band_wezterm.__main__ import (
     COMMAND_NAME,
@@ -194,11 +193,8 @@ def test_main_setup_oserror(
 
 
 def test_run_control_uses_the_current_wezterm_pane(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "band_wezterm.__main__._control_lock_path", lambda: tmp_path / "lock"
-    )
     monkeypatch.setenv("WEZTERM_PANE", "81")
     room_ids: list[str | None] = []
     monkeypatch.setattr(
@@ -210,13 +206,10 @@ def test_run_control_uses_the_current_wezterm_pane(
 
 
 def test_run_control_starts_a_gui_outside_wezterm(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     started: list[tuple[Path, list[str]]] = []
     monkeypatch.delenv("WEZTERM_PANE", raising=False)
-    monkeypatch.setattr(
-        "band_wezterm.__main__._control_lock_path", lambda: tmp_path / "lock"
-    )
     monkeypatch.setattr(
         "band_wezterm.__main__.start_first_window",
         lambda cwd, command: started.append((cwd, command)),
@@ -237,27 +230,3 @@ def test_run_control_starts_a_gui_outside_wezterm(
             ],
         )
     ]
-
-
-def test_main_reports_a_concurrent_control_launch(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    class BusyLock:
-        def __init__(self, *_: object, **__: object) -> None:
-            pass
-
-        def __enter__(self) -> None:
-            raise Timeout("control launch")
-
-        def __exit__(
-            self,
-            _exception_type: object,
-            _exception: object,
-            _traceback: object,
-        ) -> bool:
-            return False
-
-    monkeypatch.setattr("band_wezterm.__main__.FileLock", BusyLock)
-
-    assert main([]) == 1
-    assert "still in progress" in capsys.readouterr().err
