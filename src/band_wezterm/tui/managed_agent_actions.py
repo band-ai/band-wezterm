@@ -24,8 +24,9 @@ from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
+from band_wezterm.tui.host_pane import current_pane_id
 from band_wezterm.tui.stores import AgentPanes
-from band_wezterm.wezterm_cli import PaneId, WezTermCliError, kill_panes
+from band_wezterm.wezterm_cli import WezTermCliError, kill_panes
 
 if TYPE_CHECKING:
     from band_wezterm.tui.screens import ControlScreen
@@ -53,15 +54,6 @@ PREFLIGHT_HARNESS_STABILITY_ATTEMPTS: Final = 5
 PROFILE_HARNESS_UNSTABLE_MESSAGE: Final = (
     "Harness kept changing during preflight — try Start again."
 )
-
-
-def _control_focus_pane() -> PaneId | None:
-    """Pane that should keep focus after Start — Control's WEZTERM_PANE."""
-    # Lazy: control_app imports AgentsScreen which imports this module.
-    from band_wezterm.tui.control_app import current_pane_id  # noqa: PLC0415
-
-    return current_pane_id()
-
 
 
 class ManagedAgentActions:
@@ -215,7 +207,7 @@ class ManagedAgentActions:
                     window_id=window_id,
                     cwd=Path.cwd(),
                     interactive_console=interactive_console,
-                    focus_pane=_control_focus_pane(),
+                    focus_pane=current_pane_id(),
                 )
 
     @work(group="managed-agent-start")
@@ -310,7 +302,7 @@ class ManagedAgentActions:
                 profile=fresh,
                 bridge=live.bridge,
                 cwd=Path.cwd(),
-                focus_pane=_control_focus_pane(),
+                focus_pane=current_pane_id(),
             )
             control.agents_store.mark_running(
                 agent.id, live.bridge, console=console
