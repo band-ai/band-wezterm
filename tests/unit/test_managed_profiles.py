@@ -218,3 +218,27 @@ def test_save_unlinks_temp_when_write_fails(
         store.record(profile)
     assert list(tmp_path.glob(".managed_agents.*.tmp")) == []
     assert store.get("a1") is None
+
+def test_ids_returns_frozen_agent_id_set(tmp_path: Path) -> None:
+    store = ManagedAgentStore(tmp_path / "profiles.json")
+    store.record(
+        profile_from_registration(
+            agent_id="a1",
+            name="Alpha",
+            harness=HarnessId.CLAUDE_SDK,
+            persona=None,
+            tuning=AgentTuning(),
+        )
+    )
+    store.record(
+        profile_from_registration(
+            agent_id="a2",
+            name="Beta",
+            harness=HarnessId.CODEX,
+            persona=None,
+            tuning=AgentTuning(),
+        )
+    )
+
+    assert store.ids() == frozenset({"a1", "a2"})
+

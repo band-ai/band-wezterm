@@ -10,11 +10,10 @@ from band_wezterm.agent.native_console import (
     exec_native_console,
     read_native_console_launch,
 )
-from band_wezterm.agent.pane_identity import announce_agent_pane
 from band_wezterm.diagnostics import configure_diagnostics, log_event
 from band_wezterm.errors import format_platform_error
-from band_wezterm.identity import AgentRuntime, AgentStatus
-from band_wezterm.osc import OscKey, emit_to_stdout
+from band_wezterm.identity import AgentRuntime
+from band_wezterm.pane_identity import announce_agent_pane, announce_runtime_status
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -40,8 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         exec_native_console(read_native_console_launch(args.launch_file))
     except Exception as error:
         message = format_platform_error(error, operation="native console")
-        emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.ERROR.value)
-        emit_to_stdout(OscKey.AGENT_STATUS, AgentStatus.OFFLINE.value)
+        announce_runtime_status(AgentRuntime.ERROR)
         print(f"Native console failed: {message}", file=sys.stderr)
         return 1
     return 0

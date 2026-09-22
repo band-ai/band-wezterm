@@ -133,6 +133,10 @@ class ManagedAgentStore:
     def list(self) -> tuple[ManagedAgentProfile, ...]:
         return tuple(sorted(self._profiles.values(), key=lambda p: p.name.lower()))
 
+    def ids(self) -> frozenset[str]:
+        """Managed agent ids — used for local-vs-outside roster grouping."""
+        return frozenset(self._profiles)
+
     def set_persona_and_tuning(
         self,
         agent_id: str,
