@@ -29,8 +29,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     configure_diagnostics()
-    announce_agent_pane(args.agent_id, args.name, args.harness)
-    emit_to_stdout(OscKey.AGENT_RUNTIME, AgentRuntime.RUNNING.value)
+    announce_agent_pane(
+        args.agent_id,
+        args.name,
+        args.harness,
+        runtime=AgentRuntime.RUNNING,
+    )
     log_event("native console started", agent_id=args.agent_id, harness=args.harness)
     try:
         exec_native_console(read_native_console_launch(args.launch_file))

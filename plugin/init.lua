@@ -4,20 +4,15 @@
 --
 -- WezTerm runs only the first format-tab-title handler. Register Band via
 -- apply_to_config early in your config (setup injects after config_builder).
+--
+-- Tab colors read WezTerm's durable pane user_vars (set by OSC from the agent
+-- process). A parallel Lua cache is intentionally not used: it went stale after
+-- stop/restart when mux.get_pane missed live panes.
 
 local wezterm = require("wezterm")
 
 local M = {}
 local handlers_installed = false
-local pane_state = {}
-
-local function forget_closed_panes()
-  for pane_id in pairs(pane_state) do
-    if wezterm.mux.get_pane(pane_id) == nil then
-      pane_state[pane_id] = nil
-    end
-  end
-end
 
 -- Multi-segment room underline from band.agent.room_colors CSV.
 local function room_underline_segments(room_colors_csv)
@@ -31,6 +26,19 @@ local function room_underline_segments(room_colors_csv)
   end
   table.insert(segments, "ResetAttributes")
   return segments
+end
+
+local function pane_band_vars(pane)
+  if pane == nil then
+    return {}
+  end
+  if pane.user_vars ~= nil then
+    return pane.user_vars
+  end
+  if pane.get_user_vars ~= nil then
+    return pane:get_user_vars() or {}
+  end
+  return {}
 end
 
 local function install_handlers()
@@ -50,25 +58,12 @@ local function install_handlers()
         pane
       )
       window:focus()
-      return
     end
-    -- No repaint is requested here: the Window object has no invalidate method, and
-    -- the tab bar plus update-status are re-evaluated on the next redraw anyway
-    -- (at most status_update_interval later).
-    if string.sub(name, 1, 5) ~= "band." then
-      return
-    end
-    forget_closed_panes()
-    local pane_id = pane:pane_id()
-    if pane_state[pane_id] == nil then
-      pane_state[pane_id] = {}
-    end
-    pane_state[pane_id][name] = value
   end)
 
   wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_width)
     local pane = tab.active_pane
-    local state = pane_state[pane.pane_id] or {}
+    local state = pane_band_vars(pane)
     local tab_title = tab.tab_title
     -- Explicit mux title wins for the Control host (Textual's process title is useless).
     if tab_title == "Control" then
@@ -128,14 +123,15 @@ local function install_handlers()
         return "Band"
       end
       local active = t.active_pane
-      if active ~= nil and pane_state[active.pane_id] ~= nil then
+      local state = pane_band_vars(active)
+      if state["band.agent.id"] ~= nil or state["band.agent.name"] ~= nil then
         return "Band"
       end
     end
   end)
 
   wezterm.on("update-status", function(window, pane)
-    local state = pane_state[pane:pane_id()] or {}
+    local state = pane_band_vars(pane)
     local slug = state["band.room.slug"] or state["band.room.name"]
     if slug then
       local color = state["band.room.color"] or "#666666"

@@ -14,8 +14,14 @@ from band_wezterm.identity import (
 from band_wezterm.osc import OscKey, emit_many_to_stdout
 
 
-def announce_agent_pane(agent_id: str, name: str, harness: str | None) -> None:
-    """Publish managed-agent identity into the current WezTerm pane."""
+def agent_identity_fields(
+    agent_id: str,
+    name: str,
+    harness: str | None,
+    *,
+    runtime: AgentRuntime = AgentRuntime.STARTING,
+) -> dict[OscKey, str]:
+    """Allowlisted OSC fields for one managed-agent pane."""
     fields: dict[OscKey, str] = {
         OscKey.AGENT_ID: agent_id,
         OscKey.AGENT_NAME: name,
@@ -23,9 +29,22 @@ def announce_agent_pane(agent_id: str, name: str, harness: str | None) -> None:
         OscKey.AGENT_COLOR: agent_accent(agent_id),
         OscKey.AGENT_KIND: AvatarKind.AGENT.value,
         OscKey.AGENT_STATUS: AgentStatus.ONLINE.value,
-        OscKey.AGENT_RUNTIME: AgentRuntime.STARTING.value,
+        OscKey.AGENT_RUNTIME: runtime.value,
     }
     parsed = parse_harness(harness)
     if parsed is not None:
         fields[OscKey.AGENT_HARNESS] = harness_badge(parsed).value
-    emit_many_to_stdout(fields)
+    return fields
+
+
+def announce_agent_pane(
+    agent_id: str,
+    name: str,
+    harness: str | None,
+    *,
+    runtime: AgentRuntime = AgentRuntime.STARTING,
+) -> None:
+    """Publish managed-agent identity into the current WezTerm pane."""
+    emit_many_to_stdout(
+        agent_identity_fields(agent_id, name, harness, runtime=runtime)
+    )
