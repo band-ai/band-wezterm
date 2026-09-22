@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0](https://github.com/band-ai/band-wezterm/compare/v0.5.0...v0.6.0) (2026-09-22)
+
+
+### Features
+
+* **wezterm:** attach interactive console to a running static agent ([#24](https://github.com/band-ai/band-wezterm/issues/24)) ([03152b9](https://github.com/band-ai/band-wezterm/commit/03152b926eab180a2a72a4e7828a4ecb12c3aecd))
+* **wezterm:** filter and expand Control chat events ([#21](https://github.com/band-ai/band-wezterm/issues/21)) ([c9183d4](https://github.com/band-ai/band-wezterm/commit/c9183d41d85179d86d861f9be711d4f7170a81ac))
+
+
+### Bug Fixes
+
+* **wezterm:** order room roster me, humans, local agents, outside ([#26](https://github.com/band-ai/band-wezterm/issues/26)) ([20d745f](https://github.com/band-ai/band-wezterm/commit/20d745fb69e18ac6eac628fcc1ade671f33d066f))
+* **wezterm:** restore agent tab colors after stop/restart ([#27](https://github.com/band-ai/band-wezterm/issues/27)) ([d7efca7](https://github.com/band-ai/band-wezterm/commit/d7efca71eed94a8289c2be573d62b1ff544582bb))
+* **wezterm:** restore Control focus after Start opens an agent tab ([#23](https://github.com/band-ai/band-wezterm/issues/23)) ([d17a009](https://github.com/band-ai/band-wezterm/commit/d17a009046049a721b7d5efb512793931d513d65))
+
 ## [0.5.0](https://github.com/band-ai/band-wezterm/compare/v0.4.2...v0.5.0) (2026-09-22)
 
 
