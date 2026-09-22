@@ -16,6 +16,7 @@ from band_wezterm.__main__ import (
     _parse_args,
     _resolve_room_id,
     _run_control,
+    _run_rooms,
     main,
 )
 from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
@@ -66,6 +67,10 @@ def test_parse_room_without_a_reference_opens_control_picker() -> None:
     assert _parse_args(["room"]).room is None
 
 
+def test_parse_rooms_subcommand() -> None:
+    assert _parse_args(["rooms"]).command == "rooms"
+
+
 @pytest.mark.asyncio
 async def test_room_reference_resolves_an_exact_title(
     monkeypatch: pytest.MonkeyPatch,
@@ -92,6 +97,27 @@ async def test_unknown_room_reference_explains_how_to_choose(
 
     with pytest.raises(RoomSelectionError, match="Run `band` to choose a room"):
         await _resolve_room_id("missing")
+
+
+@pytest.mark.asyncio
+async def test_rooms_lists_titles_and_ids(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client = MagicMock()
+    client.list_my_chats = AsyncMock(
+        return_value=[
+            MagicMock(id="room-1", title="Planning"),
+            MagicMock(id="room-2", title="Delivery"),
+        ]
+    )
+    client.aclose = AsyncMock()
+    monkeypatch.setattr("band_wezterm.__main__.BandClient", lambda _auth: client)
+
+    assert await _run_rooms() == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "Planning\troom-1",
+        "Delivery\troom-2",
+    ]
 
 
 def test_main_help_is_a_discoverable_command(
@@ -170,7 +196,9 @@ def test_main_setup_oserror(
 def test_run_control_uses_the_current_wezterm_pane(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr("band_wezterm.__main__._control_lock_path", lambda: tmp_path / "lock")
+    monkeypatch.setattr(
+        "band_wezterm.__main__._control_lock_path", lambda: tmp_path / "lock"
+    )
     monkeypatch.setenv("WEZTERM_PANE", "81")
     room_ids: list[str | None] = []
     monkeypatch.setattr(
@@ -186,7 +214,9 @@ def test_run_control_starts_a_gui_outside_wezterm(
 ) -> None:
     started: list[tuple[Path, list[str]]] = []
     monkeypatch.delenv("WEZTERM_PANE", raising=False)
-    monkeypatch.setattr("band_wezterm.__main__._control_lock_path", lambda: tmp_path / "lock")
+    monkeypatch.setattr(
+        "band_wezterm.__main__._control_lock_path", lambda: tmp_path / "lock"
+    )
     monkeypatch.setattr(
         "band_wezterm.__main__.start_first_window",
         lambda cwd, command: started.append((cwd, command)),

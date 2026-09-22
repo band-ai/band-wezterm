@@ -14,7 +14,7 @@ from typing import Final
 from filelock import FileLock, Timeout
 
 from band_wezterm.auth.host_auth import HostAuth
-from band_wezterm.client import BandClient
+from band_wezterm.client import BandClient, RoomRecord
 from band_wezterm.config import LOCAL_STATE_DIRNAME
 from band_wezterm.setup_wezterm import (
     SetupAction,
@@ -107,6 +107,7 @@ def _argument_parser() -> argparse.ArgumentParser:
         help="Open a room by title or ID, or choose one in Control",
     )
     room.add_argument("room", nargs="?")
+    subparsers.add_parser("rooms", help="List accessible rooms and their IDs")
     subparsers.add_parser("status", help="List detached managed agents")
     stop = subparsers.add_parser("stop", help="Gracefully stop a managed agent")
     stop.add_argument("agent_id", nargs="?")
@@ -177,14 +178,19 @@ async def _current_supervisor() -> SupervisorClient:
     return supervisor
 
 
-async def _resolve_room_id(reference: str) -> str:
-    """Resolve an exact room title or ID for the direct room command."""
+async def _list_rooms() -> list[RoomRecord]:
+    """Read the current user's accessible room catalog."""
     auth = HostAuth()
     client = BandClient(auth)
     try:
-        rooms = await client.list_my_chats()
+        return await client.list_my_chats()
     finally:
         await client.aclose()
+
+
+async def _resolve_room_id(reference: str) -> str:
+    """Resolve an exact room title or ID for the direct room command."""
+    rooms = await _list_rooms()
     matches = [
         room
         for room in rooms
@@ -200,6 +206,16 @@ async def _resolve_room_id(reference: str) -> str:
     raise RoomSelectionError(
         f"{reference!r} matches multiple rooms: {choices}. Use the room ID instead."
     )
+
+
+async def _run_rooms() -> int:
+    rooms = await _list_rooms()
+    if not rooms:
+        print("No accessible rooms.")
+        return 0
+    for room in rooms:
+        print(f"{room.title}\t{room.id}")
+    return 0
 
 
 async def _run_status() -> int:
@@ -241,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "status":
             return asyncio.run(_run_status())
+        if args.command == "rooms":
+            return asyncio.run(_run_rooms())
         if args.command == "stop":
             return asyncio.run(
                 _run_stop(agent_id=args.agent_id, all_workers=args.stop_all)
