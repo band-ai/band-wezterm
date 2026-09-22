@@ -24,6 +24,7 @@ class HostPreferences(BaseModel):
     chat_messages_limit: int = CHAT_MESSAGES_LIMIT
     diagnostic_log: bool = True
     diagnostic_log_verbose: bool = False
+    interactive_agent_console: bool = False
 
     @field_validator("rooms_page_size")
     @classmethod

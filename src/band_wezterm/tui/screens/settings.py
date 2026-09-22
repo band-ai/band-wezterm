@@ -26,6 +26,7 @@ class Id(StrEnum):
     CHAT = "settings-chat-limit"
     DIAG = "settings-diag"
     VERBOSE = "settings-verbose"
+    INTERACTIVE_CONSOLE = "settings-interactive-console"
     STATUS = "settings-status"
 
 
@@ -81,6 +82,12 @@ class SettingsScreen(ControlScreen):
             with Vertical(classes="row"):
                 yield Label("Verbose diagnostic log")
                 yield Switch(value=prefs.diagnostic_log_verbose, id=Id.VERBOSE.value)
+            with Vertical(classes="row"):
+                yield Label("Interactive agent console")
+                yield Switch(
+                    value=prefs.interactive_agent_console,
+                    id=Id.INTERACTIVE_CONSOLE.value,
+                )
             yield Static("", id=Id.STATUS.value)
         yield Footer()
 
@@ -103,6 +110,10 @@ class SettingsScreen(ControlScreen):
                 self.control.preferences.update(diagnostic_log=event.value)
             case Id.VERBOSE:
                 self.control.preferences.update(diagnostic_log_verbose=event.value)
+            case Id.INTERACTIVE_CONSOLE:
+                self.control.preferences.update(
+                    interactive_agent_console=event.value
+                )
         self._set_status("Saved.")
 
     def _save_numbers(self) -> None:
