@@ -186,7 +186,7 @@ async def _main() -> None:
     IMAGES.mkdir(parents=True, exist_ok=True)
     with (
         patch("band_wezterm.tui.control_app.kill_panes"),
-        patch("band_wezterm.tui.control_app.announce_human"),
+        patch("band_wezterm.pane_identity.announce_control_human"),
     ):
         written = [
             await _write("workspace.svg", _capture_workspace, (110, 16)),

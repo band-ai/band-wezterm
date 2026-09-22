@@ -17,6 +17,7 @@ from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error, is_missing_resource
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
 from band_wezterm.role_library import open_role_library
+from band_wezterm.tui.agent_teardown import stop_tracked_agent
 from band_wezterm.tui.catalog_loaders import list_managed_agents
 from band_wezterm.tui.managed_agent_actions import (
     AGENT_STARTING_MESSAGE,
@@ -34,7 +35,6 @@ from band_wezterm.tui.stores import (
     AgentStatusSource,
 )
 from band_wezterm.tui.widgets import AvatarChip, Chip, FilterChips
-from band_wezterm.wezterm_cli import kill_panes
 
 NO_BADGE: Final = "  "
 
@@ -463,11 +463,7 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
         self.store.remove_agent(agent.id)
 
     async def _stop_agent_for_delete(self, agent: AgentRecord) -> None:
-        panes = self.store.running.get(agent.id)
-        if panes is None:
-            return
-        await asyncio.to_thread(kill_panes, panes.ids)
-        self.store.mark_stopped(agent.id)
+        await stop_tracked_agent(self.store, agent.id)
 
     def _set_status(self, status: str) -> None:
         self.store.status = status

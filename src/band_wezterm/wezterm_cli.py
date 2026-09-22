@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import contextlib
 import json
 import os
@@ -17,15 +16,10 @@ from typing import Final
 from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
 
 from band_wezterm.config import BAND_WORKSPACE_NAME, CONTROL_TAB_TITLE
+from band_wezterm.osc import format_focus_sequence
 
 # Short-lived pane that emits ``band.focus`` so Lua can SwitchToWorkspace.
 _FOCUS_RELAY_SLEEP_SECONDS = "0.05"
-# Inline OSC framing (same bytes as ``band_wezterm.osc``) — avoids a circular
-# import with osc.py, which depends on this module for PaneId/send_text.
-_OSC_PREFIX: Final = "\033]1337;SetUserVar="
-_OSC_SUFFIX: Final = "\007"
-_FOCUS_USER_VAR: Final = "band.focus"
-_FOCUS_PAYLOAD: Final = "1"
 DEFAULT_BRIDGE_PANE_PERCENT: Final = 20
 DEFAULT_CONSOLE_ATTACH_PERCENT: Final = 80
 
@@ -315,10 +309,6 @@ def find_focus_relay_pane() -> PaneInfo | None:
     return candidates[0] if candidates else None
 
 
-def format_focus_sequence() -> str:
-    """OSC 1337 that the Band WezTerm plugin handles as SwitchToWorkspace + focus."""
-    encoded = base64.b64encode(_FOCUS_PAYLOAD.encode("utf-8")).decode("ascii")
-    return f"{_OSC_PREFIX}{_FOCUS_USER_VAR}={encoded}{_OSC_SUFFIX}"
 
 
 def request_workspace_focus(*, control_pane: PaneId) -> None:

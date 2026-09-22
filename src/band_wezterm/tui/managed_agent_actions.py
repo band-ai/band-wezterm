@@ -24,9 +24,10 @@ from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
+from band_wezterm.tui.agent_teardown import stop_tracked_agent
 from band_wezterm.tui.host_pane import current_pane_id
 from band_wezterm.tui.stores import AgentPanes
-from band_wezterm.wezterm_cli import WezTermCliError, kill_panes
+from band_wezterm.wezterm_cli import WezTermCliError
 
 if TYPE_CHECKING:
     from band_wezterm.tui.screens import ControlScreen
@@ -324,12 +325,13 @@ class ManagedAgentActions:
         self, agent_id: str, agent_name: str, panes: AgentPanes
     ) -> None:
         try:
-            await asyncio.to_thread(kill_panes, panes.ids)
+            await stop_tracked_agent(
+                self._control_screen.control.agents_store, agent_id, panes
+            )
         except (WezTermCliError, OSError) as error:
             self._set_agent_operation_status(
                 format_platform_error(error, operation="stop agent")
             )
             return
-        self._control_screen.control.agents_store.mark_stopped(agent_id)
         self._set_agent_operation_status(f"Stopped {agent_name}.")
         self._refresh_agent_operation_view()

@@ -32,8 +32,9 @@ from band_wezterm.diagnostics import configure_diagnostics, log_event
 from band_wezterm.errors import format_platform_error
 from band_wezterm.local_state import StarredRooms
 from band_wezterm.managed_profiles import ManagedAgentStore
-from band_wezterm.pane_identity import announce_human_pane
+from band_wezterm.pane_identity import announce_control_human
 from band_wezterm.preferences import PreferencesStore
+from band_wezterm.tui.agent_teardown import kill_pane_ids, stop_tracked_agent
 from band_wezterm.tui.host_pane import (
     WEZTERM_PANE_ENV,
     current_pane_id,
@@ -48,7 +49,6 @@ from band_wezterm.tui.screens.workspace import WorkspaceScreen
 from band_wezterm.tui.stores import AgentsStore, AgentStatusSource, RoomsStore
 from band_wezterm.wezterm_cli import (
     WezTermCliError,
-    kill_panes,
     list_panes,
     set_tab_title,
     set_window_title,
@@ -56,7 +56,6 @@ from band_wezterm.wezterm_cli import (
 
 CONTROL_PROCESS_ENV: Final = "BAND_WEZTERM_CONTROL"
 CONTROL_PROCESS_FLAG: Final = "1"
-HOST_HUMAN_NAME: Final = "You"
 
 SIGN_IN_SCREEN: Final = "sign_in"
 WORKSPACE_SCREEN: Final = "workspace"
@@ -199,7 +198,7 @@ class ControlApp(App[None]):
         """Identify the signed-in human, then open the shared workspace."""
         self.user_id = await self.client.whoami()
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
-        announce_human(self.user_id)
+        announce_control_human(self.user_id)
         log_event("workspace entered", user_id=self.user_id)
         self._show(WORKSPACE_SCREEN)
 
@@ -278,11 +277,10 @@ class ControlApp(App[None]):
         """Stop every tracked pair, retaining any pair whose teardown fails."""
         for agent_id, panes in tuple(self.agents_store.running.items()):
             try:
-                await asyncio.to_thread(kill_panes, panes.ids)
+                await stop_tracked_agent(self.agents_store, agent_id, panes)
             except (WezTermCliError, OSError) as error:
                 format_platform_error(error, operation="stop managed agent panes")
                 continue
-            self.agents_store.mark_stopped(agent_id)
         return not self.agents_store.running
 
     @work(exclusive=True, group="agent-pane-reconciliation")
@@ -306,7 +304,7 @@ class ControlApp(App[None]):
                 if pane_id.root in live_pane_ids
             )
             try:
-                await asyncio.to_thread(kill_panes, survivors)
+                await kill_pane_ids(survivors)
             except (WezTermCliError, OSError) as error:
                 self._report_agent_pane_error(error)
                 continue
@@ -362,11 +360,6 @@ class ControlApp(App[None]):
             self.starred.unstar(self.user_id, room_id)
             self.rooms_store.starred_ids = self.starred.list(self.user_id)
         self.rooms_store.remove_room(room_id)
-
-
-def announce_human(user_id: str) -> None:
-    """The signed-in human stays online for as long as the host runs."""
-    announce_human_pane(user_id, HOST_HUMAN_NAME)
 
 
 def run_control_app() -> int:

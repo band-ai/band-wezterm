@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from band_wezterm.identity import (
     AgentRuntime,
     AgentStatus,
@@ -12,6 +14,8 @@ from band_wezterm.identity import (
     parse_harness,
 )
 from band_wezterm.osc import OscKey, emit_many_to_stdout
+
+CONTROL_HUMAN_NAME: Final = "You"
 
 
 def pane_identity_fields(
@@ -96,9 +100,14 @@ def announce_agent_pane(
     )
 
 
-def announce_human_pane(user_id: str, name: str) -> None:
+def announce_human_pane(user_id: str, name: str = CONTROL_HUMAN_NAME) -> None:
     """Publish the signed-in Control human into the current WezTerm pane."""
     announce_pane(user_id, name, kind=AvatarKind.HUMAN)
+
+
+def announce_control_human(user_id: str) -> None:
+    """Control-tab host identity (display name ``CONTROL_HUMAN_NAME``)."""
+    announce_human_pane(user_id, CONTROL_HUMAN_NAME)
 
 
 def announce_runtime_status(
