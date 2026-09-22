@@ -837,7 +837,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
                     user_id=self.control.user_id,
                     local_agent_ids=(
                         profile.agent_id
-                        for profile in self.control.managed_agents.all()
+                        for profile in self.control.managed_agents.list()
                     ),
                 )
             )
