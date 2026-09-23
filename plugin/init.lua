@@ -13,6 +13,35 @@ local wezterm = require("wezterm")
 
 local M = {}
 local handlers_installed = false
+local background_overrides = setmetatable({}, { __mode = "k" })
+local background_enabled_value = "1"
+local module_source = debug.getinfo(1, "S").source
+local module_path = module_source:sub(1, 1) == "@" and module_source:sub(2) or ""
+local background_path = module_path:gsub("init.lua$", "assets/band-background.png")
+
+local function apply_band_background(window, enabled)
+  local overrides = window:get_config_overrides() or {}
+  if enabled then
+    if background_overrides[window] == nil then
+      background_overrides[window] = overrides.background or false
+    end
+    overrides.background = {
+      {
+        source = { File = background_path },
+        horizontal_align = "Center",
+        vertical_align = "Middle",
+        opacity = 0.055,
+      },
+    }
+  elseif background_overrides[window] ~= nil then
+    local original = background_overrides[window]
+    overrides.background = original == false and nil or original
+    background_overrides[window] = nil
+  else
+    return
+  end
+  window:set_config_overrides(overrides)
+end
 
 -- Multi-segment room underline from band.agent.room_colors CSV.
 local function room_underline_segments(room_colors_csv)
@@ -58,6 +87,8 @@ local function install_handlers()
         pane
       )
       window:focus()
+    elseif name == "band.background.enabled" then
+      apply_band_background(window, value == background_enabled_value)
     end
   end)
 

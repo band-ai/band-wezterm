@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -14,7 +16,7 @@ from band_wezterm.client import (
     display_message_content,
     message_record_from_api,
 )
-from band_wezterm.tui.screens.rooms import message_from_event
+from band_wezterm.tui.screens.rooms import message_from_event, message_time_label
 
 
 def test_display_message_content_resolves_mention_markup() -> None:
@@ -40,14 +42,17 @@ def test_message_record_from_api_oldest_fields() -> None:
         sender_name="user1 ci",
         sender_id="u1",
         metadata={"mentions": [{"id": "aaaa", "name": "omp"}]},
+        inserted_at=datetime(2026, 9, 23, 7, 53, tzinfo=UTC),
         message_type="text",
     )
     record = message_record_from_api(message)
     assert record.id == "m1"
     assert record.author_name == "user1 ci"
+    assert record.author_id == "u1"
     assert record.content == "@omp hello"
     assert record.message_type == "text"
     assert record.metadata == {"mentions": [{"id": "aaaa", "name": "omp"}]}
+    assert record.inserted_at == datetime(2026, 9, 23, 7, 53, tzinfo=UTC)
 
 
 def test_message_record_from_api_keeps_tool_type() -> None:
@@ -62,6 +67,22 @@ def test_message_record_from_api_keeps_tool_type() -> None:
     record = message_record_from_api(message)
     assert record.message_type == "tool_call"
     assert record.metadata == {"tool": "search"}
+
+
+def test_message_time_label_includes_seconds() -> None:
+    record = message_record_from_api(
+        SimpleNamespace(
+            id="m3",
+            content="hello",
+            sender_name="Architect",
+            sender_id="a1",
+            metadata=None,
+            message_type="text",
+            inserted_at=datetime(2026, 9, 23, 7, 53, 42, tzinfo=UTC),
+        )
+    )
+
+    assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", message_time_label(record))
 
 
 def test_message_from_event_ignores_participant_left() -> None:
@@ -81,13 +102,16 @@ def test_message_from_event_maps_sender_name() -> None:
             "id": "m2",
             "content": "pong",
             "sender_name": "omp",
+            "inserted_at": "2026-09-23T07:53:00Z",
         },
     )
     record = message_from_event(event)
     assert record is not None
     assert record.author_name == "omp"
+    assert record.author_id is None
     assert record.content == "pong"
     assert record.message_type == "text"
+    assert record.inserted_at == datetime(2026, 9, 23, 7, 53, tzinfo=UTC)
 
 
 def test_message_from_event_created_maps_type_and_empty_content() -> None:

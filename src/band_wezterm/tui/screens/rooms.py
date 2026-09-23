@@ -8,9 +8,10 @@ from collections.abc import Iterable, Sequence
 from enum import StrEnum
 from typing import ClassVar, Final
 
+from rich.markdown import Markdown
 from rich.style import Style
 from rich.text import Text
-from textual import work
+from textual import events, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -46,12 +47,13 @@ from band_wezterm.tui.chat_events import (
     DISCLOSURE_EXPANDED,
     FILTERED_EMPTY_CHAT,
     apply_verbose,
-    badge_label,
     error_display_content,
-    event_preview,
+    event_tag,
     hidden_summary,
     is_always_expanded,
     metadata_pretty,
+    timeline_content,
+    timeline_preview,
     verbose_active,
     visible_messages,
 )
@@ -92,6 +94,10 @@ ROSTER_TITLE: Final = "Roster"
 EMPTY_ROOMS: Final = "No rooms match the filter."
 EMPTY_CHAT: Final = "*No messages yet.*"
 NEW_ACTIVITY_MESSAGE: Final = "New activity — End jumps to latest."
+OLDER_MESSAGES_LOADING: Final = "Loading older messages…"
+OLDER_MESSAGES_AVAILABLE: Final = "Scroll up to load older messages."
+OLDER_MESSAGES_COMPLETE: Final = "Beginning of room history."
+MESSAGE_TIME_FORMAT: Final = "%H:%M:%S"
 EMPTY_CANDIDATES: Final = "Every one of your agents is already in this room."
 ROSTER_UPDATING_MESSAGE: Final = "Updating room roster…"
 NO_SELECTION_MESSAGE: Final = "Select a room first."
@@ -129,6 +135,19 @@ class Id(StrEnum):
 
 def selector(widget_id: Id) -> str:
     return f"#{widget_id.value}"
+
+
+class ChatTimeline(ListView):
+    """A chat list that requests one older page only after reaching its top."""
+
+    class ReachedStart(Message):
+        """The user tried to scroll before the earliest loaded event."""
+
+    def _on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+        at_start = self.scroll_y <= 0
+        super()._on_mouse_scroll_up(event)
+        if at_start:
+            self.post_message(self.ReachedStart())
 
 
 def mention_keys(participant: ParticipantRecord) -> tuple[str, ...]:
@@ -193,6 +212,28 @@ def resolve_mention(
     return mentioned[0], remainder
 
 
+def participant_mention_text(
+    content: str, participants: Iterable[ParticipantRecord]
+) -> Text | None:
+    """Color unambiguous ``@mentions`` with their roster identity color."""
+    matches = sorted(
+        (
+            (key, participant.color)
+            for participant in participants
+            for key in mention_keys(participant)
+        ),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    )
+    rendered = Text(content)
+    styled = False
+    for key, color in matches:
+        for match in re.finditer(rf"(?<!\S)@{re.escape(key)}(?=\s|$)", content, re.I):
+            rendered.stylize(Style(color=color, bold=True), *match.span())
+            styled = True
+    return rendered if styled else None
+
+
 async def refill(list_view: ListView, rows: Sequence[ListItem]) -> None:
     """Replace every row, keeping the highlight on a still-valid index."""
     previous = list_view.index
@@ -238,9 +279,40 @@ def message_from_event(event: RealtimeEvent) -> MessageRecord | None:
             or payload.get("sender")
             or "unknown"
         ),
+        author_id=(
+            str(sender_id)
+            if (sender_id := payload.get("sender_id") or payload.get("senderId"))
+            else None
+        ),
+        inserted_at=payload.get("inserted_at") or payload.get("insertedAt"),
         message_type=str(raw_type or DEFAULT_MESSAGE_TYPE),
         metadata=meta,
     )
+
+
+def message_time_label(message: MessageRecord) -> str:
+    """Render a compact local time when the platform supplied one."""
+    inserted_at = message.inserted_at
+    return (
+        ""
+        if inserted_at is None
+        else inserted_at.astimezone().strftime(MESSAGE_TIME_FORMAT)
+    )
+
+
+def history_status_text(history: str, hidden: str) -> Text:
+    """A fixed, calm history status line that never reflows chat rows."""
+    status = Text()
+    if history == OLDER_MESSAGES_LOADING:
+        status.append("◌ ", Style(color="#f0a12a", bold=True))
+        status.append(history, Style(color="#f0a12a", bold=True))
+    elif history:
+        status.append(history, Style(color="#9aa4b2"))
+    if history and hidden:
+        status.append("  ·  ", Style(color="#6e7681"))
+    if hidden:
+        status.append(hidden, Style(color="#9aa4b2"))
+    return status
 
 
 class ChatEventRow(ListItem):
@@ -249,11 +321,28 @@ class ChatEventRow(ListItem):
     DEFAULT_CSS = """
     ChatEventRow {
         height: auto;
-        padding: 0 1 1 1;
+        padding: 0 1;
         border-bottom: solid $panel;
+    }
+    ChatEventRow .event-header {
+        height: 1;
     }
     ChatEventRow .event-author {
         text-style: bold;
+        width: 1fr;
+    }
+    ChatEventRow .event-meta {
+        width: auto;
+    }
+    ChatEventRow .event-timestamp {
+        color: $text-muted;
+        margin-left: 1;
+        width: auto;
+    }
+    ChatEventRow .event-tag {
+        padding: 0 1;
+        text-style: bold;
+        width: auto;
     }
     ChatEventRow .event-badge {
         color: $accent;
@@ -266,46 +355,69 @@ class ChatEventRow(ListItem):
     }
     """
 
-    def __init__(self, message: MessageRecord, *, expanded: bool) -> None:
+    def __init__(
+        self,
+        message: MessageRecord,
+        *,
+        expanded: bool,
+        author_color: str | None,
+        mention_text: Text | None,
+    ) -> None:
         super().__init__()
         self.message = message
         self.expanded = expanded
+        self.author_color = author_color
+        self.mention_text = mention_text
 
     def compose(self) -> ComposeResult:
         message = self.message
-        yield Static(message.author_name, classes="event-author")
         message_type = message.message_type or DEFAULT_MESSAGE_TYPE
+        with Horizontal(classes="event-header"):
+            author = Text(
+                message.author_name, Style(color=self.author_color, bold=True)
+            )
+            yield Static(author, classes="event-author", markup=False)
+            with Horizontal(classes="event-meta"):
+                yield Static(
+                    event_tag(message_type),
+                    classes="event-tag",
+                    markup=False,
+                )
+                timestamp = message_time_label(message)
+                if timestamp:
+                    yield Static(timestamp, classes="event-timestamp")
         if is_always_expanded(message_type):
             if message_type == "error":
                 body = error_display_content(message.content, message.metadata)
-            elif message_type == "thought":
-                body = (
-                    f"[{badge_label(message_type)}] {message.content}"
-                    if message.content
-                    else f"[{badge_label(message_type)}]"
-                )
             else:
                 body = message.content
-            yield Static(body or "(empty)", classes="event-body", markup=False)
+            body = timeline_content(message_type, body)
+            content = (
+                self.mention_text or Markdown(body)
+                if message_type == DEFAULT_MESSAGE_TYPE
+                else body
+            )
+            yield Static(content or "(empty)", classes="event-body", markup=False)
             return
-        badge = badge_label(message_type)
         if self.expanded:
             disclosure = DISCLOSURE_EXPANDED
             yield Static(
-                f"[{badge}] {disclosure}",
+                disclosure,
                 classes="event-badge",
                 markup=False,
             )
             yield Static(
-                message.content or "(empty)", classes="event-body", markup=False
+                timeline_content(message_type, message.content) or "(empty)",
+                classes="event-body",
+                markup=False,
             )
             pretty = metadata_pretty(message.metadata)
             if pretty is not None:
                 yield Static(pretty, classes="event-body", markup=False)
         else:
-            preview = event_preview(message.content)
+            preview = timeline_preview(message)
             yield Static(
-                f"[{badge}] {preview}  {DISCLOSURE_COLLAPSED}",
+                f"{preview}  {DISCLOSURE_COLLAPSED}",
                 classes="event-preview",
                 markup=False,
             )
@@ -720,9 +832,18 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         self._roster_mutation_pending = False
         self._send_draft: str | None = None
         self._expanded_message_ids: set[str] = set()
-        self._rendered_message_ids: frozenset[str] = frozenset()
+        self._rendered_chat: tuple[tuple[MessageRecord, bool], ...] | None = None
+        self._rendered_roster: (
+            tuple[tuple[ParticipantRecord, AgentRuntime], ...] | None
+        ) = None
+        self._rendered_candidates: (
+            tuple[tuple[AgentRecord, AgentRuntime], ...] | None
+        ) = None
         self._unseen_activity = 0
         self._pre_verbose_types: tuple[str, ...] | None = None
+        self._next_messages_cursor: str | None = None
+        self._has_older_messages = False
+        self._loading_older_messages = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -736,7 +857,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
                 yield ListView()
             with Vertical(id=Id.CHAT_SCROLL.value):
                 yield Static("", id=Id.CHAT_HIDDEN.value)
-                yield ListView(id=Id.CHAT.value)
+                yield ChatTimeline(id=Id.CHAT.value)
         with Vertical(id=Id.PICKER.value):
             yield Static(PICKER_TITLE)
             yield ListView(id=Id.PICKER_LIST.value)
@@ -777,25 +898,45 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
     def _allowed_event_types(self) -> tuple[str, ...]:
         return self.control.preferences.current.chat_event_types
 
-    def _chat_view(self) -> ListView:
-        return self.query_one(selector(Id.CHAT), ListView)
+    def _chat_view(self) -> ChatTimeline:
+        return self.query_one(selector(Id.CHAT), ChatTimeline)
 
     async def _render_chat(self, store: RoomsStore) -> None:
         allowed = self._allowed_event_types()
         visible = visible_messages(store.messages, allowed)
+        history = (
+            OLDER_MESSAGES_LOADING
+            if self._loading_older_messages
+            else OLDER_MESSAGES_AVAILABLE
+            if self._has_older_messages
+            else OLDER_MESSAGES_COMPLETE
+            if store.messages
+            else ""
+        )
         hidden = hidden_summary(store.messages, allowed)
         chat = self._chat_view()
-        following = chat.scroll_y >= chat.max_scroll_y - 1
-        message_ids = frozenset(message.id for message in visible)
-        new_count = len(message_ids - self._rendered_message_ids)
-        if self._rendered_message_ids and new_count and not following:
+        following = chat.is_vertical_scroll_end
+        timeline = tuple(
+            (message, message.id in self._expanded_message_ids) for message in visible
+        )
+        previous = self._rendered_chat
+        message_ids = frozenset(message.id for message, _expanded in timeline)
+        previous_ids = (
+            frozenset(message.id for message, _expanded in previous)
+            if previous is not None
+            else frozenset()
+        )
+        new_count = len(message_ids - previous_ids)
+        if previous is not None and new_count and not following:
             self._unseen_activity += new_count
-        self._rendered_message_ids = message_ids
+        self._rendered_chat = timeline
         if following:
             self._unseen_activity = 0
         notice = NEW_ACTIVITY_MESSAGE if self._unseen_activity else ""
         self.query_one(selector(Id.CHAT_HIDDEN), Static).update(
-            "  ".join(part for part in (hidden, notice) if part)
+            history_status_text(
+                history, "  ".join(part for part in (hidden, notice) if part)
+            )
         )
         if not store.messages:
             rows: list[ListItem] = [ListItem(Static(EMPTY_CHAT))]
@@ -806,10 +947,23 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
                 ChatEventRow(
                     message,
                     expanded=message.id in self._expanded_message_ids,
+                    author_color=store.author_color(message),
+                    mention_text=participant_mention_text(
+                        message.content, store.participants
+                    ),
                 )
                 for message in visible
             ]
-        await refill(chat, rows)
+        if previous == timeline:
+            return
+        if previous and timeline[: len(previous)] == previous:
+            await chat.extend(rows[-new_count:])
+        elif previous and timeline[-len(previous) :] == previous:
+            previous_index = chat.index or 0
+            await chat.insert(0, rows[:new_count])
+            chat.index = previous_index + new_count
+        else:
+            await refill(chat, rows)
         if following:
             chat.scroll_end(animate=False)
 
@@ -817,11 +971,23 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         self._unseen_activity = 0
         self._chat_view().scroll_end(animate=False)
         self.query_one(selector(Id.CHAT_HIDDEN), Static).update(
-            hidden_summary(self.store.messages, self._allowed_event_types())
+            history_status_text(
+                OLDER_MESSAGES_AVAILABLE
+                if self._has_older_messages
+                else OLDER_MESSAGES_COMPLETE,
+                hidden_summary(self.store.messages, self._allowed_event_types()),
+            )
         )
 
     async def _render_roster(self, store: RoomsStore) -> None:
         running_ids = self.control.agents_store.running_ids
+        roster = tuple(
+            (participant, local_runtime(participant, running_ids))
+            for participant in store.participants
+        )
+        if roster == self._rendered_roster:
+            return
+        self._rendered_roster = roster
         self.query_one(selector(Id.COMPOSER), MarkdownComposer).set_mention_handles(
             key
             for participant in store.participants
@@ -830,26 +996,25 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         await refill(
             self._roster_view(),
             [
-                IdentityRow(
-                    participant,
-                    participant.id,
-                    runtime=local_runtime(participant, running_ids),
-                )
-                for participant in store.participants
+                IdentityRow(participant, participant.id, runtime=runtime)
+                for participant, runtime in roster
             ],
         )
 
     async def _render_picker(self, store: RoomsStore) -> None:
         running_ids = self.control.agents_store.running_ids
+        candidates = tuple(
+            (candidate, local_runtime(candidate, running_ids))
+            for candidate in store.addable_candidates()
+        )
+        if candidates == self._rendered_candidates:
+            return
+        self._rendered_candidates = candidates
         await refill(
             self.query_one(selector(Id.PICKER_LIST), ListView),
             [
-                IdentityRow(
-                    candidate,
-                    candidate.id,
-                    runtime=local_runtime(candidate, running_ids),
-                )
-                for candidate in store.addable_candidates()
+                IdentityRow(candidate, candidate.id, runtime=runtime)
+                for candidate, runtime in candidates
             ],
         )
 
@@ -907,7 +1072,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
     async def _load_messages(self) -> None:
         store = self.store
         try:
-            messages = await self.control.client.list_messages(
+            page = await self.control.client.list_message_page(
                 self.room.id,
                 limit=self.control.preferences.current.chat_messages_limit,
             )
@@ -917,9 +1082,41 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
                 format_platform_error(error, operation="load room messages"),
             )
         else:
-            store.replace_messages(messages)
+            store.replace_messages(page.messages)
+            self._next_messages_cursor = page.next_cursor
+            self._has_older_messages = page.has_more
             store.clear_status(RoomStatusSource.MESSAGES)
         self.mutate_reactive(RoomDetailScreen.store)
+
+    @work(exclusive=True, group="room-older-messages")
+    async def _load_older_messages(self) -> None:
+        if not self._has_older_messages or self._loading_older_messages:
+            return
+        cursor = self._next_messages_cursor
+        if cursor is None:
+            return
+        self._loading_older_messages = True
+        self.mutate_reactive(RoomDetailScreen.store)
+        try:
+            page = await self.control.client.list_message_page(
+                self.room.id,
+                limit=self.control.preferences.current.chat_messages_limit,
+                cursor=cursor,
+            )
+        except Exception as error:
+            self._set_status(
+                format_platform_error(error, operation="load older messages")
+            )
+        else:
+            self.store.prepend_messages(page.messages)
+            self._next_messages_cursor = page.next_cursor
+            self._has_older_messages = page.has_more
+        finally:
+            self._loading_older_messages = False
+            self.mutate_reactive(RoomDetailScreen.store)
+
+    def on_chat_timeline_reached_start(self, _event: ChatTimeline.ReachedStart) -> None:
+        self._load_older_messages()
 
     def _highlighted_identity_id(self, list_view: ListView) -> str | None:
         row = list_view.highlighted_child
@@ -1098,7 +1295,9 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         row = self._chat_view().highlighted_child
         if not isinstance(row, ChatEventRow):
             return
-        self.app.push_screen(ChatEventDetailScreen(row.message))
+        self.app.push_screen(
+            ChatEventDetailScreen(row.message, author_color=row.author_color)
+        )
 
     def action_toggle_chat_expand(self) -> None:
         chat = self._chat_view()

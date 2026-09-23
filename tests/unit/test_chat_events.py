@@ -15,11 +15,14 @@ from band_wezterm.tui.chat_events import (
     count_by_category,
     error_display_content,
     event_preview,
+    event_tag,
     hidden_summary,
     is_always_expanded,
     message_is_visible,
     normalize_allowed_types,
     select_all_categories,
+    timeline_content,
+    timeline_preview,
     toggle_category,
     verbose_active,
     visible_messages,
@@ -39,6 +42,32 @@ def test_event_preview_empty() -> None:
 
 def test_event_preview_first_line_only() -> None:
     assert event_preview("one\ntwo") == "one"
+
+
+def test_tool_result_timeline_preview_summarizes_success() -> None:
+    message = MessageRecord(
+        id="result-1",
+        author_name="Developer",
+        message_type="tool_result",
+        content=(
+            '{"name":"band_send_message","output":[{"type":"text",'
+            '"text":"{\\"status\\":\\"success\\",\\"message\\":'
+            '\\"Message sent\\"}"}]}'
+        ),
+    )
+
+    assert timeline_preview(message) == "band_send_message · Message sent"
+
+
+def test_event_tag_uses_the_category_label_and_a_fallback_style() -> None:
+    assert event_tag("tool_result").plain == "Tool Result"
+    assert event_tag("future_event").plain == "future_event"
+
+
+def test_timeline_content_removes_redundant_platform_category_prefix() -> None:
+    assert timeline_content("task", "[Task] Token usage: input=6") == "Token usage: input=6"
+    assert timeline_content("participant", "[Participant] Ada joined") == "Ada joined"
+    assert timeline_content("text", "[Task] User-authored text") == "[Task] User-authored text"
 
 
 def test_default_visibility_hides_tools() -> None:

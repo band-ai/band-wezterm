@@ -74,6 +74,7 @@ def test_allowlist_contains_presence_split_and_room_colors() -> None:
     assert OscKey.AGENT_RUNTIME in ALLOWED_KEYS
     assert OscKey.AGENT_ROOM_COLORS in ALLOWED_KEYS
     assert OscKey.ROOM_COLOR in ALLOWED_KEYS
+    assert OscKey.BACKGROUND_ENABLED in ALLOWED_KEYS
     assert OscKey.FOCUS in ALLOWED_KEYS
     assert "band.agent.presence" not in {key.value for key in ALLOWED_KEYS}
 

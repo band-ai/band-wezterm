@@ -27,7 +27,10 @@ from band_wezterm.diagnostics import configure_diagnostics, log_event
 from band_wezterm.errors import format_platform_error
 from band_wezterm.local_state import StarredRooms
 from band_wezterm.managed_profiles import ManagedAgentStore
-from band_wezterm.pane_identity import announce_control_human
+from band_wezterm.pane_identity import (
+    announce_control_human,
+    announce_control_preferences,
+)
 from band_wezterm.preferences import PreferencesStore
 from band_wezterm.resource_operations import ManagedAgentOperations, RoomOperations
 from band_wezterm.supervisor import ManagedAgentLifecycle, SupervisorClient
@@ -49,6 +52,8 @@ CONTROL_PROCESS_ENV: Final = "BAND_WEZTERM_CONTROL"
 CONTROL_PROCESS_FLAG: Final = "1"
 # App default screen + the active base screen; anything above is an overlay.
 BASE_STACK_DEPTH: Final = 2
+
+
 def requires_ready_surface[**P](
     operation: Callable[Concatenate[ControlApp, P], Awaitable[None]],
 ) -> Callable[Concatenate[ControlApp, P], Awaitable[None]]:
@@ -241,6 +246,9 @@ class ControlApp(App[None]):
         self._set_warmup_progress(2, "Loading your Band workspace…")
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
         announce_control_human(self.user_id)
+        announce_control_preferences(
+            show_band_background=self.preferences.current.show_band_background
+        )
         log_event("Band surface entered", user_id=self.user_id)
         self._surface_ready = True
         self._set_warmup_progress(3, "Band is ready.")

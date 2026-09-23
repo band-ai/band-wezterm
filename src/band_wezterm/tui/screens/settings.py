@@ -8,9 +8,10 @@ from typing import ClassVar, Final
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Button, Footer, Header, Input, Label, Static
+from textual.widgets import Button, Footer, Header, Input, Label, Static, Switch
 
 from band_wezterm.diagnostics import diagnostics_log_path
+from band_wezterm.pane_identity import announce_control_preferences
 from band_wezterm.preferences import MAX_CHAT_MESSAGES_LIMIT, MIN_CHAT_MESSAGES_LIMIT
 from band_wezterm.tui.screens import ControlScreen
 
@@ -22,6 +23,7 @@ class Id(StrEnum):
     LOG_FILE = "settings-log-file"
     STATUS = "settings-status"
     SIGN_OUT = "settings-sign-out"
+    BACKGROUND = "settings-background"
 
 
 def selector(widget_id: Id) -> str:
@@ -57,12 +59,15 @@ class SettingsScreen(ControlScreen):
                 f"{deployment.title()} ({self.control.settings.band_base_url})\n"
                 "Set BAND_DEPLOYMENT=development before launching Band to use dev."
             )
-            yield Label("Chat messages limit")
+            yield Label("Chat history page size")
             yield Input(
                 value=str(prefs.chat_messages_limit),
                 id=Id.CHAT.value,
                 type="integer",
             )
+            yield Label("Appearance")
+            yield Switch(prefs.show_band_background, id=Id.BACKGROUND.value)
+            yield Static("Show the subtle Band background in this WezTerm window.")
             yield Label("Log file")
             yield Static(
                 str(diagnostics_log_path(settings=self.control.settings)),
@@ -91,16 +96,24 @@ class SettingsScreen(ControlScreen):
             case Id.SIGN_OUT:
                 self._sign_out()
 
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        if event.switch.id != Id.BACKGROUND:
+            return
+        self.control.preferences.update(show_band_background=event.value)
+        announce_control_preferences(show_band_background=event.value)
+        self._set_status("Saved.")
+
     def _save_numbers(self) -> None:
         chat_raw = self.query_one(selector(Id.CHAT), Input).value.strip()
         try:
             chat = int(chat_raw)
         except ValueError:
-            self._set_status("Chat limit must be an integer.")
+            self._set_status("Chat history page size must be an integer.")
             return
         if not MIN_CHAT_MESSAGES_LIMIT <= chat <= MAX_CHAT_MESSAGES_LIMIT:
             self._set_status(
-                f"Chat limit must be {MIN_CHAT_MESSAGES_LIMIT}-{MAX_CHAT_MESSAGES_LIMIT}."
+                "Chat history page size must be "
+                f"{MIN_CHAT_MESSAGES_LIMIT}-{MAX_CHAT_MESSAGES_LIMIT}."
             )
             return
         self.control.preferences.update(chat_messages_limit=chat)

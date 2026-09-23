@@ -21,6 +21,7 @@ class HostPreferences(BaseModel):
 
     chat_messages_limit: int = CHAT_MESSAGES_LIMIT
     chat_event_types: tuple[str, ...] = DEFAULT_ALLOWED_TYPES
+    show_band_background: bool = False
 
     @field_validator("chat_messages_limit")
     @classmethod

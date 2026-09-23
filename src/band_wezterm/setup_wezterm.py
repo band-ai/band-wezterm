@@ -35,6 +35,12 @@ PLUGIN_DIRNAME: Final = "plugin"
 PLUGIN_PACKAGE: Final = "band_wezterm.wezterm_plugin"
 PLUGIN_INIT_NAME: Final = "init.lua"
 PLUGIN_INIT_REPO_PATH: Final = f"{PLUGIN_DIRNAME}/{PLUGIN_INIT_NAME}"
+PLUGIN_ASSETS_DIRNAME: Final = "assets"
+PLUGIN_BACKGROUND_NAME: Final = "band-background.png"
+PLUGIN_BACKGROUND_REPO_PATH: Final = (
+    f"{PLUGIN_DIRNAME}/{PLUGIN_ASSETS_DIRNAME}/{PLUGIN_BACKGROUND_NAME}"
+)
+PLUGIN_REPO_PATHS: Final = (PLUGIN_INIT_REPO_PATH, PLUGIN_BACKGROUND_REPO_PATH)
 PLUGIN_LOCK_SUFFIX: Final = ".lock"
 PLUGIN_LOCK_TIMEOUT_SECONDS: Final = 10
 # Path(__file__).resolve().parents[N] → repo root (band_wezterm → src → repo).
@@ -160,7 +166,7 @@ def resolve_plugin_require_url(*, home: Path | None = None) -> str:
 
 
 def materialize_plugin_repo(*, home: Path | None = None) -> Path:
-    """Write packaged ``plugin/init.lua`` into a tiny git repo under local state."""
+    """Write the packaged Band plugin and its assets into a tiny local git repo."""
     home_dir = home if home is not None else Path.home()
     # Avoid resolve(): concurrent creation can return Windows' extended spelling.
     root = home_dir / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME
@@ -171,6 +177,13 @@ def materialize_plugin_repo(*, home: Path | None = None) -> Path:
         source_text = _plugin_init_lua_text()
         if not target.is_file() or target.read_text(encoding="utf-8") != source_text:
             _atomic_write(target, source_text)
+        background_target = plugin_dir / PLUGIN_ASSETS_DIRNAME / PLUGIN_BACKGROUND_NAME
+        background = _plugin_background_bytes()
+        if (
+            not background_target.is_file()
+            or background_target.read_bytes() != background
+        ):
+            _atomic_write_bytes(background_target, background)
         # Always recover git state — do not skip merely because file bytes match.
         if _plugin_repo_needs_commit(root):
             _git_commit_plugin_repo(root)
@@ -207,6 +220,25 @@ def _plugin_init_lua_text() -> str:
     )
 
 
+def _plugin_background_bytes() -> bytes:
+    packaged = (
+        resources.files(PLUGIN_PACKAGE)
+        .joinpath(PLUGIN_ASSETS_DIRNAME)
+        .joinpath(PLUGIN_BACKGROUND_NAME)
+    )
+    if packaged.is_file():
+        return packaged.read_bytes()
+    repo_root = Path(__file__).resolve().parents[REPO_ROOT_FROM_PACKAGE]
+    background = (
+        repo_root / PLUGIN_DIRNAME / PLUGIN_ASSETS_DIRNAME / PLUGIN_BACKGROUND_NAME
+    )
+    if background.is_file():
+        return background.read_bytes()
+    raise SetupConfigError(
+        "Band WezTerm plugin background asset is missing from the install"
+    )
+
+
 def _plugin_repo_needs_commit(root: Path) -> bool:
     """True when ``.git``/HEAD is missing, plugin is not in HEAD, or plugin is dirty.
 
@@ -218,22 +250,17 @@ def _plugin_repo_needs_commit(root: Path) -> bool:
     head = _git(root, "rev-parse", "HEAD", check=False)
     if head.returncode != 0:
         return True
-    in_tree = _git(
-        root,
-        "cat-file",
-        "-e",
-        f"HEAD:{PLUGIN_INIT_REPO_PATH}",
-        check=False,
-    )
-    if in_tree.returncode != 0:
-        return True
+    for repo_path in PLUGIN_REPO_PATHS:
+        in_tree = _git(root, "cat-file", "-e", f"HEAD:{repo_path}", check=False)
+        if in_tree.returncode != 0:
+            return True
     status = _git(
         root,
         "status",
         "--porcelain",
         "--untracked-files=no",
         "--",
-        PLUGIN_INIT_REPO_PATH,
+        *PLUGIN_REPO_PATHS,
         check=False,
     )
     if status.returncode != 0:
@@ -263,7 +290,7 @@ def _git_commit_plugin_repo(root: Path) -> None:
         if not (root / ".git").is_dir():
             _git(root, "init")
         # ``-f`` so local/global ignore rules cannot hide the plugin path.
-        _git(root, "add", "-f", PLUGIN_INIT_REPO_PATH)
+        _git(root, "add", "-f", *PLUGIN_REPO_PATHS)
         head = _git(root, "rev-parse", "HEAD", check=False)
         if head.returncode == 0:
             # Nothing staged for the plugin path — skip commit even if
@@ -274,7 +301,7 @@ def _git_commit_plugin_repo(root: Path) -> None:
                 "--cached",
                 "--quiet",
                 "--",
-                PLUGIN_INIT_REPO_PATH,
+                *PLUGIN_REPO_PATHS,
                 check=False,
             )
             if cached.returncode == 0:
@@ -291,7 +318,7 @@ def _git_commit_plugin_repo(root: Path) -> None:
             "-m",
             GIT_COMMIT_MESSAGE,
             "--",
-            PLUGIN_INIT_REPO_PATH,
+            *PLUGIN_REPO_PATHS,
         )
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or str(exc)).strip()
@@ -397,6 +424,23 @@ def _atomic_write(path: Path, content: str) -> None:
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        if prior_mode is not None:
+            os.chmod(tmp_path, prior_mode)
+        os.replace(tmp_path, target)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def _atomic_write_bytes(path: Path, content: bytes) -> None:
+    target = path.resolve() if path.is_symlink() else path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    prior_mode = target.stat().st_mode if target.is_file() else None
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
             handle.write(content)
         if prior_mode is not None:
             os.chmod(tmp_path, prior_mode)

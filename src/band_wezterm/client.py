@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID
 
 import httpx
@@ -57,10 +59,20 @@ AuthenticationRejectedHandler = Callable[[int], None]
 UNAUTHORIZED_STATUS = 401
 AUTH_GENERATION_EXTENSION = "band_wezterm.auth_generation"
 
+
+@dataclass(frozen=True)
+class MessagePage:
+    """One newest-first platform page, normalized for chronological rendering."""
+
+    messages: tuple[MessageRecord, ...]
+    next_cursor: str | None
+    has_more: bool
+
 # Compatibility boundary: UI and integrations import stable records from here.
 __all__ = (
     "AgentRecord",
     "BandClient",
+    "MessagePage",
     "MessageRecord",
     "ParticipantRecord",
     "ParticipantRole",
@@ -328,6 +340,7 @@ class BandClient:
             id=str(response.data.id),
             content=content,
             author_name=sender_name,
+            inserted_at=datetime.now(UTC),
             message_type=DEFAULT_MESSAGE_TYPE,
             metadata={
                 "mentions": [
@@ -344,10 +357,23 @@ class BandClient:
         limit: int = CHAT_MESSAGES_LIMIT,
     ) -> list[MessageRecord]:
         """Latest page of room history, oldest-first (plugin fetchLatestMessages)."""
-        response = await self._messages.list_my_chat_messages(str(room_id), limit=limit)
+        return list((await self.list_message_page(room_id, limit=limit)).messages)
+
+    async def list_message_page(
+        self, room_id: UUID | str, *, limit: int, cursor: str | None = None
+    ) -> MessagePage:
+        """Fetch one chronological room-history page using the platform cursor."""
+        response = await self._messages.list_my_chat_messages(
+            str(room_id), limit=limit, cursor=cursor
+        )
         rows = list(response.data or [])
         rows.reverse()
-        return [message_record_from_api(message) for message in rows]
+        metadata = response.metadata
+        return MessagePage(
+            messages=tuple(message_record_from_api(message) for message in rows),
+            next_cursor=metadata.next_cursor,
+            has_more=metadata.has_more,
+        )
 
     async def list_directory(self) -> list[AgentRecord]:
         """Public opt-in Discover directory — distinct from Agents search."""

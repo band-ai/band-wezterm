@@ -25,6 +25,8 @@ from band_wezterm.setup_wezterm import (
     HOME_CONFIG_NAME,
     MANAGED_BEGIN,
     MANAGED_END,
+    PLUGIN_ASSETS_DIRNAME,
+    PLUGIN_BACKGROUND_NAME,
     PLUGIN_DIRNAME,
     PLUGIN_INIT_NAME,
     PLUGIN_INIT_REPO_PATH,
@@ -577,8 +579,9 @@ def test_ensure_escapes_plugin_url_in_lua_config(
     plugin_url = "file:///tmp/O'Brien/plugin"
     monkeypatch.setenv(BAND_WEZTERM_PLUGIN_URL_ENV, plugin_url)
     result = ensure_band_plugin_config(home=home)
-    assert "wezterm.plugin.require 'file:///tmp/O\\'Brien/plugin'" in result.path.read_text(
-        encoding="utf-8"
+    assert (
+        "wezterm.plugin.require 'file:///tmp/O\\'Brien/plugin'"
+        in result.path.read_text(encoding="utf-8")
     )
 
 
@@ -603,10 +606,7 @@ def test_ensure_appends_when_only_nested_return(tmp_path: Path) -> None:
     home.mkdir()
     path = home / HOME_CONFIG_NAME
     path.write_text(
-        "local wezterm = require 'wezterm'\n"
-        "local function f()\n"
-        "  return 1\n"
-        "end\n",
+        "local wezterm = require 'wezterm'\nlocal function f()\n  return 1\nend\n",
         encoding="utf-8",
     )
     result = ensure_band_plugin_config(home=home)
@@ -736,6 +736,9 @@ def test_materialize_plugin_repo_is_idempotent(tmp_path: Path) -> None:
     assert first == second
     init_lua = first / PLUGIN_DIRNAME / PLUGIN_INIT_NAME
     assert "apply_to_config" in init_lua.read_text(encoding="utf-8")
+    assert (
+        first / PLUGIN_DIRNAME / PLUGIN_ASSETS_DIRNAME / PLUGIN_BACKGROUND_NAME
+    ).is_file()
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=first,
@@ -810,9 +813,9 @@ def test_materialize_commits_when_plugin_missing_from_head(tmp_path: Path) -> No
         check=True,
         capture_output=True,
     )
-    assert "apply_to_config" in (
-        root / PLUGIN_DIRNAME / PLUGIN_INIT_NAME
-    ).read_text(encoding="utf-8")
+    assert "apply_to_config" in (root / PLUGIN_DIRNAME / PLUGIN_INIT_NAME).read_text(
+        encoding="utf-8"
+    )
 
 
 def test_materialize_commit_excludes_staged_ds_store(tmp_path: Path) -> None:

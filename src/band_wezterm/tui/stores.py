@@ -20,6 +20,8 @@ from band_wezterm.client import (
 from band_wezterm.identity import HARNESS_BADGES, HarnessBadge
 from band_wezterm.supervisor.protocol import WorkerRecord, WorkerState
 
+UNSTAMPED_MESSAGE_ORDER: Final = 0
+
 
 class AgentSource(StrEnum):
     """Which catalog the Agents screen is currently projecting."""
@@ -279,7 +281,13 @@ class RoomsStore:
 
     @property
     def messages(self) -> list[MessageRecord]:
-        return list(self._messages.values())
+        """Chronological timeline, with receipt order as a stable fallback."""
+        return sorted(
+            self._messages.values(),
+            key=lambda message: message.inserted_at.timestamp()
+            if message.inserted_at is not None
+            else UNSTAMPED_MESSAGE_ORDER,
+        )
 
     @property
     def visible(self) -> list[RoomRecord]:
@@ -361,6 +369,10 @@ class RoomsStore:
         """Insert or replace by id (plugin upsertMessage — covers message_updated)."""
         self._messages[message.id] = message
 
+    def prepend_messages(self, messages: Sequence[MessageRecord]) -> None:
+        """Merge an older history page without replacing newer realtime rows."""
+        self._messages = {message.id: message for message in messages} | self._messages
+
     def find_participant(self, participant_id: str) -> ParticipantRecord | None:
         return next(
             (
@@ -370,6 +382,18 @@ class RoomsStore:
             ),
             None,
         )
+
+    def author_color(self, message: MessageRecord) -> str | None:
+        """Resolve a timeline author against the current room roster."""
+        if message.author_id is not None:
+            participant = self.find_participant(message.author_id)
+            return participant.color if participant is not None else None
+        matches = [
+            participant
+            for participant in self.participants
+            if participant.name == message.author_name
+        ]
+        return matches[0].color if len(matches) == 1 else None
 
     def discard_draft(self) -> None:
         self.draft_open = False

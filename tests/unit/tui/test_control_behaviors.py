@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from band_rest.core.api_error import ApiError
+from textual import events
 from textual.widgets import Input, Static
 
 from band_wezterm.agent_draft import apply_draft_patch
 from band_wezterm.backends import AgentTuning
-from band_wezterm.client import MessageRecord
+from band_wezterm.client import (
+    MessagePage,
+    MessageRecord,
+    RealtimeEvent,
+    RealtimeEventKind,
+)
 from band_wezterm.diagnostics import diagnostics_log_path
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
@@ -27,8 +34,13 @@ from band_wezterm.tui.screens.register_agent import (
     RegisterAgentScreen,
     WizardStep,
 )
+from band_wezterm.tui.screens.rooms import (
+    ChatEventRow,
+    ChatTimeline,
+    RoomDetailScreen,
+    participant_mention_text,
+)
 from band_wezterm.tui.screens.rooms import Id as RoomId
-from band_wezterm.tui.screens.rooms import RoomDetailScreen
 from band_wezterm.tui.screens.rooms import selector as room_selector
 from band_wezterm.tui.screens.settings import Id as SettingsId
 from band_wezterm.tui.screens.settings import selector as settings_selector
@@ -227,11 +239,11 @@ async def test_room_flow_creates_adds_removes_and_deletes_without_stale_ui_state
     band_client.create_room.return_value = created
     band_client.list_my_agents.return_value = [selected]
     band_client.list_participants.side_effect = lambda _room_id: list(participants)
-    band_client.add_participant.side_effect = lambda _room_id, _agent_id: participants.append(
-        participant(selected)
+    band_client.add_participant.side_effect = lambda _room_id, _agent_id: (
+        participants.append(participant(selected))
     )
-    band_client.remove_participant.side_effect = (
-        lambda _room_id, agent_id: participants.remove(
+    band_client.remove_participant.side_effect = lambda _room_id, agent_id: (
+        participants.remove(
             next(entry for entry in participants if entry.id == agent_id)
         )
     )
@@ -388,7 +400,9 @@ async def test_room_loads_message_history(
         content="Decide the lifecycle.",
         author_name="Architect",
     )
-    band_client.list_messages.return_value = [message]
+    band_client.list_message_page.return_value = MessagePage(
+        messages=(message,), next_cursor=None, has_more=False
+    )
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
@@ -397,6 +411,132 @@ async def test_room_loads_message_history(
         screen = control_app.screen
         assert isinstance(screen, RoomDetailScreen)
         assert screen.store.messages == [message]
+
+
+async def test_room_appends_realtime_messages_without_rebuilding_history(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target_room = room(ROOM_ID, "Planning")
+    history = MessageRecord(
+        id="history",
+        content="Earlier message.",
+        author_name="Architect",
+        inserted_at=datetime(2026, 9, 23, 7, 0, tzinfo=UTC),
+    )
+    band_client.list_message_page.return_value = MessagePage(
+        messages=(history,), next_cursor=None, has_more=False
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target_room)
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RoomDetailScreen)
+
+        event = RealtimeEvent(
+            kind=RealtimeEventKind.MESSAGE_CREATED,
+            room_id=ROOM_ID,
+            payload={
+                "id": "latest",
+                "content": "Latest message.",
+                "sender_name": "Architect",
+                "inserted_at": "2026-09-23T07:01:00Z",
+            },
+        )
+        with patch(
+            "band_wezterm.tui.screens.rooms.refill", new_callable=AsyncMock
+        ) as refill:
+            screen.on_room_detail_screen_incoming(RoomDetailScreen.Incoming(event))
+            await settle(pilot)
+
+        assert refill.await_args_list == []
+        assert [row.message.id for row in screen.query(ChatEventRow)] == [
+            "history",
+            "latest",
+        ]
+
+
+async def test_room_prepends_an_older_cursor_page(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target_room = room(ROOM_ID, "Planning")
+    newest = MessageRecord(id="newest", content="Newest", author_name="Architect")
+    older = MessageRecord(id="older", content="Older", author_name="Architect")
+    band_client.list_message_page.side_effect = [
+        MessagePage(messages=(newest,), next_cursor="older-page", has_more=True),
+        MessagePage(messages=(older,), next_cursor=None, has_more=False),
+    ]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target_room)
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RoomDetailScreen)
+
+        with patch(
+            "band_wezterm.tui.screens.rooms.refill", new_callable=AsyncMock
+        ) as refill:
+            screen._load_older_messages()
+            await settle(pilot)
+
+        assert [message.id for message in screen.store.messages] == ["older", "newest"]
+        assert refill.await_args_list == []
+
+    assert (
+        band_client.list_message_page.await_args_list[1].kwargs["cursor"]
+        == "older-page"
+    )
+
+
+async def test_room_loads_history_when_the_chat_reaches_its_top(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target_room = room(ROOM_ID, "Planning")
+    newest = MessageRecord(id="newest", content="Newest", author_name="Architect")
+    older = MessageRecord(id="older", content="Older", author_name="Architect")
+    band_client.list_message_page.side_effect = [
+        MessagePage(messages=(newest,), next_cursor="older-page", has_more=True),
+        MessagePage(messages=(older,), next_cursor=None, has_more=False),
+    ]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target_room)
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RoomDetailScreen)
+
+        chat = screen.query_one(room_selector(RoomId.CHAT), ChatTimeline)
+        chat._on_mouse_scroll_up(
+            events.MouseScrollUp(
+                chat,
+                x=0,
+                y=0,
+                delta_x=0,
+                delta_y=-1,
+                button=0,
+                shift=False,
+                meta=False,
+                ctrl=False,
+            )
+        )
+        await settle(pilot)
+
+        assert [message.id for message in screen.store.messages] == ["older", "newest"]
+        assert screen._has_older_messages is False
+
+
+def test_room_colors_mentions_using_the_roster_identity() -> None:
+    mentioned = participant(agent(AGENT_ID, "Architect", harness=HarnessId.CODEX))
+
+    rendered = participant_mention_text("Ask @Architect to review.", [mentioned])
+
+    assert rendered is not None
+    assert rendered.plain == "Ask @Architect to review."
+    assert rendered.spans[0].style.color is not None
+    assert rendered.spans[0].style.color.name == mentioned.color
 
 
 async def test_room_message_and_event_filter_flow(
