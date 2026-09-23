@@ -316,6 +316,7 @@ async def _run_status(rooms_only: bool, agents_only: bool) -> int:
 async def _run_agents(query: ListQuery, verbose: bool = False) -> int:
     agents, lifecycle = await asyncio.gather(_list_agents(), _current_lifecycle())
     workers = {worker.agent_id: worker for worker in await lifecycle.workers()}
+    profiles = ManagedAgentStore()
     rows: list[AgentOutput] = []
     for agent in agents:
         worker = workers.get(agent.id)
@@ -325,11 +326,7 @@ async def _run_agents(query: ListQuery, verbose: bool = False) -> int:
                 name=agent.name,
                 state=state,
                 agent_id=agent.id,
-                harness=(
-                    None
-                    if getattr(agent, "harness", None) is None
-                    else agent.harness.value
-                ),
+                harness=_agent_harness(agent, profiles),
                 pid=None if worker is None else worker.pid,
             )
         )
@@ -359,7 +356,15 @@ async def _run_start_agent(reference: str) -> int:
         worker = await operations.start(agent.id, cwd=Path.cwd())
     finally:
         await client.aclose()
-    print_agent(_agent_output(worker.name, worker.agent_id, worker.state.value))
+    print_agent(
+        _agent_output(
+            worker.name,
+            worker.agent_id,
+            worker.state.value,
+            harness=_agent_harness(agent, ManagedAgentStore()),
+            pid=worker.pid,
+        )
+    )
     return 0
 
 
@@ -382,7 +387,15 @@ async def _run_stop_agent(reference: str | None, all_agents: bool) -> int:
     if worker is None:
         print(f"{agent.name} is already stopped.")
     else:
-        print_agent(_agent_output(worker.name, worker.agent_id, worker.state.value))
+        print_agent(
+            _agent_output(
+                worker.name,
+                worker.agent_id,
+                worker.state.value,
+                harness=_agent_harness(agent, ManagedAgentStore()),
+                pid=worker.pid,
+            )
+        )
     return 0
 
 
@@ -396,12 +409,38 @@ async def _run_agent_status(reference: str) -> int:
     if worker is None:
         print(f"{agent.name} is stopped.")
     else:
-        print_agent(_agent_output(worker.name, worker.agent_id, worker.state.value))
+        print_agent(
+            _agent_output(
+                worker.name,
+                worker.agent_id,
+                worker.state.value,
+                harness=_agent_harness(agent, ManagedAgentStore()),
+                pid=worker.pid,
+            )
+        )
     return 0
 
 
-def _agent_output(name: str, agent_id: str, state: str) -> AgentOutput:
-    return AgentOutput(name=name, state=state, agent_id=agent_id)
+def _agent_output(
+    name: str,
+    agent_id: str,
+    state: str,
+    *,
+    harness: str | None = None,
+    pid: int | None = None,
+) -> AgentOutput:
+    return AgentOutput(
+        name=name,
+        state=state,
+        agent_id=agent_id,
+        harness=harness,
+        pid=pid,
+    )
+
+
+def _agent_harness(agent: AgentRecord, profiles: ManagedAgentStore) -> str | None:
+    harness = getattr(agent, "harness", None) or profiles.harness_for(agent.id)
+    return None if harness is None else harness.value
 
 
 async def _run_create_room(title: str) -> int:

@@ -240,7 +240,13 @@ def test_agent_configure_resolves_before_opening_its_flow(
     opened: list[dict[str, object]] = []
     monkeypatch.setattr(
         "band_wezterm.__main__._resolve_agent",
-        AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id="agent-1",
+                name="Architect",
+                harness=SimpleNamespace(value="codex"),
+            )
+        ),
     )
     monkeypatch.setattr(
         "band_wezterm.__main__._run_view",
@@ -328,7 +334,13 @@ def test_agent_reference_opens_agents_with_the_resolved_selection(
     monkeypatch.setenv("WEZTERM_PANE", "81")
     monkeypatch.setattr(
         "band_wezterm.__main__._resolve_agent",
-        AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id="agent-1",
+                name="Architect",
+                harness=SimpleNamespace(value="codex"),
+            )
+        ),
     )
     opened: list[dict[str, object]] = []
     monkeypatch.setattr(
@@ -478,7 +490,13 @@ async def test_agent_error_status_points_to_diagnostics(
 ) -> None:
     monkeypatch.setattr(
         "band_wezterm.__main__._resolve_agent",
-        AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id="agent-1",
+                name="Architect",
+                harness=SimpleNamespace(value="codex"),
+            )
+        ),
     )
     lifecycle = MagicMock()
     lifecycle.workers = AsyncMock(
@@ -496,7 +514,8 @@ async def test_agent_error_status_points_to_diagnostics(
     )
 
     assert await _run_agent_status("agent-1") == 0
-    assert "band logs --tail 100" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert all(value in output for value in ("codex", "PID: 42", "band logs --tail 100"))
 
 
 @pytest.mark.asyncio
