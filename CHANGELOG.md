@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/band-ai/band-wezterm/compare/v0.8.1...v0.8.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* **tui:** honor stop during agent startup ([#43](https://github.com/band-ai/band-wezterm/pull/43)) ([64d819b](https://github.com/band-ai/band-wezterm/commit/64d819b70a4858c2380b22057fc3378b09e00bda))
+
 ## [0.8.1](https://github.com/band-ai/band-wezterm/compare/v0.8.0...v0.8.1) (2026-09-23)
 
 
