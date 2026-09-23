@@ -114,7 +114,7 @@ class OpenCodeServerManager:
         output: deque[str],
     ) -> None:
         while line := await stream.readline():
-            text = line.decode(errors="replace").strip()
+            text = _output_text(line)
             if not announced.done():
                 output.append(text[:_OUTPUT_LINE_LIMIT])
                 match = _LISTENING_PATTERN.search(text)
@@ -192,6 +192,11 @@ async def _health_check(endpoint: OpenCodeEndpoint) -> bool:
 def _startup_detail(output: deque[str]) -> str:
     visible = [line for line in output if line]
     return f": {' | '.join(visible)}" if visible else ""
+
+
+def _output_text(line: object) -> str:
+    """Accept subprocess bytes and tolerate path-like output from host wrappers."""
+    return line.decode(errors="replace").strip() if isinstance(line, bytes) else str(line).strip()
 
 
 def _normalize_endpoint_url(value: str) -> str:

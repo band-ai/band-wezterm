@@ -134,9 +134,9 @@ def _run_view(
     )
 
 
-async def _run_room(reference: str | None) -> int:
+def _run_room(reference: str | None) -> int:
     try:
-        room_id = None if reference is None else await _resolve_room_id(reference)
+        room_id = None if reference is None else asyncio.run(_resolve_room_id(reference))
         return _run_view(room_id=room_id)
     except (RoomSelectionError, ValueError, WezTermCliError) as exc:
         print(exc, file=sys.stderr)
@@ -165,9 +165,9 @@ def _start_view_without_cli(
     return 0
 
 
-async def _run_agent_view_for_reference(reference: str | None) -> int:
+def _run_agent_view_for_reference(reference: str | None) -> int:
     try:
-        agent_id = None if reference is None else (await _resolve_agent(reference)).id
+        agent_id = None if reference is None else asyncio.run(_resolve_agent(reference)).id
     except (AgentSelectionError, ValueError, WezTermCliError) as exc:
         print(exc, file=sys.stderr)
         return 1

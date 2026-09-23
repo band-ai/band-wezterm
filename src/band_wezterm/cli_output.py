@@ -4,11 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Final
 
 from rich.console import Console
 from rich.table import Table
 
-from band_wezterm.listing import ListQuery, PageInfo, ResourceKind, next_page_command
+from band_wezterm.listing import (
+    AgentStateFilter,
+    ListQuery,
+    PageInfo,
+    ResourceKind,
+    next_page_command,
+)
+
+AGENT_ERROR_DIAGNOSTICS_HINT: Final = "Failure details: band logs --tail 100"
 
 
 class TableTitle(StrEnum):
@@ -99,6 +108,8 @@ def _print_agent_details(console: Console, rows: list[AgentOutput]) -> None:
             f"  Harness: {row.harness or '—'}\n"
             f"  PID: {row.pid if row.pid else '—'}"
         )
+        if row.state == AgentStateFilter.ERROR.value:
+            console.print(f"  {AGENT_ERROR_DIAGNOSTICS_HINT}")
 
 
 def _short_id(agent_id: str) -> str:

@@ -29,7 +29,7 @@ from band_wezterm.config import (
     AGENT_REASONING_ENV,
     load_settings,
 )
-from band_wezterm.diagnostics import configure_diagnostics, log_event
+from band_wezterm.diagnostics import configure_diagnostics, log_event, log_failure
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime
 from band_wezterm.managed_profiles import ManagedAgentStore
@@ -287,6 +287,7 @@ async def run(args: argparse.Namespace) -> int:
         failed = True
         controller.mark_error()
         message = format_platform_error(error, operation="agent runtime")
+        log_failure("agent runtime", error, message)
         announce_runtime_status(AgentRuntime.ERROR)
         print(f"Agent runtime failed: {message}", file=sys.stderr)
         return 1

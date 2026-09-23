@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from band_wezterm.__main__ import (
     RoomSelectionError,
     _resolve_agent,
     _resolve_room_id,
+    _run_agent_status,
     _run_agents,
     _run_configure_agent,
     _run_create_agent,
@@ -295,6 +297,31 @@ def test_agent_command_opens_the_agents_surface(
     assert opened == [AppScreen.AGENTS]
 
 
+def test_agent_view_runs_outside_the_cli_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+
+    def run_textual(**_kwargs: object) -> int:
+        asyncio.run(asyncio.sleep(0))
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__.run_control_app", run_textual)
+
+    assert main([Command.AGENT.value]) == 0
+
+
+def test_unknown_command_prints_top_level_help(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit, match="1"):
+        main(["unknown-command"])
+
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert all(value in output for value in ("Usage: band COMMAND", "agent", "room"))
+
+
 def test_agent_reference_opens_agents_with_the_resolved_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -443,6 +470,33 @@ async def test_agents_list_combines_name_harness_and_state_filters(
         "band agent list --name my-ag --harness cp --state running --limit 1 --offset 1"
         in output
     )
+
+
+@pytest.mark.asyncio
+async def test_agent_error_status_points_to_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_agent",
+        AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+    )
+    lifecycle = MagicMock()
+    lifecycle.workers = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                agent_id="agent-1",
+                name="Architect",
+                state=SimpleNamespace(value="error"),
+                pid=42,
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_lifecycle", AsyncMock(return_value=lifecycle)
+    )
+
+    assert await _run_agent_status("agent-1") == 0
+    assert "band logs --tail 100" in capsys.readouterr().out
 
 
 @pytest.mark.asyncio

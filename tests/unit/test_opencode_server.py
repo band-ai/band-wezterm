@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,6 +12,7 @@ from band_wezterm.agent.opencode_server import (
     OpenCodeEndpoint,
     OpenCodeServerError,
     OpenCodeServerManager,
+    _output_text,
 )
 
 
@@ -45,6 +47,10 @@ def test_endpoint_accepts_only_explicit_loopback_http() -> None:
     ):
         with pytest.raises(OpenCodeServerError):
             OpenCodeEndpoint.parse(value)
+
+
+def test_output_reader_handles_pathlike_lines_from_host_wrappers() -> None:
+    assert _output_text(Path("opencode output")) == "opencode output"
 
 
 async def test_concurrent_ensure_starts_one_shared_server(

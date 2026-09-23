@@ -53,8 +53,8 @@ def log_event(event: str, **context: object) -> None:
 
 
 def log_failure(operation: str, error: BaseException, message: str) -> None:
-    """Record a useful failure summary without request headers, tokens, or traces."""
-    logging.getLogger(LOGGER_NAME).error(
+    """Record a redacted failure summary and traceback for incident diagnosis."""
+    logging.getLogger(LOGGER_NAME).exception(
         "%s failed error_type=%s message=%s",
         operation,
         type(error).__name__,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
 from typing import Annotated, Final
@@ -41,7 +42,7 @@ class Command(StrEnum):
 
 
 SetupHandler = Callable[[], int]
-ViewHandler = Callable[[str | None], Awaitable[int]]
+ViewHandler = Callable[[str | None], int]
 ListHandler = Callable[[ListQuery], Awaitable[int]]
 AgentListHandler = Callable[[ListQuery, bool], Awaitable[int]]
 ReferenceHandler = Callable[[str], Awaitable[int]]
@@ -73,6 +74,7 @@ def create_app(
     app = App(
         name=COMMAND_NAME,
         help="Manage Band rooms and detached agents in WezTerm.",
+        help_on_error=True,
         result_action="return_int_as_exit_code_else_zero",
     )
     room_app = App(name=Command.ROOM, help="Manage Band rooms.")
@@ -105,7 +107,7 @@ def create_app(
         return logs(tail)
 
     @room_app.default
-    async def room_interactive(
+    def room_interactive(
         *,
         name: str | None = None,
         limit: int = DEFAULT_PAGE_SIZE,
@@ -114,13 +116,13 @@ def create_app(
         """Open Rooms, or list filtered rooms when an option is supplied."""
         query = ListQuery(name=name, limit=limit, offset=offset)
         if query.is_default:
-            return await room_view(None)
-        return await rooms(query)
+            return room_view(None)
+        return asyncio.run(rooms(query))
 
     @room_app.command(name=Command.OPEN)
-    async def room_open(reference: str) -> int:
+    def room_open(reference: str) -> int:
         """Open one room by exact title or unique ID prefix."""
-        return await room_view(reference)
+        return room_view(reference)
 
     @room_app.command(name=Command.LIST)
     async def room_list(
@@ -143,7 +145,7 @@ def create_app(
         return await delete_room(reference)
 
     @agent_app.default
-    async def agent_interactive(
+    def agent_interactive(
         reference: Annotated[
             str | None,
             Parameter(help="Exact agent name or a unique agent ID prefix."),
@@ -164,10 +166,10 @@ def create_app(
         """Open the interactive Agents surface, optionally selecting one agent."""
         query = _agent_list_query(name, limit, offset, harness, state)
         if reference is None and (not query.is_default or verbose):
-            return await agents(query, verbose)
+            return asyncio.run(agents(query, verbose))
         if reference is not None and not query.is_default:
             raise ValueError("Use a reference or list filters, not both.")
-        return await agent_view(reference)
+        return agent_view(reference)
 
     @agent_app.command(name=Command.LIST)
     async def agent_list(
