@@ -16,7 +16,7 @@ from tests.live_harness import (
     stop_agent_runtime,
     wait_for_reply_token,
 )
-from tests.live_settings import user_api_key
+from tests.live_settings import LIVE_SENDER_NAME, user_api_key
 
 pytestmark = pytest.mark.live_platform
 
@@ -83,6 +83,7 @@ async def test_live_full_chat_agent_and_human_round_trips() -> None:
                 room_id,
                 TURN_ONE_PROMPT,
                 mentions=[(agent_id, record.name)],
+                sender_name=LIVE_SENDER_NAME,
             )
         ).id
         after_one = await wait_for_reply_token(
@@ -98,6 +99,7 @@ async def test_live_full_chat_agent_and_human_round_trips() -> None:
                 room_id,
                 TURN_TWO_PROMPT,
                 mentions=[(agent_id, record.name)],
+                sender_name=LIVE_SENDER_NAME,
             )
         ).id
         after_two = await wait_for_reply_token(

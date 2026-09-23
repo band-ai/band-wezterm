@@ -15,7 +15,7 @@ import pytest
 
 from band_wezterm.client import BandClient
 from band_wezterm.config import load_settings
-from tests.live_settings import pinned_agent_id, user_api_key
+from tests.live_settings import LIVE_SENDER_NAME, pinned_agent_id, user_api_key
 from tests.paths import REPO_ROOT
 
 pytestmark = pytest.mark.live_platform
@@ -77,6 +77,7 @@ def test_live_room_participant_flow_with_user_api_key() -> None:
                     room.id,
                     "ping from .env.test harness",
                     mentions=[(agent_id, agent_name)],
+                    sender_name=LIVE_SENDER_NAME,
                 )
                 await client.remove_participant(room.id, agent_id)
             except httpx.HTTPError as exc:

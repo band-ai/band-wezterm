@@ -16,7 +16,7 @@ from tests.live_harness import (
     stop_agent_runtime,
     wait_for_reply_token,
 )
-from tests.live_settings import user_api_key
+from tests.live_settings import LIVE_SENDER_NAME, user_api_key
 
 pytestmark = pytest.mark.live_platform
 
@@ -66,6 +66,7 @@ async def test_live_harness_mention_gets_reply() -> None:
             room_id,
             MENTION_PROMPT,
             mentions=[(agent_id, record.name)],
+            sender_name=LIVE_SENDER_NAME,
         )
         messages = await wait_for_reply_token(
             client, room_id, token=REPLY_TOKEN, excluding=MENTION_PROMPT

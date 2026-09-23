@@ -84,6 +84,10 @@ Read the complete, generated [CLI reference](docs/cli.md), including every argum
 
 Run the command again anywhere to open another independent Room surface.
 
+<p align="center">
+  <img src="docs/images/rooms-browser.svg" alt="Browsing and managing Band rooms in WezTerm">
+</p>
+
 ### Agents and roles
 
 `band agent` opens the dedicated Agents experience. Press `n` to register an agent through runtime, role, name, description, and model/reasoning choices. Use `c` to reconfigure, `s`/`x` to start/stop the selected agent, and `Delete` to remove it.
@@ -91,6 +95,10 @@ Run the command again anywhere to open another independent Room surface.
 `band agent create` opens that registration wizard immediately. `band agent configure NAME_OR_ID` resolves one exact agent first, then opens its reconfiguration wizard; it never silently falls back to an unselected list. The list remains the right surface for browsing, runtime status, role management, and ad-hoc lifecycle actions.
 
 Roles are Markdown personas in `~/.band/roles`. Default roles are seeded on first use. A registered agent saves a role snapshot and tuning as its durable local profile; reconfigure it to adopt later role edits.
+
+<p align="center">
+  <img src="docs/images/agents-browser.svg" alt="Browsing managed Band agents and their local runtime state">
+</p>
 
 <p align="center">
   <img src="docs/images/agent-register.svg" alt="Registering an agent in the Band Agents surface">

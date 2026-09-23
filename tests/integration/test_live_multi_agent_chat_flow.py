@@ -17,7 +17,7 @@ from tests.live_harness import (
     stop_agent_runtime,
     wait_for_reply_token,
 )
-from tests.live_settings import user_api_key
+from tests.live_settings import LIVE_SENDER_NAME, user_api_key
 
 pytestmark = pytest.mark.live_platform
 
@@ -76,6 +76,7 @@ async def test_live_two_harness_agents_share_a_room() -> None:
                 room_id,
                 prompt,
                 mentions=[(record.id, record.name)],
+                sender_name=LIVE_SENDER_NAME,
             )
             messages = await wait_for_reply_token(
                 client, room_id, token=token, excluding=prompt

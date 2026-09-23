@@ -39,9 +39,15 @@ HOST_USER_ID = "b1c0f6f4-0f6e-4a2f-9a5e-2f9f0d2b7c11"
 CLAUDE_ID = "7c2e1a90-4b3d-4f8e-9c1a-2d3e4f5a6b7c"
 CODEX_ID = "a18b2c3d-e45f-4678-9abc-def012345678"
 DESIGNER_ID = "0aa1bb2c-3dd4-4ee5-8ff6-99aa00bb11cc"
+SCOUT_ID = "0aa1bb2c-3dd4-4ee5-8ff6-99aa00bb11cd"
+REVIEWER_ID = "0aa1bb2c-3dd4-4ee5-8ff6-99aa00bb11ce"
+RELEASE_ID = "0aa1bb2c-3dd4-4ee5-8ff6-99aa00bb11cf"
 LAUNCH_ID = "11111111-2222-4333-8444-555555555555"
 DESIGN_ID = "22222222-3333-4444-8555-666666666666"
 ONCALL_ID = "33333333-4444-4555-8666-777777777777"
+DEPLOYMENT_ID = "44444444-5555-4666-8777-888888888888"
+INCIDENT_ID = "55555555-6666-4777-8888-999999999999"
+RESEARCH_ID = "66666666-7777-4888-8999-000000000000"
 
 Capture = Callable[[ControlApp, Pilot[None]], Awaitable[None]]
 
@@ -93,13 +99,26 @@ def _client() -> MagicMock:
     claude = _agent(CLAUDE_ID, "Claude", HarnessId.CLAUDE_SDK)
     codex = _agent(CODEX_ID, "Codex", HarnessId.CODEX)
     designer = _agent(DESIGNER_ID, "Designer", HarnessId.OPENCODE)
+    scout = _agent(SCOUT_ID, "Scout", HarnessId.CLAUDE_SDK)
+    reviewer = _agent(REVIEWER_ID, "Reviewer", HarnessId.CODEX)
+    release = _agent(RELEASE_ID, "Release", HarnessId.COPILOT)
     client = create_autospec(BandClient, spec_set=True, instance=True)
     client.whoami.return_value = HOST_USER_ID
-    client.list_my_agents.return_value = [claude, codex, designer]
+    client.list_my_agents.return_value = [
+        claude,
+        codex,
+        designer,
+        scout,
+        reviewer,
+        release,
+    ]
     client.list_my_chats.return_value = [
         _room(LAUNCH_ID, "Launch"),
         _room(DESIGN_ID, "Design review"),
         _room(ONCALL_ID, "On-call"),
+        _room(DEPLOYMENT_ID, "Deployment"),
+        _room(INCIDENT_ID, "Incident review"),
+        _room(RESEARCH_ID, "Research"),
     ]
     client.list_participants.return_value = [
         _human(),
@@ -173,7 +192,19 @@ async def _capture_room(app: ControlApp, pilot: Pilot[None]) -> None:
     await _settle(pilot)
 
 
-async def _capture_register(_app: ControlApp, pilot: Pilot[None]) -> None:
+async def _capture_rooms(app: ControlApp, pilot: Pilot[None]) -> None:
+    app.action_show_rooms()
+    await _settle(pilot)
+
+
+async def _capture_agents(app: ControlApp, pilot: Pilot[None]) -> None:
+    app.action_show_agents()
+    await _settle(pilot)
+
+
+async def _capture_register(app: ControlApp, pilot: Pilot[None]) -> None:
+    app.action_show_agents()
+    await _settle(pilot)
     await pilot.press("n")
     await _settle(pilot)
 
@@ -196,8 +227,10 @@ async def _main() -> None:
     IMAGES.mkdir(parents=True, exist_ok=True)
     with patch("band_wezterm.pane_identity.announce_control_human"):
         written = [
+            await _write("rooms-browser.svg", _capture_rooms, (110, 18)),
             await _write("room-view.svg", _capture_room, (110, 28)),
-            await _write("agent-register.svg", _capture_register, (88, 18)),
+            await _write("agents-browser.svg", _capture_agents, (110, 18)),
+            await _write("agent-register.svg", _capture_register, (110, 20)),
         ]
     for path in written:
         print(path.relative_to(REPO))

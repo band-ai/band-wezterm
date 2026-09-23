@@ -16,7 +16,7 @@ from tests.live_harness import (
     stop_agent_runtime,
     wait_for_reply_token,
 )
-from tests.live_settings import user_api_key
+from tests.live_settings import LIVE_SENDER_NAME, user_api_key
 
 pytestmark = pytest.mark.live_platform
 
@@ -69,6 +69,7 @@ async def test_live_agent_serves_each_room_it_joins_before_start() -> None:
             first_room.id,
             first_prompt,
             mentions=[(agent_id, agent.name)],
+            sender_name=LIVE_SENDER_NAME,
         )
         first_messages = await wait_for_reply_token(
             client,
@@ -83,6 +84,7 @@ async def test_live_agent_serves_each_room_it_joins_before_start() -> None:
             second_room.id,
             second_prompt,
             mentions=[(agent_id, agent.name)],
+            sender_name=LIVE_SENDER_NAME,
         )
         second_messages = await wait_for_reply_token(
             client,

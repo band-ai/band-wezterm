@@ -13,6 +13,7 @@ import os
 # ``band_wezterm`` is guaranteed importable.
 LIVE_REST_URL = "https://api.dev.band.ai"
 LIVE_WS_URL = "wss://api.dev.band.ai/api/v1/socket/websocket"
+LIVE_SENDER_NAME = "Band WezTerm test"
 
 
 def force_live_api_hosts() -> None:
