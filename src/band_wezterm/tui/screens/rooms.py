@@ -242,6 +242,11 @@ def message_from_event(event: RealtimeEvent) -> MessageRecord | None:
             or payload.get("sender")
             or "unknown"
         ),
+        author_id=(
+            str(sender_id)
+            if (sender_id := payload.get("sender_id") or payload.get("senderId"))
+            else None
+        ),
         inserted_at=payload.get("inserted_at") or payload.get("insertedAt"),
         message_type=str(raw_type or DEFAULT_MESSAGE_TYPE),
         metadata=meta,
@@ -274,12 +279,15 @@ class ChatEventRow(ListItem):
         text-style: bold;
         width: 1fr;
     }
+    ChatEventRow .event-meta {
+        width: auto;
+    }
     ChatEventRow .event-timestamp {
         color: $text-muted;
+        margin-left: 1;
         width: auto;
     }
     ChatEventRow .event-tag {
-        margin-left: 1;
         padding: 0 1;
         text-style: bold;
         width: auto;
@@ -303,22 +311,33 @@ class ChatEventRow(ListItem):
     }
     """
 
-    def __init__(self, message: MessageRecord, *, expanded: bool) -> None:
+    def __init__(
+        self,
+        message: MessageRecord,
+        *,
+        expanded: bool,
+        author_color: str | None,
+    ) -> None:
         super().__init__()
         self.message = message
         self.expanded = expanded
+        self.author_color = author_color
 
     def compose(self) -> ComposeResult:
         message = self.message
         message_type = message.message_type or DEFAULT_MESSAGE_TYPE
         with Horizontal(classes="event-header"):
-            yield Static(message.author_name, classes="event-author")
-            yield Static(
-                badge_label(message_type),
-                classes=f"event-tag {event_tag_class(message_type)}",
-                markup=False,
-            )
-            yield Static(message_time_label(message), classes="event-timestamp")
+            author = Text(message.author_name, Style(color=self.author_color, bold=True))
+            yield Static(author, classes="event-author", markup=False)
+            with Horizontal(classes="event-meta"):
+                yield Static(
+                    badge_label(message_type),
+                    classes=f"event-tag {event_tag_class(message_type)}",
+                    markup=False,
+                )
+                timestamp = message_time_label(message)
+                if timestamp:
+                    yield Static(timestamp, classes="event-timestamp")
         if is_always_expanded(message_type):
             if message_type == "error":
                 body = error_display_content(message.content, message.metadata)
@@ -864,6 +883,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
                 ChatEventRow(
                     message,
                     expanded=message.id in self._expanded_message_ids,
+                    author_color=store.author_color(message),
                 )
                 for message in visible
             ]

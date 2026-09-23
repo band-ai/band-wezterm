@@ -65,6 +65,7 @@ class MessageRecord(BaseModel):
     id: str
     content: str
     author_name: str
+    author_id: str | None = None
     inserted_at: datetime | None = None
     message_type: str = DEFAULT_MESSAGE_TYPE
     metadata: Mapping[str, Any] | None = None
@@ -141,6 +142,9 @@ def message_record_from_api(message: object) -> MessageRecord:
             getattr(message, "sender_name", None)
             or getattr(message, "sender_id", None)
             or "unknown"
+        ),
+        author_id=(
+            str(sender_id) if (sender_id := getattr(message, "sender_id", None)) else None
         ),
         inserted_at=getattr(message, "inserted_at", None),
         message_type=str(raw_type or DEFAULT_MESSAGE_TYPE),

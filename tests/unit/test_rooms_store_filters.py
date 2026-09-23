@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from band_wezterm.client import MessageRecord, RoomRecord
+from band_wezterm.client import MessageRecord, ParticipantRecord, RoomRecord
+from band_wezterm.identity import AvatarKind
 from band_wezterm.tui.stores import RoomFilter, RoomsStore, RoomStatusSource
 
 
@@ -80,3 +81,24 @@ def test_messages_are_ordered_by_platform_timestamp() -> None:
     store.replace_messages([later, earlier])
 
     assert [message.id for message in store.messages] == ["earlier", "later"]
+
+
+def test_author_color_uses_author_id_before_name() -> None:
+    store = RoomsStore(
+        participants=[
+            ParticipantRecord(
+                id="ada-id",
+                name="Ada",
+                kind=AvatarKind.AGENT,
+                color="#355dd4",
+            )
+        ]
+    )
+    message = MessageRecord(
+        id="message-1",
+        content="Hello",
+        author_name="Renamed Ada",
+        author_id="ada-id",
+    )
+
+    assert store.author_color(message) == "#355dd4"

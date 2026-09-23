@@ -48,6 +48,7 @@ def test_message_record_from_api_oldest_fields() -> None:
     record = message_record_from_api(message)
     assert record.id == "m1"
     assert record.author_name == "user1 ci"
+    assert record.author_id == "u1"
     assert record.content == "@omp hello"
     assert record.message_type == "text"
     assert record.metadata == {"mentions": [{"id": "aaaa", "name": "omp"}]}
@@ -107,6 +108,7 @@ def test_message_from_event_maps_sender_name() -> None:
     record = message_from_event(event)
     assert record is not None
     assert record.author_name == "omp"
+    assert record.author_id is None
     assert record.content == "pong"
     assert record.message_type == "text"
     assert record.inserted_at == datetime(2026, 9, 23, 7, 53, tzinfo=UTC)

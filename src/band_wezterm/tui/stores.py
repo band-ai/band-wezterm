@@ -379,6 +379,18 @@ class RoomsStore:
             None,
         )
 
+    def author_color(self, message: MessageRecord) -> str | None:
+        """Resolve a timeline author against the current room roster."""
+        if message.author_id is not None:
+            participant = self.find_participant(message.author_id)
+            return participant.color if participant is not None else None
+        matches = [
+            participant
+            for participant in self.participants
+            if participant.name == message.author_name
+        ]
+        return matches[0].color if len(matches) == 1 else None
+
     def discard_draft(self) -> None:
         self.draft_open = False
         self.picker_open = False
