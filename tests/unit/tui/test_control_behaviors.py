@@ -449,6 +449,30 @@ async def test_room_appends_realtime_messages_without_rebuilding_history(
         ]
 
 
+async def test_room_prepends_an_older_cursor_page(control_app: ControlApp, band_client: MagicMock) -> None:
+    target_room = room(ROOM_ID, "Planning")
+    newest = MessageRecord(id="newest", content="Newest", author_name="Architect")
+    older = MessageRecord(id="older", content="Older", author_name="Architect")
+    band_client.list_message_page.side_effect = [
+        MessagePage(messages=(newest,), next_cursor="older-page", has_more=True),
+        MessagePage(messages=(older,), next_cursor=None, has_more=False),
+    ]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target_room)
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RoomDetailScreen)
+
+        screen._load_older_messages()
+        await settle(pilot)
+
+        assert [message.id for message in screen.store.messages] == ["older", "newest"]
+
+    assert band_client.list_message_page.await_args_list[1].kwargs["cursor"] == "older-page"
+
+
 async def test_room_message_and_event_filter_flow(
     control_app: ControlApp, band_client: MagicMock
 ) -> None:
