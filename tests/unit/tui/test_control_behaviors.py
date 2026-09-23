@@ -692,6 +692,9 @@ async def test_roster_double_click_inserts_agent_mention(
         await settle(pilot)
 
         assert composer.value == "Please ask @architect "
+        assert composer.selection.is_empty
+        await pilot.press("t")
+        assert composer.value == "Please ask @architect t"
 
 
 async def test_stale_agent_delete_removes_local_profile(
