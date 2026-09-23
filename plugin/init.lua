@@ -15,13 +15,24 @@ local M = {}
 local handlers_installed = false
 local background_overrides = setmetatable({}, { __mode = "k" })
 local background_enabled_value = "1"
-local module_source = debug.getinfo(1, "S").source
-local module_path = module_source:sub(1, 1) == "@" and module_source:sub(2) or ""
-local background_path = module_path:gsub("init.lua$", "assets/band-background.png")
+local plugin_module = ...
+local plugin_source = package.searchpath(plugin_module, package.path)
+local background_path = plugin_source:gsub("init.lua$", "assets/band-background.png")
+
+local function is_band_background(background)
+  if type(background) ~= "table" or #background ~= 1 then
+    return false
+  end
+  local source = background[1].source
+  return type(source) == "table" and source.File == background_path
+end
 
 local function apply_band_background(window, enabled)
   local overrides = window:get_config_overrides() or {}
   if enabled then
+    if is_band_background(overrides.background) then
+      return
+    end
     if background_overrides[window] == nil then
       background_overrides[window] = overrides.background or false
     end
@@ -37,6 +48,9 @@ local function apply_band_background(window, enabled)
     local original = background_overrides[window]
     overrides.background = original == false and nil or original
     background_overrides[window] = nil
+  elseif is_band_background(overrides.background) then
+    -- A config reload loses the weak-key cache but retains its overrides.
+    overrides.background = nil
   else
     return
   end
@@ -70,6 +84,11 @@ local function pane_band_vars(pane)
   return {}
 end
 
+local function sync_band_background(window, pane)
+  local state = pane_band_vars(pane)
+  apply_band_background(window, state["band.background.enabled"] == background_enabled_value)
+end
+
 local function install_handlers()
   if handlers_installed then
     return
@@ -91,6 +110,8 @@ local function install_handlers()
       apply_band_background(window, value == background_enabled_value)
     end
   end)
+
+  wezterm.on("window-config-reloaded", sync_band_background)
 
   wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_width)
     local pane = tab.active_pane
@@ -162,6 +183,7 @@ local function install_handlers()
   end)
 
   wezterm.on("update-status", function(window, pane)
+    sync_band_background(window, pane)
     local state = pane_band_vars(pane)
     local slug = state["band.room.slug"] or state["band.room.name"]
     if slug then
