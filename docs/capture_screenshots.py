@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 from textual.pilot import Pilot
 
 from band_wezterm.auth.host_auth import HostAuth
+from band_wezterm.backends import AgentTuning
 from band_wezterm.client import (
     AgentRecord,
     BandClient,
@@ -27,8 +28,9 @@ from band_wezterm.client import (
 from band_wezterm.config import Settings
 from band_wezterm.identity import AvatarKind, HarnessId, agent_accent, parse_harness
 from band_wezterm.local_state import StarredRooms
-from band_wezterm.managed_profiles import ManagedAgentStore
+from band_wezterm.managed_profiles import ManagedAgentProfile, ManagedAgentStore
 from band_wezterm.preferences import PreferencesStore
+from band_wezterm.roles import list_roles
 from band_wezterm.room_color import room_accent
 from band_wezterm.supervisor import SupervisorClient, WorkerRecord, WorkerState
 from band_wezterm.tui.control_app import ControlApp
@@ -174,12 +176,46 @@ def _app(tmp: Path, client: MagicMock) -> ControlApp:
             )
         ]
     )
+    managed_agents = ManagedAgentStore(tmp / "managed_agents.json")
+    roles = {role.id: role for role in list_roles(tmp / "roles")}
+    for agent_id, name, harness, role_id, tuning in (
+        (
+            CLAUDE_ID,
+            "Claude",
+            HarnessId.CLAUDE_SDK,
+            "architect",
+            AgentTuning(model="sonnet", reasoning="high"),
+        ),
+        (
+            CODEX_ID,
+            "Codex",
+            HarnessId.CODEX,
+            "developer",
+            AgentTuning(model="gpt-5.6-sol", reasoning="medium"),
+        ),
+        (
+            DESIGNER_ID,
+            "Designer",
+            HarnessId.OPENCODE,
+            "ux-ui-product-designer",
+            AgentTuning(model="gpt-5.4"),
+        ),
+    ):
+        managed_agents.record(
+            ManagedAgentProfile(
+                agent_id=agent_id,
+                name=name,
+                harness=harness,
+                persona=roles[role_id].content,
+                tuning=tuning,
+            )
+        )
     return ControlApp(
         settings=Settings(),
         host_auth=host_auth,
         client=client,
         starred=starred,
-        managed_agents=ManagedAgentStore(tmp / "managed_agents.json"),
+        managed_agents=managed_agents,
         preferences=PreferencesStore(tmp / "preferences.json"),
         supervisor=supervisor,
     )
@@ -217,11 +253,13 @@ async def _capture_settings(app: ControlApp, pilot: Pilot[None]) -> None:
 async def _write(name: str, capture: Capture, size: tuple[int, int]) -> Path:
     client = _client()
     with tempfile.TemporaryDirectory() as raw:
-        app = _app(Path(raw), client)
-        async with app.run_test(size=size) as pilot:
-            await _settle(pilot)
-            await capture(app, pilot)
-            svg = app.export_screenshot()
+        tmp = Path(raw)
+        with patch("band_wezterm.roles.ROLES_DIRNAME", tmp / "roles"):
+            app = _app(tmp, client)
+            async with app.run_test(size=size) as pilot:
+                await _settle(pilot)
+                await capture(app, pilot)
+                svg = app.export_screenshot()
     path = IMAGES / name
     path.write_text(svg, encoding="utf-8")
     return path

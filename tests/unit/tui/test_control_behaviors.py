@@ -83,6 +83,34 @@ async def test_signed_in_surface_opens_agents(control_app: ControlApp) -> None:
         assert isinstance(control_app.screen, AgentsScreen)
 
 
+async def test_agents_catalog_shows_durable_configuration(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    selected = agent(AGENT_ID, "Architect", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [selected]
+    control_app.managed_agents.record(
+        ManagedAgentProfile(
+            agent_id=selected.id,
+            name=selected.name,
+            harness=HarnessId.CODEX,
+            persona="# System Architect\n",
+            tuning=AgentTuning(model="gpt-5.6-sol", reasoning="high"),
+        )
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, AgentsScreen)
+        rendered = "\n".join(
+            str(label.render()) for label in screen.query(".agent-column-role, .agent-column-model, .agent-column-options")
+        )
+
+    assert "Custom" in rendered
+    assert "gpt-5.6-sol" in rendered
+    assert "Reasoning effort: high" in rendered
+
+
 async def test_worker_poll_waits_for_the_readiness_gate(
     control_app: ControlApp,
 ) -> None:
