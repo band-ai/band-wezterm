@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -27,6 +28,7 @@ from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.supervisor import WorkerRecord, WorkerState
 from band_wezterm.supervisor.client import SupervisorError
 from band_wezterm.tui.control_app import AppScreen, ControlApp, InitialAgentAction
+from band_wezterm.tui.managed_agent_actions import ManagedAgentActions
 from band_wezterm.tui.mentions import participant_mention_text
 from band_wezterm.tui.screens.agents import AgentsScreen
 from band_wezterm.tui.screens.event_type_filter import EventTypeFilterScreen
@@ -200,6 +202,42 @@ async def test_start_and_stop_selected_agent_use_detached_worker(
 
     control_app.supervisor.start.assert_awaited_once()
     control_app.supervisor.stop.assert_awaited_once_with(selected.id)
+
+
+async def test_stop_queued_during_preflight_stops_the_started_agent(
+    control_app: ControlApp, band_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selected = agent(AGENT_ID, "Architect", harness=HarnessId.CODEX)
+    profile = _profile(selected.id, selected.name)
+    preflight_started = asyncio.Event()
+    continue_preflight = asyncio.Event()
+
+    async def wait_for_preflight(
+        _self: ManagedAgentActions, _agent_id: str, _profile: ManagedAgentProfile
+    ) -> ManagedAgentProfile:
+        preflight_started.set()
+        await continue_preflight.wait()
+        return profile
+
+    band_client.list_my_agents.return_value = [selected]
+    control_app.managed_agents.record(profile)
+    control_app.supervisor.start.return_value = _worker(selected.id, selected.name)
+    control_app.supervisor.stop.return_value = None
+    monkeypatch.setattr(
+        ManagedAgentActions, "_preflight_launch_profile", wait_for_preflight
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await preflight_started.wait()
+        await pilot.press("x")
+        continue_preflight.set()
+        await settle(pilot)
+
+    control_app.supervisor.start.assert_awaited_once_with(selected.id, cwd=Path.cwd())
+    control_app.supervisor.stop.assert_awaited_once_with(selected.id)
+    assert not control_app.agents_store.is_running(selected.id)
 
 
 async def test_room_create_opens_the_new_room(

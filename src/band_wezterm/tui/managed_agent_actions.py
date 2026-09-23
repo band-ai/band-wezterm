@@ -27,6 +27,7 @@ NO_MANAGED_KEY_MESSAGE: Final = (
 STARTING_AGENT_MESSAGE: Final = "Starting {name}…"
 AGENT_STARTING_MESSAGE: Final = "Agent is already starting."
 ALREADY_STOPPED_MESSAGE: Final = "{name} is already stopped."
+STOP_AFTER_START_MESSAGE: Final = "Stopping {name} after startup…"
 PREFLIGHT_HARNESS_STABILITY_ATTEMPTS: Final = 5
 PROFILE_HARNESS_UNSTABLE_MESSAGE: Final = (
     "Harness kept changing during preflight — try Start again."
@@ -59,7 +60,14 @@ class ManagedAgentActions:
         self._start_managed_agent(agent)
 
     def stop_managed_agent(self, agent_id: str, agent_name: str) -> None:
-        if not self._control_screen.control.agents_store.is_running(agent_id):
+        store = self._control_screen.control.agents_store
+        if store.is_starting(agent_id):
+            store.request_stop_after_start(agent_id)
+            self._set_agent_operation_status(
+                STOP_AFTER_START_MESSAGE.format(name=agent_name)
+            )
+            return
+        if not store.is_running(agent_id):
             self._set_agent_operation_status(
                 ALREADY_STOPPED_MESSAGE.format(name=agent_name)
             )
@@ -150,6 +158,14 @@ class ManagedAgentActions:
                 return
             resolved, profile = ready
             worker = await control.agent_operations.start(resolved.id, cwd=Path.cwd())
+            if control.agents_store.should_stop_after_start(agent.id):
+                worker = await control.agent_operations.stop(resolved.id)
+                if worker is None:
+                    control.agents_store.mark_stopped(resolved.id)
+                else:
+                    control.agents_store.mark_worker(worker)
+                self._set_agent_operation_status(f"Stopping {resolved.name}.")
+                return
             control.agents_store.mark_worker(worker)
             self._set_agent_operation_status(
                 f"Started {resolved.name} ({profile.harness.value}) as a detached worker."
