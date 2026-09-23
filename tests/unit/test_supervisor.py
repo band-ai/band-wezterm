@@ -19,6 +19,10 @@ from band_wezterm.supervisor.protocol import (
 )
 from band_wezterm.supervisor.runtime import SupervisorServer
 
+pytestmark = pytest.mark.skipif(
+    os.name == "nt", reason="Supervisor IPC uses Unix-domain sockets."
+)
+
 
 async def _request(socket_path: str, request: SupervisorRequest) -> dict[str, object]:
     reader, writer = await asyncio.open_unix_connection(socket_path)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,6 +16,10 @@ from band_wezterm.supervisor.protocol import (
     WorkerRequest,
     WorkerResponse,
     WorkerState,
+)
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt", reason="Worker control uses Unix-domain sockets."
 )
 
 

@@ -29,6 +29,7 @@ SUPERVISOR_SOCKET_DIRNAME: Final = "band-wezterm-runtime"
 SUPERVISOR_LOCK_TIMEOUT_SECONDS: Final = 10
 SUPERVISOR_START_TIMEOUT_SECONDS: Final = 5
 SUPERVISOR_RETRY_SECONDS: Final = 0.05
+UNIX_SOCKET_SUPERVISION_SUPPORTED: Final = os.name != "nt"
 
 
 class SupervisorError(RuntimeError):
@@ -47,6 +48,8 @@ def supervisor_state_path(user_id: str) -> Path:
 
 def supervisor_socket_directory() -> Path:
     """Short user-private path; macOS limits Unix-domain socket names tightly."""
+    if not UNIX_SOCKET_SUPERVISION_SUPPORTED:
+        raise SupervisorError("Managed agents require Unix-domain socket support.")
     directory = Path("/tmp") / f"{SUPERVISOR_SOCKET_DIRNAME}-{os.getuid()}"
     directory.mkdir(mode=0o700, exist_ok=True)
     metadata = os.lstat(directory)
@@ -69,6 +72,8 @@ class SupervisorClient:
 
     async def connect(self, user_id: str) -> None:
         """Adopt a healthy supervisor or atomically start one."""
+        if not UNIX_SOCKET_SUPERVISION_SUPPORTED:
+            raise SupervisorError("Managed agents require Unix-domain socket support.")
         if self._user_id == user_id and await self._is_healthy():
             return
         self._user_id = user_id
