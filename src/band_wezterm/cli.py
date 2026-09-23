@@ -9,6 +9,7 @@ from typing import Annotated, Final
 from cyclopts import App, Parameter
 
 from band_wezterm.diagnostics import DEFAULT_LOG_TAIL_LINES
+from band_wezterm.listing import DEFAULT_PAGE_SIZE, ListQuery
 
 COMMAND_NAME: Final = "band"
 SETUP_HELP: Final = (
@@ -35,9 +36,9 @@ class Command(StrEnum):
 
 
 SetupHandler = Callable[[], int]
-ViewHandler = Callable[[str | None], int]
-AsyncHandler = Callable[[], Awaitable[int]]
-AgentListHandler = Callable[[bool], Awaitable[int]]
+ViewHandler = Callable[[str | None], Awaitable[int]]
+ListHandler = Callable[[ListQuery], Awaitable[int]]
+AgentListHandler = Callable[[ListQuery, bool], Awaitable[int]]
 ReferenceHandler = Callable[[str], Awaitable[int]]
 ConfigureAgentHandler = Callable[[str], int]
 StopHandler = Callable[[str | None, bool], Awaitable[int]]
@@ -52,7 +53,7 @@ def create_app(
     agent_view: ViewHandler,
     create_agent: Callable[[], int],
     configure_agent: ConfigureAgentHandler,
-    rooms: AsyncHandler,
+    rooms: ListHandler,
     agents: AgentListHandler,
     create_room: ReferenceHandler,
     delete_room: ReferenceHandler,
@@ -99,19 +100,32 @@ def create_app(
         return logs(tail)
 
     @room_app.default
-    def room_interactive() -> int:
-        """Open the interactive Rooms surface."""
-        return room_view(None)
+    async def room_interactive(
+        *,
+        name: str | None = None,
+        limit: int = DEFAULT_PAGE_SIZE,
+        offset: int = 0,
+    ) -> int:
+        """Open Rooms, or list filtered rooms when an option is supplied."""
+        query = ListQuery(name=name, limit=limit, offset=offset)
+        if query.is_default:
+            return await room_view(None)
+        return await rooms(query)
 
     @room_app.command(name=Command.OPEN)
-    def room_open(reference: str) -> int:
+    async def room_open(reference: str) -> int:
         """Open one room by exact title or unique ID prefix."""
-        return room_view(reference)
+        return await room_view(reference)
 
     @room_app.command(name=Command.LIST)
-    async def room_list() -> int:
-        """List accessible rooms."""
-        return await rooms()
+    async def room_list(
+        *,
+        name: str | None = None,
+        limit: int = DEFAULT_PAGE_SIZE,
+        offset: int = 0,
+    ) -> int:
+        """List rooms by name prefix in a bounded page."""
+        return await rooms(ListQuery(name=name, limit=limit, offset=offset))
 
     @room_app.command(name=Command.CREATE)
     async def room_create(title: str) -> int:
@@ -124,22 +138,35 @@ def create_app(
         return await delete_room(reference)
 
     @agent_app.default
-    def agent_interactive(
+    async def agent_interactive(
         reference: Annotated[
             str | None,
             Parameter(help="Exact agent name or a unique agent ID prefix."),
         ] = None,
+        *,
+        name: str | None = None,
+        limit: int = DEFAULT_PAGE_SIZE,
+        offset: int = 0,
+        verbose: Annotated[bool, Parameter(name=("--verbose", "-v"))] = False,
     ) -> int:
         """Open the interactive Agents surface, optionally selecting one agent."""
-        return agent_view(reference)
+        query = ListQuery(name=name, limit=limit, offset=offset)
+        if reference is None and (not query.is_default or verbose):
+            return await agents(query, verbose)
+        if reference is not None and not query.is_default:
+            raise ValueError("Use a reference or list filters, not both.")
+        return await agent_view(reference)
 
     @agent_app.command(name=Command.LIST)
     async def agent_list(
         *,
+        name: str | None = None,
+        limit: int = DEFAULT_PAGE_SIZE,
+        offset: int = 0,
         verbose: Annotated[bool, Parameter(name=("--verbose", "-v"))] = False,
     ) -> int:
-        """List registered agents; include runtime details with --verbose / -v."""
-        return await agents(verbose)
+        """List agents by name prefix in a bounded page."""
+        return await agents(ListQuery(name=name, limit=limit, offset=offset), verbose)
 
     @agent_app.command(name=Command.CREATE)
     def agent_create() -> int:

@@ -24,6 +24,7 @@ from band_wezterm.__main__ import (
     main,
 )
 from band_wezterm.cli import Command
+from band_wezterm.listing import ListQuery
 from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
 from band_wezterm.tui.control_app import AppScreen, InitialAgentAction
 from band_wezterm.wezterm_cli import WezTermNotFoundError
@@ -91,9 +92,37 @@ async def test_rooms_lists_titles_and_ids(
     client.aclose = AsyncMock()
     monkeypatch.setattr("band_wezterm.__main__.BandClient", lambda _auth: client)
 
-    assert await _run_rooms() == 0
+    assert await _run_rooms(ListQuery()) == 0
     output = capsys.readouterr().out
     assert all(value in output for value in ("Rooms", "Planning", "Delivery", "room-1"))
+
+
+@pytest.mark.asyncio
+async def test_rooms_list_filters_and_pages_output(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_rooms",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(id="room-1", title="Planning"),
+                SimpleNamespace(id="room-2", title="Plan review"),
+                SimpleNamespace(id="room-3", title="Delivery"),
+            ]
+        ),
+    )
+
+    assert await _run_rooms(ListQuery(name="plan", limit=1)) == 0
+    output = capsys.readouterr().out
+    assert all(
+        value in output
+        for value in (
+            "Planning",
+            "Showing 1-1 of 2 rooms.",
+            "band room list --name plan --limit 1 --offset 1",
+        )
+    )
+    assert "Plan review" not in output
 
 
 @pytest.mark.asyncio
@@ -305,7 +334,7 @@ async def test_agents_list_renders_compact_state_without_an_action_column(
         AsyncMock(return_value=[SimpleNamespace(name="Architect", id="agent-1")]),
     )
 
-    assert await _run_agents() == 0
+    assert await _run_agents(ListQuery()) == 0
     output = capsys.readouterr().out
     assert all(
         value in output
@@ -348,7 +377,7 @@ async def test_agents_list_verbose_renders_full_runtime_details(
         ),
     )
 
-    assert await _run_agents(verbose=True) == 0
+    assert await _run_agents(ListQuery(), verbose=True) == 0
     output = capsys.readouterr().out
     assert all(value in output for value in ("Agent ID:", "codex", "PID: 42"))
 

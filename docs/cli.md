@@ -94,7 +94,7 @@ Show recent rotating local diagnostics for incident investigation.
 ## band room
 
 ```console
-band room COMMAND
+band room COMMAND [OPTIONS]
 ```
 
 Manage Band rooms.
@@ -103,8 +103,14 @@ Manage Band rooms.
 
 * [`create`](#band-room-create): Create a room with TITLE.
 * [`delete`](#band-room-delete): Delete one room by exact title or unique ID prefix.
-* [`list`](#band-room-list): List accessible rooms.
+* [`list`](#band-room-list): List rooms by name prefix in a bounded page.
 * [`open`](#band-room-open): Open one room by exact title or unique ID prefix.
+
+**Parameters**:
+
+* `--name`:
+* `--limit`: *[default: 20]*
+* `--offset`: *[default: 0]*
 
 ### band room open
 
@@ -121,10 +127,16 @@ Open one room by exact title or unique ID prefix.
 ### band room list
 
 ```console
-band room list
+band room list [OPTIONS]
 ```
 
-List accessible rooms.
+List rooms by name prefix in a bounded page.
+
+**Parameters**:
+
+* `--name`:
+* `--limit`: *[default: 20]*
+* `--offset`: *[default: 0]*
 
 ### band room create
 
@@ -153,7 +165,7 @@ Delete one room by exact title or unique ID prefix.
 ## band agent
 
 ```console
-band agent COMMAND [ARGS]
+band agent COMMAND [OPTIONS] [ARGS]
 ```
 
 Manage detached Band agents.
@@ -163,7 +175,7 @@ Manage detached Band agents.
 * [`configure`](#band-agent-configure): Open the reconfiguration surface for one existing agent.
 * [`create`](#band-agent-create): Open the agent registration surface.
 * [`delete`](#band-agent-delete): Stop and delete one managed agent.
-* [`list`](#band-agent-list): List registered agents; include runtime details with --verbose / -v.
+* [`list`](#band-agent-list): List agents by name prefix in a bounded page.
 * [`start`](#band-agent-start): Start one detached managed agent.
 * [`status`](#band-agent-status): Show one managed agent's runtime state.
 * [`stop`](#band-agent-stop): Gracefully stop one agent, or every agent with --all.
@@ -171,6 +183,10 @@ Manage detached Band agents.
 **Parameters**:
 
 * `REFERENCE, --reference`: Exact agent name or a unique agent ID prefix.
+* `--name`:
+* `--limit`: *[default: 20]*
+* `--offset`: *[default: 0]*
+* `--verbose, --no-verbose, -v`: *[default: False]*
 
 ### band agent list
 
@@ -178,10 +194,13 @@ Manage detached Band agents.
 band agent list [OPTIONS]
 ```
 
-List registered agents; include runtime details with --verbose / -v.
+List agents by name prefix in a bounded page.
 
 **Parameters**:
 
+* `--name`:
+* `--limit`: *[default: 20]*
+* `--offset`: *[default: 0]*
 * `--verbose, --no-verbose, -v`: *[default: False]*
 
 ### band agent create

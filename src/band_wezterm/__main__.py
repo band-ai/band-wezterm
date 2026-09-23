@@ -20,6 +20,7 @@ from band_wezterm.cli_output import (
 from band_wezterm.client import AgentRecord, BandClient, RoomRecord
 from band_wezterm.config import load_settings
 from band_wezterm.diagnostics import configure_diagnostics, log_event, read_diagnostics
+from band_wezterm.listing import ListQuery, paginate
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.resource_operations import ManagedAgentOperations, RoomOperations
 from band_wezterm.setup_wezterm import (
@@ -133,11 +134,9 @@ def _run_view(
     )
 
 
-def _run_room(reference: str | None) -> int:
+async def _run_room(reference: str | None) -> int:
     try:
-        room_id = (
-            None if reference is None else asyncio.run(_resolve_room_id(reference))
-        )
+        room_id = None if reference is None else await _resolve_room_id(reference)
         return _run_view(room_id=room_id)
     except (RoomSelectionError, ValueError, WezTermCliError) as exc:
         print(exc, file=sys.stderr)
@@ -166,9 +165,9 @@ def _start_view_without_cli(
     return 0
 
 
-def _run_agent_view_for_reference(reference: str | None) -> int:
+async def _run_agent_view_for_reference(reference: str | None) -> int:
     try:
-        agent_id = None if reference is None else asyncio.run(_resolve_agent(reference)).id
+        agent_id = None if reference is None else (await _resolve_agent(reference)).id
     except (AgentSelectionError, ValueError, WezTermCliError) as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -300,26 +299,26 @@ async def _resolve_agent(reference: str) -> AgentRecord:
     )
 
 
-async def _run_rooms() -> int:
-    rooms = await _list_rooms()
-    print_rooms([_room_output(room) for room in rooms])
+async def _run_rooms(query: ListQuery) -> int:
+    page = paginate(await _list_rooms(), query, display_name=lambda room: room.title)
+    print_rooms([_room_output(room) for room in page.items], query=query, page=page.info)
     return 0
 
 
 async def _run_status(rooms_only: bool, agents_only: bool) -> int:
     if not agents_only:
-        rooms = await _list_rooms()
-        print_rooms([_room_output(room) for room in rooms])
+        await _run_rooms(ListQuery())
     if not rooms_only:
-        await _run_agents()
+        await _run_agents(ListQuery())
     return 0
 
 
-async def _run_agents(verbose: bool = False) -> int:
+async def _run_agents(query: ListQuery, verbose: bool = False) -> int:
     agents, lifecycle = await asyncio.gather(_list_agents(), _current_lifecycle())
     workers = {worker.agent_id: worker for worker in await lifecycle.workers()}
     rows: list[AgentOutput] = []
-    for agent in agents:
+    page = paginate(agents, query, display_name=lambda agent: agent.name)
+    for agent in page.items:
         worker = workers.get(agent.id)
         state = "stopped" if worker is None else worker.state.value
         rows.append(
@@ -335,7 +334,7 @@ async def _run_agents(verbose: bool = False) -> int:
                 pid=None if worker is None else worker.pid,
             )
         )
-    print_agents(rows, verbose=verbose)
+    print_agents(rows, query=query, page=page.info, verbose=verbose)
     return 0
 
 
