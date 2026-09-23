@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/band-matrix-logo.png" alt="Band" width="240">
+<img src="docs/images/readme-hero.png" alt="Band for WezTerm" width="320">
 
 # Band for WezTerm
 
