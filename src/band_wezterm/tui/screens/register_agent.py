@@ -45,6 +45,9 @@ KEEP_CURRENT_ROLE_ID: Final = "__keep_current_role__"
 CUSTOM_TUNING_ID: Final = "__custom__"
 DEFAULT_OPTION_ID: Final = "default"
 REGISTER_CLEANUP_FAILED_MESSAGE: Final = "{error}; cleanup failed: {cleanup}"
+REGISTERING_AGENT_MESSAGE: Final = "Registering agent…"
+REGISTRATION_IN_PROGRESS_MESSAGE: Final = "Agent registration is already in progress."
+NAME_TAKEN_MESSAGE: Final = '"{name}" is already in use. Choose a unique name.'
 OPEN_CLASS: Final = "open"
 
 
@@ -153,6 +156,7 @@ class RegisterAgentScreen(ControlScreen):
         self._keep_current_persona = reconfigure
         self._custom_dimension: TuningDimensionId | None = None
         self._catalog_errors: dict[HarnessId, str] = {}
+        self._submitting = False
 
     def compose(self) -> ComposeResult:
         heading = "Reconfigure agent" if self.reconfigure else "Register agent"
@@ -184,6 +188,9 @@ class RegisterAgentScreen(ControlScreen):
         self._load_catalog(self.draft.harness)
 
     def action_back(self) -> None:
+        if self._submitting:
+            self._set_status(REGISTRATION_IN_PROGRESS_MESSAGE)
+            return
         if self._custom_dimension is not None:
             self._custom_dimension = None
             self._render_step()
@@ -206,18 +213,20 @@ class RegisterAgentScreen(ControlScreen):
         option_id = event.option.id
         if option_id is None:
             return
-        self._accept_option(option_id)
+        # OptionList may be selected by mouse.  Rendering the next step in the
+        # same event invalidates its active row before Textual completes mouse-up.
+        self.call_after_refresh(self._accept_option, option_id)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value.strip()
         if self._custom_dimension is not None:
-            self._accept_custom_tuning(value)
+            self.call_after_refresh(self._accept_custom_tuning, value)
             return
         match self.step:
             case WizardStep.NAME:
-                self._accept_name(value)
+                self.call_after_refresh(self._accept_name, value)
             case WizardStep.DESCRIPTION:
-                self._accept_description(value)
+                self.call_after_refresh(self._accept_description, value)
             case _:
                 return
 
@@ -316,7 +325,15 @@ class RegisterAgentScreen(ControlScreen):
             return
         next_index = index + 1
         if next_index >= len(steps):
-            self._submit()
+            if self._submitting:
+                self._set_status(REGISTRATION_IN_PROGRESS_MESSAGE)
+                return
+            self._submitting = True
+            self._set_status(REGISTERING_AGENT_MESSAGE)
+            if self.reconfigure:
+                self._submit_reconfigure()
+            else:
+                self._submit()
             return
         self.step = steps[next_index]
         self._render_step()
@@ -525,98 +542,100 @@ class RegisterAgentScreen(ControlScreen):
 
     @work(exclusive=True, group="agents-register")
     async def _submit(self) -> None:
-        blocking = self._draft_blocking_error()
-        if blocking is not None:
-            self._go_to(*blocking)
-            return
-        if self.reconfigure:
-            self._submit_reconfigure()
-            return
-        draft = self.draft
-        if not await self._preflight_draft(draft.harness):
-            return
-        name = draft_name(draft)
         try:
-            agent = await self.control.client.create_agent(
-                name=name, description=draft.description
-            )
-        except Exception as error:
-            message = format_platform_error(error, operation="register agent")
-            if message.startswith("Name "):
-                self._go_to(WizardStep.NAME, message)
+            blocking = self._draft_blocking_error()
+            if blocking is not None:
+                self._go_to(*blocking)
                 return
-            self._set_status(message)
-            return
-        persona = draft.role.content if draft.role is not None else None
-        try:
-            self.control.managed_agents.record(
-                profile_from_registration(
-                    agent_id=agent.id,
-                    name=agent.name,
-                    harness=draft.harness,
-                    persona=persona,
-                    tuning=draft.tuning,
-                )
-            )
-        except Exception as error:
+            draft = self.draft
+            if not await self._preflight_draft(draft.harness):
+                return
+            name = draft_name(draft)
             try:
-                await self.control.client.delete_agent(agent.id)
-            except Exception as cleanup_error:
-                self._set_status(
-                    REGISTER_CLEANUP_FAILED_MESSAGE.format(
-                        error=format_platform_error(error, operation="save profile"),
-                        cleanup=format_platform_error(
-                            cleanup_error, operation="clean up registration"
-                        ),
+                agent = await self.control.client.create_agent(
+                    name=name, description=draft.description
+                )
+            except Exception as error:
+                message = format_platform_error(error, operation="register agent")
+                if message.startswith("Name "):
+                    self._go_to(WizardStep.NAME, NAME_TAKEN_MESSAGE.format(name=name))
+                    return
+                self._set_status(message)
+                return
+            persona = draft.role.content if draft.role is not None else None
+            try:
+                self.control.managed_agents.record(
+                    profile_from_registration(
+                        agent_id=agent.id,
+                        name=agent.name,
+                        harness=draft.harness,
+                        persona=persona,
+                        tuning=draft.tuning,
                     )
                 )
+            except Exception as error:
+                try:
+                    await self.control.client.delete_agent(agent.id)
+                except Exception as cleanup_error:
+                    self._set_status(
+                        REGISTER_CLEANUP_FAILED_MESSAGE.format(
+                            error=format_platform_error(error, operation="save profile"),
+                            cleanup=format_platform_error(
+                                cleanup_error, operation="clean up registration"
+                            ),
+                        )
+                    )
+                    return
+                self._set_status(format_platform_error(error, operation="save profile"))
                 return
-            self._set_status(format_platform_error(error, operation="save profile"))
-            return
-        managed_agent = agent.model_copy(update={"harness": draft.harness})
-        self.control.agents_store.add_agent(managed_agent)
-        self.control.agents_store.status = (
-            f"Registered {agent.name} ({draft.harness.value}) — not started."
-        )
-        log_event(
-            "registered agent",
-            agent_id=agent.id,
-            harness=draft.harness.value,
-            has_persona=persona is not None,
-            model=draft.tuning.model or "default",
-            reasoning=draft.tuning.reasoning or "default",
-        )
-        self.app.pop_screen()
+            managed_agent = agent.model_copy(update={"harness": draft.harness})
+            self.control.agents_store.add_agent(managed_agent)
+            self.control.agents_store.status = (
+                f"Registered {agent.name} ({draft.harness.value}) — not started."
+            )
+            log_event(
+                "registered agent",
+                agent_id=agent.id,
+                harness=draft.harness.value,
+                has_persona=persona is not None,
+                model=draft.tuning.model or "default",
+                reasoning=draft.tuning.reasoning or "default",
+            )
+            self.app.pop_screen()
+        finally:
+            self._submitting = False
 
     @work(exclusive=True, group="agents-reconfigure")
     async def _submit_reconfigure(self) -> None:
-        agent = self.agent
-        if agent is None:
-            self._set_status("No agent to reconfigure.")
-            return
-        draft = self.draft
-        if not await self._preflight_draft(draft.harness):
-            return
-        previous = self.control.managed_agents.get(agent.id)
-        persona = (
-            previous.persona
-            if self._keep_current_persona and previous is not None
-            else (draft.role.content if draft.role is not None else None)
-        )
-        next_profile = profile_from_registration(
-            agent_id=agent.id,
-            name=agent.name,
-            harness=draft.harness,
-            persona=persona,
-            tuning=draft.tuning,
-        )
         try:
+            agent = self.agent
+            if agent is None:
+                self._set_status("No agent to reconfigure.")
+                return
+            draft = self.draft
+            if not await self._preflight_draft(draft.harness):
+                return
+            previous = self.control.managed_agents.get(agent.id)
+            persona = (
+                previous.persona
+                if self._keep_current_persona and previous is not None
+                else (draft.role.content if draft.role is not None else None)
+            )
+            next_profile = profile_from_registration(
+                agent_id=agent.id,
+                name=agent.name,
+                harness=draft.harness,
+                persona=persona,
+                tuning=draft.tuning,
+            )
             self.control.managed_agents.record(next_profile)
         except Exception as error:
             self._set_status(
                 format_platform_error(error, operation="reconfigure agent")
             )
             return
+        finally:
+            self._submitting = False
         updated = agent.model_copy(update={"harness": draft.harness})
         self.control.agents_store.update_agent(updated)
         self.control.agents_store.status = (

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Label, ListItem, ListView, Static
 
@@ -61,21 +60,18 @@ class EventTypeFilterScreen(ModalScreen[None]):
     }
     """
 
-    class Changed(Message):
-        def __init__(self, allowed: tuple[str, ...]) -> None:
-            super().__init__()
-            self.allowed = allowed
-
     def __init__(
         self,
         allowed: Sequence[str],
         messages: Sequence[MessageRecord],
+        on_change: Callable[[tuple[str, ...]], None],
     ) -> None:
         super().__init__()
         self._allowed = tuple(allowed)
         self._messages = list(messages)
         self._counts = count_by_category(self._messages)
         self._cursor = 0
+        self._on_change = on_change
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -142,7 +138,7 @@ class EventTypeFilterScreen(ModalScreen[None]):
             if category is None:
                 return
             self._allowed = toggle_category(category, self._allowed)
-        self.post_message(self.Changed(self._allowed))
+        self._on_change(self._allowed)
         self.run_worker(self._rebuild_list(), exclusive=True, group="event-filter")
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:

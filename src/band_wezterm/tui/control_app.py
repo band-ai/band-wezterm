@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from enum import StrEnum
-from typing import ClassVar, Final
+from functools import wraps
+from typing import ClassVar, Concatenate, Final
 
 from textual.app import App
 from textual.message import Message
@@ -40,6 +41,7 @@ from band_wezterm.tui.screens.register_agent import RegisterAgentScreen
 from band_wezterm.tui.screens.rooms import RoomDetailScreen, RoomsScreen
 from band_wezterm.tui.screens.settings import SettingsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
+from band_wezterm.tui.screens.warmup import WarmupScreen
 from band_wezterm.tui.stores import AgentsStore, AgentStatusSource, RoomsStore
 from band_wezterm.wezterm_cli import WezTermCliError, set_tab_title, set_window_title
 
@@ -47,6 +49,17 @@ CONTROL_PROCESS_ENV: Final = "BAND_WEZTERM_CONTROL"
 CONTROL_PROCESS_FLAG: Final = "1"
 # App default screen + the active base screen; anything above is an overlay.
 BASE_STACK_DEPTH: Final = 2
+def requires_ready_surface[**P](
+    operation: Callable[Concatenate[ControlApp, P], Awaitable[None]],
+) -> Callable[Concatenate[ControlApp, P], Awaitable[None]]:
+    """Prevent background work from observing a partially initialized surface."""
+
+    @wraps(operation)
+    async def guarded(app: ControlApp, /, *args: P.args, **kwargs: P.kwargs) -> None:
+        if app.surface_ready:
+            await operation(app, *args, **kwargs)
+
+    return guarded
 
 
 class AppScreen(StrEnum):
@@ -56,6 +69,7 @@ class AppScreen(StrEnum):
     AGENTS = "agents"
     ROOMS = "rooms"
     SETTINGS = "settings"
+    WARMUP = "warmup"
 
 
 class InitialAgentAction(StrEnum):
@@ -120,6 +134,7 @@ class ControlApp(App[None]):
         AppScreen.AGENTS: AgentsScreen,
         AppScreen.ROOMS: RoomsScreen,
         AppScreen.SETTINGS: SettingsScreen,
+        AppScreen.WARMUP: WarmupScreen,
     }
 
     def __init__(
@@ -168,6 +183,8 @@ class ControlApp(App[None]):
         self.rooms_store = RoomsStore()
         self._ending_session = False
         self._authentication_rejected_pending = False
+        self._warmup_active = False
+        self._surface_ready = False
         self.initial_room_id = initial_room_id
         self.initial_screen = initial_screen
         self.initial_agent_action = initial_agent_action
@@ -177,7 +194,8 @@ class ControlApp(App[None]):
         name_control_tab()
         self.set_interval(LOCAL_RUNTIME_POLL_SECONDS, self._reconcile_workers)
         if self.host_auth.has_stored_tokens():
-            self.run_worker(self._restore_surface(), group="surface")
+            self.push_screen(AppScreen.WARMUP)
+            self.start_warmup()
             return
         self.push_screen(AppScreen.SIGN_IN)
 
@@ -187,26 +205,53 @@ class ControlApp(App[None]):
         await self.opencode_server.close()
         await self.client.aclose()
 
+    def start_warmup(self) -> None:
+        """Start at most one readiness flight in this disposable process."""
+        if self._surface_ready or self._warmup_active:
+            return
+        self._warmup_active = True
+        self.run_worker(self._restore_surface(), group="surface")
+
+    @property
+    def surface_ready(self) -> bool:
+        """Whether this view may read shared supervisor state."""
+        return self._surface_ready
+
     async def _restore_surface(self) -> None:
         """Restore a stored session or present a retryable sign-in gate."""
         try:
             await self.enter_surface()
         except Exception as error:
             message = format_platform_error(error, operation="open Band view")
-            self.notify(message, severity="error")
-            self.push_screen(AppScreen.SIGN_IN)
+            match self.screen:
+                case WarmupScreen() as screen:
+                    screen.show_retry(message)
+                case _:
+                    self.notify(message, severity="error")
+        finally:
+            self._warmup_active = False
 
     async def enter_surface(self) -> None:
         """Identify the signed-in human, then open the requested Band surface."""
+        self._set_warmup_progress(0, "Checking your Band session…")
         self.user_id = await self.client.whoami()
+        self._set_warmup_progress(1, "Connecting to the shared agent runtime…")
         await self.supervisor.connect(self.user_id)
         self.agents_store.replace_workers(await self.agent_lifecycle.workers())
+        self._set_warmup_progress(2, "Loading your Band workspace…")
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
         announce_control_human(self.user_id)
         log_event("Band surface entered", user_id=self.user_id)
+        self._surface_ready = True
+        self._set_warmup_progress(3, "Band is ready.")
         self._show(self.initial_screen)
         await self._open_initial_room()
         await self._open_initial_agent_flow()
+
+    def _set_warmup_progress(self, step: int, message: str) -> None:
+        match self.screen:
+            case WarmupScreen() as screen:
+                screen.set_progress(step, message)
 
     async def _open_initial_room(self) -> None:
         room_id = self.initial_room_id
@@ -305,6 +350,7 @@ class ControlApp(App[None]):
         if self._ending_session:
             return False
         self._ending_session = True
+        self._surface_ready = False
         try:
             stopped_agents = not stop_workers or await self._stop_managed_agents()
             if stop_workers and not stopped_agents:
@@ -335,10 +381,9 @@ class ControlApp(App[None]):
         self.agents_store.replace_workers(())
         return True
 
+    @requires_ready_surface
     async def _reconcile_workers(self) -> None:
         """Refresh this view from the supervisor; no pane is a lifecycle signal."""
-        if self.user_id is None:
-            return
         try:
             self.agents_store.replace_workers(await self.agent_lifecycle.workers())
         except Exception as error:

@@ -20,7 +20,7 @@ from band_wezterm.supervisor.protocol import (
     WorkerRecord,
     WorkerState,
 )
-from band_wezterm.supervisor.runtime import SupervisorServer
+from band_wezterm.supervisor.runtime import SupervisorServer, _pid_alive
 
 
 async def _request(socket_path: str, request: SupervisorRequest) -> dict[str, object]:
@@ -45,6 +45,14 @@ def _missing_worker_endpoint() -> str:
     return new_endpoint(
         supervisor_socket_directory(), f"missing-worker-{uuid4().hex}.sock"
     )
+
+
+def test_pid_alive_reaps_an_exited_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.supervisor.runtime.os.waitpid", lambda _pid, _flags: (1, 0)
+    )
+
+    assert not _pid_alive(1)
 
 
 @pytest.mark.asyncio
@@ -162,7 +170,8 @@ async def test_stop_of_unready_worker_terminates_its_process_group(
     terminated: list[int] = []
     monkeypatch.setattr("band_wezterm.supervisor.runtime.WORKER_START_GRACE_SECONDS", 0)
     monkeypatch.setattr(
-        "band_wezterm.supervisor.runtime._terminate_worker", terminated.append
+        "band_wezterm.supervisor.runtime._terminate_worker",
+        lambda record: terminated.append(record.pid) or True,
     )
 
     result = await server._stop_worker(worker.agent_id)
@@ -195,7 +204,8 @@ async def test_refresh_force_stops_an_unresponsive_stopping_worker(
     terminated: list[int] = []
     monkeypatch.setattr("band_wezterm.supervisor.runtime._pid_alive", lambda _pid: True)
     monkeypatch.setattr(
-        "band_wezterm.supervisor.runtime._terminate_worker", terminated.append
+        "band_wezterm.supervisor.runtime._terminate_worker",
+        lambda record: terminated.append(record.pid) or True,
     )
 
     workers = await server._refresh_workers()
@@ -203,6 +213,37 @@ async def test_refresh_force_stops_an_unresponsive_stopping_worker(
     assert workers == ()
     assert server._state.workers == {}
     assert terminated == [worker.pid]
+
+
+@pytest.mark.asyncio
+async def test_refresh_keeps_an_unmanageable_stopping_worker_as_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worker = WorkerRecord(
+        agent_id="agent-1",
+        name="Agent",
+        pid=1,
+        control_socket=_missing_worker_endpoint(),
+        control_token="token",
+        cwd=str(tmp_path),
+        started_at=0,
+        state=WorkerState.STOPPING,
+        stopping_at=0,
+    )
+    server = SupervisorServer(user_id="user-1", state_path=tmp_path / "state.json")
+    server._state = server._state.model_copy(
+        update={"workers": {worker.agent_id: worker}}
+    )
+    server._save_state = MagicMock()  # type: ignore[method-assign]
+    monkeypatch.setattr("band_wezterm.supervisor.runtime._pid_alive", lambda _pid: True)
+    monkeypatch.setattr(
+        "band_wezterm.supervisor.runtime._terminate_worker", lambda _worker: False
+    )
+
+    workers = await server._refresh_workers()
+
+    assert workers[0].state is WorkerState.ERROR
+    assert server._state.workers[worker.agent_id].state is WorkerState.ERROR
 
 
 def test_restarted_supervisor_adopts_persisted_worker_state(tmp_path: Path) -> None:
