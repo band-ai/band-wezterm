@@ -132,7 +132,7 @@ Each profile selects Claude, Codex, Copilot, or OpenCode. Host-side authenticati
 
 OAuth targets production Band by default. To use another deployment, set `BAND_OAUTH_ISSUER`, `BAND_BASE_URL` (or `BAND_REST_URL`), and `BAND_WS_URL` together. `BAND_OAUTH_CLIENT_ID` selects another public OAuth client.
 
-Tokens and managed-agent API keys are stored only in the OS keyring. Diagnostic logs redact tokens, request headers, and message bodies. OSC user variables carry only allowlisted display metadata.
+Tokens and managed-agent API keys are stored only in the OS keyring. Diagnostic logs at `~/.band-wezterm/diagnostics.log` rotate locally and record room/agent operation requests, outcomes, resource IDs, worker state, and safe error types—never tokens, request headers, message bodies, room titles, or working directories. OSC user variables carry only allowlisted display metadata.
 
 ## Development
 
