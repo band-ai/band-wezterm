@@ -34,6 +34,7 @@ from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.pane_identity import announce_agent_pane, announce_runtime_status
+from band_wezterm.supervisor.ipc import remove_endpoint, start_server
 from band_wezterm.supervisor.protocol import (
     WorkerAction,
     WorkerRequest,
@@ -51,7 +52,7 @@ WORKER_SOCKET_MODE: Final = 0o600
 class WorkerController:
     """Authenticated stop/status endpoint owned by one detached worker."""
 
-    def __init__(self, socket_path: Path | None, token: str) -> None:
+    def __init__(self, socket_path: str | None, token: str) -> None:
         self._socket_path = socket_path
         self._token = token
         self._state = WorkerState.STARTING
@@ -62,15 +63,18 @@ class WorkerController:
     def enabled(self) -> bool:
         return self._socket_path is not None and bool(self._token)
 
+    @property
+    def endpoint(self) -> str | None:
+        return self._socket_path
+
     async def start(self) -> None:
         if not self.enabled:
             return
         assert self._socket_path is not None
-        self._socket_path.unlink(missing_ok=True)
-        self._server = await asyncio.start_unix_server(
-            self._handle_connection, path=str(self._socket_path)
-        )
-        self._socket_path.chmod(WORKER_SOCKET_MODE)
+        self._server, endpoint = await start_server(self._handle_connection, self._socket_path)
+        self._socket_path = endpoint
+        if not endpoint.startswith("tcp://"):
+            await asyncio.to_thread(Path(endpoint).chmod, WORKER_SOCKET_MODE)
 
     def mark_running(self) -> None:
         self._state = WorkerState.RUNNING
@@ -83,7 +87,7 @@ class WorkerController:
             self._server.close()
             await self._server.wait_closed()
         if self._socket_path is not None:
-            self._socket_path.unlink(missing_ok=True)
+            await remove_endpoint(self._socket_path)
 
     async def _handle_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter

@@ -22,6 +22,12 @@ from pydantic import ValidationError
 from band_wezterm.auth.credentials import ManagedAgentKeyStore
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.supervisor.client import supervisor_socket_directory
+from band_wezterm.supervisor.ipc import (
+    new_endpoint,
+    open_connection,
+    remove_endpoint,
+    start_server,
+)
 from band_wezterm.supervisor.protocol import (
     SupervisorAction,
     SupervisorRequest,
@@ -53,24 +59,25 @@ class SupervisorServer:
 
     async def run(self) -> None:
         self._load_or_create_state()
-        socket_path = Path(self._state.socket_path)
-        await asyncio.to_thread(socket_path.unlink, missing_ok=True)
-        self._server = await asyncio.start_unix_server(
-            self._handle_connection, path=str(socket_path)
+        self._server, endpoint = await start_server(
+            self._handle_connection, self._state.socket_path
         )
-        await asyncio.to_thread(socket_path.chmod, SOCKET_MODE)
+        self._state = self._state.model_copy(update={"socket_path": endpoint})
+        self._save_state()
+        if not endpoint.startswith("tcp://"):
+            await asyncio.to_thread(Path(endpoint).chmod, SOCKET_MODE)
         try:
             async with self._server:
                 await self._server.serve_forever()
         finally:
-            await asyncio.to_thread(socket_path.unlink, missing_ok=True)
+            await remove_endpoint(self._state.socket_path)
 
     def _new_state(self) -> SupervisorState:
-        socket_path = supervisor_socket_directory() / f"{uuid4().hex}.sock"
+        socket_path = new_endpoint(supervisor_socket_directory(), f"{uuid4().hex}.sock")
         return SupervisorState(
             user_id=self._user_id,
             token=secrets.token_urlsafe(),
-            socket_path=str(socket_path),
+            socket_path=socket_path,
         )
 
     def _load_or_create_state(self) -> None:
@@ -199,7 +206,9 @@ class SupervisorServer:
             raise ValueError(
                 "No managed API key — re-register this agent from `band agent`."
             )
-        control_socket = supervisor_socket_directory() / f"worker-{uuid4().hex}.sock"
+        control_socket = new_endpoint(
+            supervisor_socket_directory(), f"worker-{uuid4().hex}.sock"
+        )
         control_token = secrets.token_urlsafe()
         command = [
             sys.executable,
@@ -211,7 +220,7 @@ class SupervisorServer:
             "--cwd",
             str(cwd),
             "--control-socket",
-            str(control_socket),
+            control_socket,
             "--control-token",
             control_token,
         ]
@@ -229,7 +238,7 @@ class SupervisorServer:
             agent_id=agent_id,
             name=profile.name,
             pid=process.pid,
-            control_socket=str(control_socket),
+            control_socket=control_socket,
             control_token=control_token,
             cwd=str(cwd),
             started_at=time.time(),
@@ -265,7 +274,7 @@ async def _worker_request(
     worker: WorkerRecord, action: WorkerAction
 ) -> WorkerResponse | None:
     try:
-        reader, writer = await asyncio.open_unix_connection(worker.control_socket)
+        reader, writer = await open_connection(worker.control_socket)
         try:
             request = WorkerRequest(token=worker.control_token, action=action)
             writer.write(request.model_dump_json().encode() + b"\n")

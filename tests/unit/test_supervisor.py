@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from band_wezterm.supervisor.ipc import is_tcp, open_connection
 from band_wezterm.supervisor.protocol import (
     SupervisorAction,
     SupervisorRequest,
@@ -19,13 +20,9 @@ from band_wezterm.supervisor.protocol import (
 )
 from band_wezterm.supervisor.runtime import SupervisorServer
 
-pytestmark = pytest.mark.skipif(
-    os.name == "nt", reason="Supervisor IPC uses Unix-domain sockets."
-)
-
 
 async def _request(socket_path: str, request: SupervisorRequest) -> dict[str, object]:
-    reader, writer = await asyncio.open_unix_connection(socket_path)
+    reader, writer = await open_connection(socket_path)
     try:
         writer.write(request.model_dump_json().encode() + b"\n")
         await writer.drain()
@@ -39,7 +36,7 @@ def _state_is_ready(state_path: Path) -> bool:
     if not state_path.exists():
         return False
     state = SupervisorState.model_validate_json(state_path.read_text())
-    return Path(state.socket_path).exists()
+    return is_tcp(state.socket_path) or Path(state.socket_path).exists()
 
 
 @pytest.mark.asyncio

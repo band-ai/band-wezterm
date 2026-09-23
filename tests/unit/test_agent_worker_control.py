@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
-import os
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
 from band_wezterm.agent.runner import WorkerController
 from band_wezterm.supervisor.client import supervisor_socket_directory
+from band_wezterm.supervisor.ipc import new_endpoint, open_connection
 from band_wezterm.supervisor.protocol import (
     WorkerAction,
     WorkerRequest,
@@ -18,15 +16,11 @@ from band_wezterm.supervisor.protocol import (
     WorkerState,
 )
 
-pytestmark = pytest.mark.skipif(
-    os.name == "nt", reason="Worker control uses Unix-domain sockets."
-)
-
 
 async def _request(
-    socket_path: Path, token: str, action: WorkerAction
+    socket_path: str, token: str, action: WorkerAction
 ) -> WorkerResponse:
-    reader, writer = await asyncio.open_unix_connection(str(socket_path))
+    reader, writer = await open_connection(socket_path)
     try:
         writer.write(
             WorkerRequest(token=token, action=action).model_dump_json().encode() + b"\n"
@@ -40,11 +34,13 @@ async def _request(
 
 @pytest.mark.asyncio
 async def test_worker_controller_authenticates_and_requests_graceful_stop() -> None:
-    socket_path = supervisor_socket_directory() / f"test-{uuid4().hex}.sock"
+    socket_path = new_endpoint(supervisor_socket_directory(), f"test-{uuid4().hex}.sock")
     controller = WorkerController(socket_path, "secret")
     await controller.start()
     controller.mark_running()
     try:
+        assert controller.endpoint is not None
+        socket_path = controller.endpoint
         rejected = await _request(socket_path, "wrong", WorkerAction.STATUS)
         assert rejected.ok is False
 
