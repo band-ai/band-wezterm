@@ -14,6 +14,7 @@ LOG_FILENAME: Final = "diagnostics.log"
 LOG_MAX_BYTES: Final = 1_000_000
 LOG_BACKUP_COUNT: Final = 3
 LOG_FORMAT: Final = "%(asctime)s %(levelname)s %(message)s"
+DEFAULT_LOG_TAIL_LINES: Final = 100
 
 
 def diagnostics_log_path(*, home: Path | None = None) -> Path:
@@ -56,3 +57,16 @@ def log_failure(operation: str, error: BaseException, message: str) -> None:
         type(error).__name__,
         message,
     )
+
+
+def read_diagnostics(*, lines: int = DEFAULT_LOG_TAIL_LINES) -> str:
+    """Return the latest local events for incident triage without shell tooling."""
+    if lines < 1:
+        raise ValueError("--tail must be at least 1.")
+    try:
+        content = diagnostics_log_path().read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return "No Band diagnostics have been recorded yet."
+    except OSError as error:
+        return f"Unable to read Band diagnostics: {type(error).__name__}."
+    return "\n".join(content.splitlines()[-lines:]) or "No Band diagnostics have been recorded yet."

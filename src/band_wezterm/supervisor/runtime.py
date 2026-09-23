@@ -20,6 +20,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from band_wezterm.auth.credentials import ManagedAgentKeyStore
+from band_wezterm.diagnostics import configure_diagnostics, log_event
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.supervisor.client import supervisor_socket_directory
 from band_wezterm.supervisor.ipc import (
@@ -326,7 +327,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_diagnostics()
     args = parse_args(argv)
+    log_event("supervisor starting")
     asyncio.run(
         SupervisorServer(user_id=args.user_id, state_path=args.state_path).run()
     )

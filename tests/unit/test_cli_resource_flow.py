@@ -60,6 +60,7 @@ def test_resource_commands_execute_a_multi_step_session() -> None:
         stop_agent=stop_agent,
         agent_status=no_reference,
         status=status,
+        logs=lambda _tail: 0,
     )
 
     assert app([Command.ROOM, Command.CREATE, ROOM_TITLE]) == 0

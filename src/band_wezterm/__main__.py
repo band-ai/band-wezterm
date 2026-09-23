@@ -18,7 +18,7 @@ from band_wezterm.cli_output import (
     print_rooms,
 )
 from band_wezterm.client import AgentRecord, BandClient, RoomRecord
-from band_wezterm.diagnostics import log_event
+from band_wezterm.diagnostics import configure_diagnostics, log_event, read_diagnostics
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.resource_operations import ManagedAgentOperations, RoomOperations
 from band_wezterm.setup_wezterm import (
@@ -402,7 +402,13 @@ async def _run_delete_agent(reference: str) -> int:
     return 0
 
 
+def _run_logs(tail: int) -> int:
+    print(read_diagnostics(lines=tail))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    configure_diagnostics()
     if is_control_process():
         return run_control_app()
     app = create_app(
@@ -419,6 +425,7 @@ def main(argv: list[str] | None = None) -> int:
         stop_agent=_run_stop_agent,
         agent_status=_run_agent_status,
         status=_run_status,
+        logs=_run_logs,
         agent_view=_run_agent_view,
     )
     try:

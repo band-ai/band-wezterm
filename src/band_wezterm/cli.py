@@ -8,6 +8,8 @@ from typing import Final
 
 from cyclopts import App
 
+from band_wezterm.diagnostics import DEFAULT_LOG_TAIL_LINES
+
 COMMAND_NAME: Final = "band"
 SETUP_HELP: Final = (
     "Install or update the Band WezTerm plugin in the active WezTerm config "
@@ -20,6 +22,7 @@ class Command(StrEnum):
     ROOM = "room"
     AGENT = "agent"
     STATUS = "status"
+    LOGS = "logs"
     HELP = "help"
     LIST = "list"
     OPEN = "open"
@@ -44,6 +47,7 @@ ReferenceHandler = Callable[[str], Awaitable[int]]
 ConfigureAgentHandler = Callable[[str], int]
 StopHandler = Callable[[str | None, bool], Awaitable[int]]
 StatusHandler = Callable[[bool, bool], Awaitable[int]]
+LogsHandler = Callable[[int], int]
 
 
 def create_app(
@@ -62,6 +66,7 @@ def create_app(
     stop_agent: StopHandler,
     agent_status: ReferenceHandler,
     status: StatusHandler,
+    logs: LogsHandler,
 ) -> App:
     """Build resource-oriented commands; UI is each resource's default."""
     app = App(name=COMMAND_NAME, help="Manage Band rooms and detached agents in WezTerm.", result_action="return_int_as_exit_code_else_zero")
@@ -84,6 +89,11 @@ def create_app(
         if room and agent:
             raise ValueError("Use only one of --room or --agent.")
         return await status(room, agent)
+
+    @app.command(name=Command.LOGS)
+    def logs_command(*, tail: int = DEFAULT_LOG_TAIL_LINES) -> int:
+        """Show recent rotating local diagnostics for incident investigation."""
+        return logs(tail)
 
     @room_app.default
     def room_interactive() -> int:

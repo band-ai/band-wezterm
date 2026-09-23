@@ -13,6 +13,7 @@ Manage Band rooms and detached agents in WezTerm.
 - [`help`](#band-help)
 - [`setup`](#band-setup)
 - [`status`](#band-status)
+- [`logs`](#band-logs)
 - [`room`](#band-room)
     - [`open`](#band-room-open)
     - [`list`](#band-room-list)
@@ -31,6 +32,7 @@ Manage Band rooms and detached agents in WezTerm.
 
 * [`agent`](#band-agent): Manage detached Band agents.
 * [`help`](#band-help)
+* [`logs`](#band-logs): Show recent rotating local diagnostics for incident investigation.
 * [`room`](#band-room): Manage Band rooms.
 * [`setup`](#band-setup): Install or update the Band WezTerm plugin in the active WezTerm config (WEZTERM_CONFIG_FILE, ~/.wezterm.lua, or XDG wezterm.lua).
 * [`status`](#band-status): Show Rooms and Agents, or one requested resource table.
@@ -61,6 +63,18 @@ Show Rooms and Agents, or one requested resource table.
 
 * `--room, --no-room`: *[default: False]*
 * `--agent, --no-agent`: *[default: False]*
+
+## band logs
+
+```console
+band logs [OPTIONS]
+```
+
+Show recent rotating local diagnostics for incident investigation.
+
+**Parameters**:
+
+* `--tail`: *[default: 100]*
 
 ## band room
 
