@@ -29,6 +29,7 @@ MODEL_DIMENSION: Final = TuningDimensionId.MODEL
 class AgentConfiguration:
     """The small set of durable fields useful when scanning an agent catalog."""
 
+    harness: str
     role: str
     model: str
     options: str
@@ -38,12 +39,14 @@ def agent_configuration(profile: ManagedAgentProfile | None) -> AgentConfigurati
     """Project a local profile without claiming configuration we do not own."""
     if profile is None:
         return AgentConfiguration(
+            harness=AgentConfigurationLabel.UNMANAGED,
             role=AgentConfigurationLabel.UNMANAGED,
             model=AgentConfigurationLabel.UNAVAILABLE,
             options=AgentConfigurationLabel.UNAVAILABLE,
         )
     role = role_for_persona(profile.persona)
     return AgentConfiguration(
+        harness=resolve_backend(profile.harness).label,
         role=(role.label if role is not None else AgentConfigurationLabel.ROLE),
         model=describe_tuning_value(profile.harness, profile.tuning, MODEL_DIMENSION),
         options=_tuning_options(profile),

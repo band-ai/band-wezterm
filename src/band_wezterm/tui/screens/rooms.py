@@ -28,6 +28,7 @@ from textual.widgets import (
     Static,
 )
 
+from band_wezterm.agent_display import agent_configuration
 from band_wezterm.client import (
     AgentRecord,
     MessageRecord,
@@ -76,6 +77,7 @@ from band_wezterm.tui.widgets import (
     FilterChips,
     Identity,
     MarkdownComposer,
+    mention_token,
 )
 
 ROOM_DOT: Final = "●"
@@ -92,6 +94,8 @@ DRAFT_PLACEHOLDER: Final = "Room title"
 COMPOSER_PLACEHOLDER: Final = "@mention a participant, **bold**, `code`"
 PICKER_TITLE: Final = "Add participant — Enter adds the highlighted agent"
 ROSTER_TITLE: Final = "Roster"
+ROSTER_DETAIL_EMPTY: Final = "Select an agent for details."
+ROSTER_MENTION_HINT: Final = "Double-click to insert {mention}"
 EMPTY_ROOMS: Final = "No rooms match the filter."
 EMPTY_CHAT: Final = "*No messages yet.*"
 NEW_ACTIVITY_MESSAGE: Final = "New activity — End jumps to latest."
@@ -125,6 +129,8 @@ class Id(StrEnum):
     TOOLBAR = "room-toolbar"
     HEADING = "room-heading"
     ROSTER = "room-roster"
+    ROSTER_LIST = "room-roster-list"
+    ROSTER_DETAIL = "room-roster-detail"
     PICKER = "room-picker"
     PICKER_LIST = "room-picker-list"
     CHAT = "room-chat"
@@ -444,17 +450,31 @@ class IdentityRow(ListItem):
     }
     """
 
+    class DoubleClicked(Message):
+        """A roster row was double-clicked."""
+
+        def __init__(self, row: IdentityRow) -> None:
+            super().__init__()
+            self.row = row
+
     def __init__(
         self,
         identity: Identity,
         identity_id: str,
         *,
         runtime: AgentRuntime | None = None,
+        tooltip: str | None = None,
     ) -> None:
         super().__init__()
         self.identity = identity
         self.identity_id = identity_id
         self.runtime = runtime
+        self.tooltip = tooltip
+
+    def _on_click(self, event: events.Click) -> None:
+        super()._on_click(event)
+        if event.chain == 2:
+            self.post_message(self.DoubleClicked(self))
 
     def compose(self) -> ComposeResult:
         yield AvatarChip(self.identity)
@@ -759,6 +779,10 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
     RoomDetailScreen #room-roster > Static {
         padding: 0 1;
     }
+    RoomDetailScreen #room-roster-detail {
+        height: 1;
+        color: $text-muted;
+    }
     RoomDetailScreen #room-chat-scroll {
         width: 1fr;
     }
@@ -827,7 +851,8 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         with Horizontal():
             with Vertical(id=Id.ROSTER.value):
                 yield Static(ROSTER_TITLE)
-                yield ListView()
+                yield ListView(id=Id.ROSTER_LIST.value)
+                yield Static(ROSTER_DETAIL_EMPTY, id=Id.ROSTER_DETAIL.value)
             with Vertical(id=Id.CHAT_SCROLL.value):
                 yield Static("", id=Id.CHAT_HIDDEN.value)
                 yield ChatTimeline(id=Id.CHAT.value)
@@ -855,7 +880,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         await self.control.client.unsubscribe_room(self.room.id)
 
     def _roster_view(self) -> ListView:
-        return self.query_one(selector(Id.ROSTER), Vertical).query_one(ListView)
+        return self.query_one(selector(Id.ROSTER_LIST), ListView)
 
     async def watch_store(self, store: RoomsStore) -> None:
         if not self.is_mounted:
@@ -969,10 +994,16 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         await refill(
             self._roster_view(),
             [
-                IdentityRow(participant, participant.id, runtime=runtime)
+                IdentityRow(
+                    participant,
+                    participant.id,
+                    runtime=runtime,
+                    tooltip=self._participant_tooltip(participant, runtime),
+                )
                 for participant, runtime in roster
             ],
         )
+        self._update_roster_detail(self._highlighted_agent_participant())
 
     async def _render_picker(self, store: RoomsStore) -> None:
         running_ids = self.control.agents_store.running_ids
@@ -1109,6 +1140,41 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             case _:
                 return None
 
+    def _participant_tooltip(
+        self, participant: ParticipantRecord, runtime: AgentRuntime | None
+    ) -> str | None:
+        if participant.kind is AvatarKind.HUMAN:
+            return None
+        configuration = agent_configuration(
+            self.control.managed_agents.get(participant.id)
+        )
+        mention = mention_token(mention_keys(participant)[0])
+        runtime_label = runtime.value if runtime is not None else "external"
+        return "\n".join(
+            (
+                participant.name,
+                f"Role: {configuration.role}",
+                f"Harness: {configuration.harness}",
+                f"Model: {configuration.model}",
+                configuration.options,
+                f"Runtime: {runtime_label}",
+                ROSTER_MENTION_HINT.format(mention=mention),
+            )
+        )
+
+    def _update_roster_detail(self, participant: ParticipantRecord | None) -> None:
+        detail = ROSTER_DETAIL_EMPTY
+        if participant is not None:
+            configuration = agent_configuration(
+                self.control.managed_agents.get(participant.id)
+            )
+            mention = mention_token(mention_keys(participant)[0])
+            detail = (
+                f"{configuration.role} · {configuration.model} · "
+                f"{ROSTER_MENTION_HINT.format(mention=mention)}"
+            )
+        self.query_one(selector(Id.ROSTER_DETAIL), Static).update(detail)
+
     def _agent_record_for(self, participant: ParticipantRecord) -> AgentRecord:
         profile = self.control.managed_agents.get(participant.id)
         return AgentRecord(
@@ -1207,6 +1273,32 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         # A ListView selection can originate from a mouse-up event.  Do not
         # refill or hide that ListView until Textual has finished dispatching it.
         self.call_after_refresh(self._select_candidate, event.item.identity_id)
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        if event.list_view.id != Id.ROSTER_LIST:
+            return
+        match event.item:
+            case IdentityRow(identity=ParticipantRecord() as participant):
+                self._update_roster_detail(
+                    participant if participant.kind is AvatarKind.AGENT else None
+                )
+            case _:
+                self._update_roster_detail(None)
+
+    def on_identity_row_double_clicked(self, event: IdentityRow.DoubleClicked) -> None:
+        if event.row.parent is not self._roster_view():
+            return
+        match event.row.identity:
+            case ParticipantRecord() as participant if participant.kind is AvatarKind.AGENT:
+                self._insert_participant_mention(participant)
+
+    def _insert_participant_mention(self, participant: ParticipantRecord) -> None:
+        composer = self.query_one(selector(Id.COMPOSER), MarkdownComposer)
+        handle = mention_keys(participant)[0]
+        before_cursor = composer.value[: composer.cursor_position]
+        separator = "" if not before_cursor or before_cursor[-1].isspace() else " "
+        composer.insert_text_at_cursor(f"{separator}{mention_token(handle)} ")
+        composer.focus()
 
     def _select_candidate(self, participant_id: str) -> None:
         if self._begin_roster_mutation():

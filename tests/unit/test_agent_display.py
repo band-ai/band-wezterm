@@ -22,5 +22,6 @@ def test_agent_configuration_projects_role_and_tuning() -> None:
     display = agent_configuration(profile)
 
     assert display.role == "Custom"
+    assert display.harness == "Codex"
     assert display.model == "gpt-5.6-sol"
     assert display.options == "Reasoning effort: high"

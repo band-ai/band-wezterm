@@ -38,6 +38,7 @@ from band_wezterm.tui.screens.register_agent import (
 from band_wezterm.tui.screens.rooms import (
     ChatEventRow,
     ChatTimeline,
+    IdentityRow,
     RoomDetailScreen,
 )
 from band_wezterm.tui.screens.rooms import Id as RoomId
@@ -611,6 +612,32 @@ async def test_room_message_and_event_filter_flow(
         mentions=[(AGENT_ID, selected.name)],
         sender_name="You",
     )
+
+
+async def test_roster_double_click_inserts_agent_mention(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    selected = participant(agent(AGENT_ID, "Architect", harness=HarnessId.CODEX)).model_copy(
+        update={"handle": "architect"}
+    )
+    target_room = room(ROOM_ID, "Planning")
+    band_client.list_participants.return_value = [selected]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target_room)
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RoomDetailScreen)
+        roster_row = screen.query(IdentityRow).first()
+        composer = screen.query_one(room_selector(RoomId.COMPOSER), MarkdownComposer)
+        composer.value = "Please ask"
+        composer.cursor_position = len(composer.value)
+
+        await pilot.click(roster_row, times=2)
+        await settle(pilot)
+
+        assert composer.value == "Please ask @architect "
 
 
 async def test_stale_agent_delete_removes_local_profile(
