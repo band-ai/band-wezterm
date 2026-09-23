@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
+from hashlib import sha256
 from importlib import resources
 from pathlib import Path
 from typing import Final
@@ -31,6 +32,8 @@ WEZTERM_CONFIG_FILE_ENV: Final = "WEZTERM_CONFIG_FILE"
 XDG_CONFIG_HOME_ENV: Final = "XDG_CONFIG_HOME"
 LEGACY_PLUGIN_BASENAME: Final = "band.wezterm.lua"
 PLUGIN_REPO_DIRNAME: Final = "wezterm-plugin"
+PLUGIN_REVISIONS_DIRNAME: Final = "revisions"
+PLUGIN_REVISION_LENGTH: Final = 12
 PLUGIN_DIRNAME: Final = "plugin"
 PLUGIN_PACKAGE: Final = "band_wezterm.wezterm_plugin"
 PLUGIN_INIT_NAME: Final = "init.lua"
@@ -162,23 +165,40 @@ def resolve_plugin_require_url(*, home: Path | None = None) -> str:
     override = os.environ.get(BAND_WEZTERM_PLUGIN_URL_ENV, "").strip()
     if override:
         return override
-    return materialize_plugin_repo(home=home).as_uri()
+    return _materialize_plugin_revision(home=home).as_uri()
 
 
 def materialize_plugin_repo(*, home: Path | None = None) -> Path:
     """Write the packaged Band plugin and its assets into a tiny local git repo."""
     home_dir = home if home is not None else Path.home()
-    # Avoid resolve(): concurrent creation can return Windows' extended spelling.
     root = home_dir / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME
+    return _materialize_plugin(root)
+
+
+def _materialize_plugin_revision(*, home: Path | None = None) -> Path:
+    """Materialize a content-addressed plugin URL that bypasses WezTerm's cache."""
+    home_dir = home if home is not None else Path.home()
+    root = (
+        home_dir
+        / LOCAL_STATE_DIRNAME
+        / PLUGIN_REPO_DIRNAME
+        / PLUGIN_REVISIONS_DIRNAME
+        / _plugin_revision()
+    )
+    return _materialize_plugin(root)
+
+
+def _materialize_plugin(root: Path) -> Path:
+    """Write one immutable plugin revision as a tiny local git repo."""
+    source_text = _plugin_init_lua_text()
+    background = _plugin_background_bytes()
     with _plugin_repo_lock(root):
         plugin_dir = root / PLUGIN_DIRNAME
         plugin_dir.mkdir(parents=True, exist_ok=True)
         target = plugin_dir / PLUGIN_INIT_NAME
-        source_text = _plugin_init_lua_text()
         if not target.is_file() or target.read_text(encoding="utf-8") != source_text:
             _atomic_write(target, source_text)
         background_target = plugin_dir / PLUGIN_ASSETS_DIRNAME / PLUGIN_BACKGROUND_NAME
-        background = _plugin_background_bytes()
         if (
             not background_target.is_file()
             or background_target.read_bytes() != background
@@ -188,6 +208,13 @@ def materialize_plugin_repo(*, home: Path | None = None) -> Path:
         if _plugin_repo_needs_commit(root):
             _git_commit_plugin_repo(root)
     return root
+
+
+def _plugin_revision() -> str:
+    digest = sha256()
+    digest.update(_plugin_init_lua_text().encode("utf-8"))
+    digest.update(_plugin_background_bytes())
+    return digest.hexdigest()[:PLUGIN_REVISION_LENGTH]
 
 
 @contextmanager

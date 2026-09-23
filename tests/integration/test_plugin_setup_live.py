@@ -14,7 +14,7 @@ from band_wezterm.setup_wezterm import (
     WEZTERM_CONFIG_FILE_ENV,
     XDG_CONFIG_HOME_ENV,
     ensure_band_plugin_config,
-    materialize_plugin_repo,
+    resolve_plugin_require_url,
 )
 
 pytestmark = pytest.mark.live_wezterm
@@ -45,7 +45,7 @@ def test_setup_then_wezterm_loads_plugin(isolated_home: Path) -> None:
     result = ensure_band_plugin_config(home=isolated_home)
     assert result.path.is_file()
     config_text = result.path.read_text(encoding="utf-8")
-    plugin_uri = materialize_plugin_repo(home=isolated_home).as_uri()
+    plugin_uri = resolve_plugin_require_url(home=isolated_home)
     assert f"wezterm.plugin.require '{plugin_uri}'" in config_text
     assert "apply_to_config" in config_text
 

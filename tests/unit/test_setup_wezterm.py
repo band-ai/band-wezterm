@@ -169,7 +169,7 @@ def test_ensure_creates_fresh_config(tmp_path: Path) -> None:
     assert MANAGED_END in text
     assert "wezterm.plugin.require 'file://" in text
     assert "wezterm.config_builder()" in text
-    plugin_repo = home / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME
+    plugin_repo = Path(resolve_plugin_require_url(home=home).removeprefix("file://"))
     assert (plugin_repo / PLUGIN_DIRNAME / PLUGIN_INIT_NAME).is_file()
     assert (plugin_repo / ".git").is_dir()
     require_url = resolve_plugin_require_url(home=home)
