@@ -14,9 +14,11 @@ def test_preferences_round_trip(tmp_path: Path) -> None:
     store = PreferencesStore(tmp_path / "prefs.json")
     store.update(
         chat_messages_limit=50,
+        show_band_background=True,
     )
     reloaded = PreferencesStore(tmp_path / "prefs.json")
     assert reloaded.current.chat_messages_limit == 50
+    assert reloaded.current.show_band_background
 
 
 def test_preferences_reject_out_of_range() -> None:

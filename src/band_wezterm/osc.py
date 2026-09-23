@@ -27,6 +27,7 @@ class OscKey(StrEnum):
     ROOM_SLUG = "band.room.slug"
     ROOM_NAME = "band.room.name"
     ROOM_COLOR = "band.room.color"
+    BACKGROUND_ENABLED = "band.background.enabled"
     FOCUS = "band.focus"
 
 

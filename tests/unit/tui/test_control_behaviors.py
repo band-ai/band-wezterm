@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from band_rest.core.api_error import ApiError
+from textual import events
 from textual.widgets import Input, Static
 
 from band_wezterm.agent_draft import apply_draft_patch
@@ -33,7 +34,12 @@ from band_wezterm.tui.screens.register_agent import (
     RegisterAgentScreen,
     WizardStep,
 )
-from band_wezterm.tui.screens.rooms import ChatEventRow, RoomDetailScreen
+from band_wezterm.tui.screens.rooms import (
+    ChatEventRow,
+    ChatTimeline,
+    RoomDetailScreen,
+    participant_mention_text,
+)
 from band_wezterm.tui.screens.rooms import Id as RoomId
 from band_wezterm.tui.screens.rooms import selector as room_selector
 from band_wezterm.tui.screens.settings import Id as SettingsId
@@ -233,11 +239,11 @@ async def test_room_flow_creates_adds_removes_and_deletes_without_stale_ui_state
     band_client.create_room.return_value = created
     band_client.list_my_agents.return_value = [selected]
     band_client.list_participants.side_effect = lambda _room_id: list(participants)
-    band_client.add_participant.side_effect = lambda _room_id, _agent_id: participants.append(
-        participant(selected)
+    band_client.add_participant.side_effect = lambda _room_id, _agent_id: (
+        participants.append(participant(selected))
     )
-    band_client.remove_participant.side_effect = (
-        lambda _room_id, agent_id: participants.remove(
+    band_client.remove_participant.side_effect = lambda _room_id, agent_id: (
+        participants.remove(
             next(entry for entry in participants if entry.id == agent_id)
         )
     )
@@ -438,7 +444,9 @@ async def test_room_appends_realtime_messages_without_rebuilding_history(
                 "inserted_at": "2026-09-23T07:01:00Z",
             },
         )
-        with patch("band_wezterm.tui.screens.rooms.refill", new_callable=AsyncMock) as refill:
+        with patch(
+            "band_wezterm.tui.screens.rooms.refill", new_callable=AsyncMock
+        ) as refill:
             screen.on_room_detail_screen_incoming(RoomDetailScreen.Incoming(event))
             await settle(pilot)
 
@@ -449,7 +457,9 @@ async def test_room_appends_realtime_messages_without_rebuilding_history(
         ]
 
 
-async def test_room_prepends_an_older_cursor_page(control_app: ControlApp, band_client: MagicMock) -> None:
+async def test_room_prepends_an_older_cursor_page(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
     target_room = room(ROOM_ID, "Planning")
     newest = MessageRecord(id="newest", content="Newest", author_name="Architect")
     older = MessageRecord(id="older", content="Older", author_name="Architect")
@@ -474,7 +484,59 @@ async def test_room_prepends_an_older_cursor_page(control_app: ControlApp, band_
         assert [message.id for message in screen.store.messages] == ["older", "newest"]
         assert refill.await_args_list == []
 
-    assert band_client.list_message_page.await_args_list[1].kwargs["cursor"] == "older-page"
+    assert (
+        band_client.list_message_page.await_args_list[1].kwargs["cursor"]
+        == "older-page"
+    )
+
+
+async def test_room_loads_history_when_the_chat_reaches_its_top(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target_room = room(ROOM_ID, "Planning")
+    newest = MessageRecord(id="newest", content="Newest", author_name="Architect")
+    older = MessageRecord(id="older", content="Older", author_name="Architect")
+    band_client.list_message_page.side_effect = [
+        MessagePage(messages=(newest,), next_cursor="older-page", has_more=True),
+        MessagePage(messages=(older,), next_cursor=None, has_more=False),
+    ]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target_room)
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RoomDetailScreen)
+
+        chat = screen.query_one(room_selector(RoomId.CHAT), ChatTimeline)
+        chat._on_mouse_scroll_up(
+            events.MouseScrollUp(
+                chat,
+                x=0,
+                y=0,
+                delta_x=0,
+                delta_y=-1,
+                button=0,
+                shift=False,
+                meta=False,
+                ctrl=False,
+            )
+        )
+        await settle(pilot)
+
+        assert [message.id for message in screen.store.messages] == ["older", "newest"]
+        assert screen._has_older_messages is False
+
+
+def test_room_colors_mentions_using_the_roster_identity() -> None:
+    mentioned = participant(agent(AGENT_ID, "Architect", harness=HarnessId.CODEX))
+
+    rendered = participant_mention_text("Ask @Architect to review.", [mentioned])
+
+    assert rendered is not None
+    assert rendered.plain == "Ask @Architect to review."
+    assert rendered.spans[0].style.color is not None
+    assert rendered.spans[0].style.color.name == mentioned.color
 
 
 async def test_room_message_and_event_filter_flow(

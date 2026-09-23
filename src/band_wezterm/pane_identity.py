@@ -16,6 +16,8 @@ from band_wezterm.identity import (
 from band_wezterm.osc import OscKey, emit_many_to_stdout
 
 CONTROL_HUMAN_NAME: Final = "You"
+BACKGROUND_ENABLED: Final = "1"
+BACKGROUND_DISABLED: Final = "0"
 
 
 def pane_identity_fields(
@@ -108,6 +110,17 @@ def announce_human_pane(user_id: str, name: str = CONTROL_HUMAN_NAME) -> None:
 def announce_control_human(user_id: str) -> None:
     """Control-tab host identity (display name ``CONTROL_HUMAN_NAME``)."""
     announce_human_pane(user_id, CONTROL_HUMAN_NAME)
+
+
+def announce_control_preferences(*, show_band_background: bool) -> None:
+    """Publish Control-only presentation preferences into its WezTerm pane."""
+    emit_many_to_stdout(
+        {
+            OscKey.BACKGROUND_ENABLED: (
+                BACKGROUND_ENABLED if show_band_background else BACKGROUND_DISABLED
+            )
+        }
+    )
 
 
 def announce_runtime_status(

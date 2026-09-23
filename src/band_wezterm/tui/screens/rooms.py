@@ -137,6 +137,19 @@ def selector(widget_id: Id) -> str:
     return f"#{widget_id.value}"
 
 
+class ChatTimeline(ListView):
+    """A chat list that requests one older page only after reaching its top."""
+
+    class ReachedStart(Message):
+        """The user tried to scroll before the earliest loaded event."""
+
+    def _on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+        at_start = self.scroll_y <= 0
+        super()._on_mouse_scroll_up(event)
+        if at_start:
+            self.post_message(self.ReachedStart())
+
+
 def mention_keys(participant: ParticipantRecord) -> tuple[str, ...]:
     """Accepted composer keys, preferring the platform's canonical handle."""
     keys = (participant.handle, participant.name)
@@ -360,7 +373,9 @@ class ChatEventRow(ListItem):
         message = self.message
         message_type = message.message_type or DEFAULT_MESSAGE_TYPE
         with Horizontal(classes="event-header"):
-            author = Text(message.author_name, Style(color=self.author_color, bold=True))
+            author = Text(
+                message.author_name, Style(color=self.author_color, bold=True)
+            )
             yield Static(author, classes="event-author", markup=False)
             with Horizontal(classes="event-meta"):
                 yield Static(
@@ -378,8 +393,7 @@ class ChatEventRow(ListItem):
                 body = message.content
             body = timeline_content(message_type, body)
             content = (
-                self.mention_text
-                or Markdown(body)
+                self.mention_text or Markdown(body)
                 if message_type == DEFAULT_MESSAGE_TYPE
                 else body
             )
@@ -843,7 +857,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
                 yield ListView()
             with Vertical(id=Id.CHAT_SCROLL.value):
                 yield Static("", id=Id.CHAT_HIDDEN.value)
-                yield ListView(id=Id.CHAT.value)
+                yield ChatTimeline(id=Id.CHAT.value)
         with Vertical(id=Id.PICKER.value):
             yield Static(PICKER_TITLE)
             yield ListView(id=Id.PICKER_LIST.value)
@@ -884,8 +898,8 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
     def _allowed_event_types(self) -> tuple[str, ...]:
         return self.control.preferences.current.chat_event_types
 
-    def _chat_view(self) -> ListView:
-        return self.query_one(selector(Id.CHAT), ListView)
+    def _chat_view(self) -> ChatTimeline:
+        return self.query_one(selector(Id.CHAT), ChatTimeline)
 
     async def _render_chat(self, store: RoomsStore) -> None:
         allowed = self._allowed_event_types()
@@ -920,7 +934,9 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             self._unseen_activity = 0
         notice = NEW_ACTIVITY_MESSAGE if self._unseen_activity else ""
         self.query_one(selector(Id.CHAT_HIDDEN), Static).update(
-            history_status_text(history, "  ".join(part for part in (hidden, notice) if part))
+            history_status_text(
+                history, "  ".join(part for part in (hidden, notice) if part)
+            )
         )
         if not store.messages:
             rows: list[ListItem] = [ListItem(Static(EMPTY_CHAT))]
@@ -956,7 +972,9 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         self._chat_view().scroll_end(animate=False)
         self.query_one(selector(Id.CHAT_HIDDEN), Static).update(
             history_status_text(
-                OLDER_MESSAGES_AVAILABLE if self._has_older_messages else OLDER_MESSAGES_COMPLETE,
+                OLDER_MESSAGES_AVAILABLE
+                if self._has_older_messages
+                else OLDER_MESSAGES_COMPLETE,
                 hidden_summary(self.store.messages, self._allowed_event_types()),
             )
         )
@@ -1086,7 +1104,9 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
                 cursor=cursor,
             )
         except Exception as error:
-            self._set_status(format_platform_error(error, operation="load older messages"))
+            self._set_status(
+                format_platform_error(error, operation="load older messages")
+            )
         else:
             self.store.prepend_messages(page.messages)
             self._next_messages_cursor = page.next_cursor
@@ -1095,10 +1115,8 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             self._loading_older_messages = False
             self.mutate_reactive(RoomDetailScreen.store)
 
-    def on_mouse_scroll_up(self, _event: events.MouseScrollUp) -> None:
-        chat = self._chat_view()
-        if chat.has_focus and chat.scroll_y <= 0:
-            self._load_older_messages()
+    def on_chat_timeline_reached_start(self, _event: ChatTimeline.ReachedStart) -> None:
+        self._load_older_messages()
 
     def _highlighted_identity_id(self, list_view: ListView) -> str | None:
         row = list_view.highlighted_child
