@@ -209,6 +209,11 @@ async def _capture_register(app: ControlApp, pilot: Pilot[None]) -> None:
     await _settle(pilot)
 
 
+async def _capture_settings(app: ControlApp, pilot: Pilot[None]) -> None:
+    app.action_show_settings()
+    await _settle(pilot)
+
+
 async def _write(name: str, capture: Capture, size: tuple[int, int]) -> Path:
     client = _client()
     with tempfile.TemporaryDirectory() as raw:
@@ -231,6 +236,7 @@ async def _main() -> None:
             await _write("room-view.svg", _capture_room, (110, 28)),
             await _write("agents-browser.svg", _capture_agents, (110, 18)),
             await _write("agent-register.svg", _capture_register, (110, 20)),
+            await _write("settings.svg", _capture_settings, (110, 28)),
         ]
     for path in written:
         print(path.relative_to(REPO))

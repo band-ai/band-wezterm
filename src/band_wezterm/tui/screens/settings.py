@@ -7,7 +7,7 @@ from typing import ClassVar, Final
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Footer, Header, Input, Label, Static, Switch
 
 from band_wezterm.diagnostics import diagnostics_log_path
@@ -15,10 +15,18 @@ from band_wezterm.pane_identity import announce_control_preferences
 from band_wezterm.preferences import MAX_CHAT_MESSAGES_LIMIT, MIN_CHAT_MESSAGES_LIMIT
 from band_wezterm.tui.screens import ControlScreen
 
-SAVE_HINT: Final = "Enter on a field saves it. Esc returns."
+SAVE_HINT: Final = "Changes save when you press Enter. Esc returns to Band."
+HISTORY_DESCRIPTION: Final = "Messages loaded each time you reach the beginning of a room."
+BACKGROUND_DESCRIPTION: Final = "Apply the subtle Band background to this WezTerm window."
+PLATFORM_DESCRIPTION: Final = "Set BAND_DEPLOYMENT=development before launching Band to use dev."
+LOG_FILE_DESCRIPTION: Final = "Use `band logs --tail 100` for incident triage."
+ACCOUNT_LABEL: Final = "Account · signing out stops local workers"
+HISTORY_LABEL: Final = "Room history · page size"
+BACKGROUND_LABEL: Final = "Appearance · show Band background"
 
 
 class Id(StrEnum):
+    CONTENT = "settings-content"
     CHAT = "settings-chat-limit"
     LOG_FILE = "settings-log-file"
     STATUS = "settings-status"
@@ -38,44 +46,146 @@ class SettingsScreen(ControlScreen):
     ]
 
     DEFAULT_CSS = """
-    SettingsScreen Input {
-        margin: 0 1 1 1;
+    SettingsScreen {
+        align: center top;
     }
+
+    SettingsScreen #settings-content {
+        width: 1fr;
+        max-width: 88;
+        padding: 1 2 2 2;
+    }
+
+    SettingsScreen .settings-title {
+        color: $accent;
+        text-style: bold;
+    }
+
+    SettingsScreen .settings-summary,
+    SettingsScreen .setting-description,
+    SettingsScreen .setting-value {
+        color: $text-muted;
+    }
+
+    SettingsScreen .settings-summary {
+        margin-bottom: 1;
+    }
+
+    SettingsScreen .settings-section {
+        height: auto;
+        margin-bottom: 0;
+    }
+
+    SettingsScreen .danger-section {
+        background: $error 10%;
+    }
+
+    SettingsScreen .settings-section-title {
+        color: $accent;
+        text-style: bold;
+        background: $panel;
+        padding: 0 1;
+    }
+
+    SettingsScreen .setting-row {
+        height: auto;
+        padding: 0 1;
+    }
+
+    SettingsScreen .setting-copy {
+        width: 1fr;
+        height: auto;
+    }
+
+    SettingsScreen .setting-label {
+        text-style: bold;
+    }
+
+    SettingsScreen .setting-description {
+        height: auto;
+    }
+
+    SettingsScreen .setting-input {
+        width: 8;
+        margin: 0 0 0 2;
+    }
+
+    SettingsScreen .setting-switch {
+        width: auto;
+        margin: 0 0 0 2;
+    }
+
     SettingsScreen #settings-status {
         height: 1;
-        padding: 0 1;
+        color: $success;
+        margin: 0 1;
+    }
+
+    SettingsScreen .danger-action {
+        margin: 0 1;
     }
     """
 
     def compose(self) -> ComposeResult:
         prefs = self.control.preferences.current
         yield Header()
-        with Vertical():
-            yield Label("Settings")
-            yield Static(SAVE_HINT)
-            yield Label("Platform")
-            deployment = self.control.settings.band_deployment.value
-            yield Static(
-                f"{deployment.title()} ({self.control.settings.band_base_url})\n"
-                "Set BAND_DEPLOYMENT=development before launching Band to use dev."
-            )
-            yield Label("Chat history page size")
-            yield Input(
-                value=str(prefs.chat_messages_limit),
-                id=Id.CHAT.value,
-                type="integer",
-            )
-            yield Label("Appearance")
-            yield Switch(prefs.show_band_background, id=Id.BACKGROUND.value)
-            yield Static("Show the subtle Band background in this WezTerm window.")
-            yield Label("Log file")
-            yield Static(
-                str(diagnostics_log_path(settings=self.control.settings)),
-                id=Id.LOG_FILE.value,
-            )
-            yield Static("Use `band logs --tail 100` for incident triage.")
+        with Vertical(id=Id.CONTENT.value):
+            yield Label("Settings", classes="settings-title")
+            yield Static(SAVE_HINT, classes="settings-summary")
+            with Vertical(classes="settings-section"):
+                yield Label("Platform", classes="settings-section-title")
+                deployment = self.control.settings.band_deployment.value
+                yield Static(
+                    f"{deployment.title()} · {self.control.settings.band_base_url}",
+                    classes="setting-value",
+                )
+                yield Static(PLATFORM_DESCRIPTION, classes="setting-description")
+
+            with Vertical(classes="settings-section"), Horizontal(
+                classes="setting-row"
+            ):
+                with Vertical(classes="setting-copy"):
+                    yield Label(HISTORY_LABEL, classes="setting-label")
+                    yield Static(HISTORY_DESCRIPTION, classes="setting-description")
+                yield Input(
+                    value=str(prefs.chat_messages_limit),
+                    id=Id.CHAT.value,
+                    type="integer",
+                    classes="setting-input",
+                )
+
+            with Vertical(classes="settings-section"), Horizontal(
+                classes="setting-row"
+            ):
+                with Vertical(classes="setting-copy"):
+                    yield Label(BACKGROUND_LABEL, classes="setting-label")
+                    yield Static(BACKGROUND_DESCRIPTION, classes="setting-description")
+                yield Switch(
+                    prefs.show_band_background,
+                    id=Id.BACKGROUND.value,
+                    classes="setting-switch",
+                )
+
+            with Vertical(classes="settings-section"):
+                yield Label("Diagnostics", classes="settings-section-title")
+                yield Label("Log file", classes="setting-label")
+                yield Static(
+                    str(diagnostics_log_path(settings=self.control.settings)),
+                    id=Id.LOG_FILE.value,
+                    classes="setting-value",
+                )
+                yield Static(LOG_FILE_DESCRIPTION, classes="setting-description")
+
             yield Static("", id=Id.STATUS.value)
-            yield Button("Sign out", id=Id.SIGN_OUT.value)
+            with Vertical(classes="settings-section danger-section"):
+                yield Label(ACCOUNT_LABEL, classes="settings-section-title")
+                yield Button(
+                    "Sign out",
+                    id=Id.SIGN_OUT.value,
+                    variant="error",
+                    classes="danger-action",
+                    compact=True,
+                )
         yield Footer()
 
     def on_mount(self) -> None:

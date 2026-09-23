@@ -180,6 +180,8 @@ very-low-opacity Band background. The background is off by default, applies only
 to the active Band WezTerm window, and restores that window's prior runtime
 background when disabled.
 
+![Band settings screen](docs/images/settings.svg)
+
 ## Development
 
 ```bash
