@@ -47,12 +47,57 @@ def _missing_worker_endpoint() -> str:
     )
 
 
+def _permission_denied(_pid: int, _flags: int) -> tuple[int, int]:
+    raise PermissionError
+
+
 def test_pid_alive_reaps_an_exited_child(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "band_wezterm.supervisor.runtime.os.waitpid", lambda _pid, _flags: (1, 0)
     )
 
     assert not _pid_alive(1)
+
+
+def test_pid_alive_rejects_an_unmanageable_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.supervisor.runtime.os.waitpid", _permission_denied
+    )
+
+    assert not _pid_alive(1)
+
+
+@pytest.mark.asyncio
+async def test_supervisor_list_removes_an_unmanageable_stale_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worker = WorkerRecord(
+        agent_id="agent-1",
+        name="Agent",
+        pid=1,
+        control_socket=_missing_worker_endpoint(),
+        control_token="token",
+        cwd=str(tmp_path),
+        started_at=0,
+    )
+    server = SupervisorServer(user_id="user-1", state_path=tmp_path / "state.json")
+    server._state = server._state.model_copy(
+        update={"workers": {worker.agent_id: worker}}
+    )
+    server._save_state = MagicMock()  # type: ignore[method-assign]
+
+    monkeypatch.setattr(
+        "band_wezterm.supervisor.runtime.os.waitpid", _permission_denied
+    )
+
+    response = await server._dispatch(
+        SupervisorRequest(token="token", action=SupervisorAction.LIST)
+    )
+
+    assert response == {"ok": True, "workers": []}
+    assert server._state.workers == {}
 
 
 @pytest.mark.asyncio
