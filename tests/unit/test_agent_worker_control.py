@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from band_wezterm.agent.runner import WorkerController
+from band_wezterm.agent.runner import WorkerController, parse_args
 from band_wezterm.supervisor.client import supervisor_socket_directory
 from band_wezterm.supervisor.ipc import new_endpoint, open_connection
 from band_wezterm.supervisor.protocol import (
@@ -50,5 +50,19 @@ async def test_worker_controller_authenticates_and_requests_graceful_stop() -> N
         stopping = await _request(socket_path, "secret", WorkerAction.STOP)
         assert stopping.state is WorkerState.STOPPING
         assert controller.stop_requested.is_set()
+    finally:
+        await controller.close()
+
+
+@pytest.mark.asyncio
+async def test_worker_controller_accepts_the_socket_value_from_runner_arguments() -> None:
+    socket_path = new_endpoint(supervisor_socket_directory(), f"test-{uuid4().hex}.sock")
+    args = parse_args(["--control-socket", socket_path, "--control-token", "secret"])
+    controller = WorkerController(args.control_socket, args.control_token)
+    await controller.start()
+    try:
+        assert controller.endpoint is not None
+        response = await _request(controller.endpoint, "secret", WorkerAction.STATUS)
+        assert response.state is WorkerState.STARTING
     finally:
         await controller.close()

@@ -183,7 +183,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--cwd", type=Path, default=Path.cwd())
     parser.add_argument("--opencode-server-url", default=None)
     parser.add_argument("--managed", action="store_true")
-    parser.add_argument("--control-socket", type=Path, default=None)
+    parser.add_argument("--control-socket", default=None)
     parser.add_argument("--control-token", default="")
     return parser.parse_args(argv)
 
