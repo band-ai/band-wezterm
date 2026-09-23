@@ -148,6 +148,8 @@ just screenshots     # refresh README SVGs without WezTerm or platform access
 
 `plugin/init.lua` is the source of truth for the WezTerm plugin. Re-run `band setup` after editing it, reload WezTerm configuration, and use `wezterm.plugin.update_all()` from the Debug Overlay when needed.
 
+See [the architecture map](docs/architecture.md) for where to add commands, screens, and harness support.
+
 ## License
 
 [MIT](LICENSE) © band.ai

@@ -10,8 +10,8 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from band_wezterm.agent.opencode_server import OpenCodeServerManager
-from band_wezterm.backends import TuningOption
 from band_wezterm.catalogs.models import HarnessCatalog, ModelCatalogEntry
+from band_wezterm.harnesses.models import TuningOption
 
 _CATALOG_CLIENT_NAME: Final = "band-wezterm"
 _CATALOG_CLIENT_TITLE: Final = "Band WezTerm"
