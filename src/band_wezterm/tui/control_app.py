@@ -28,7 +28,7 @@ from band_wezterm.local_state import StarredRooms
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.pane_identity import announce_control_human
 from band_wezterm.preferences import PreferencesStore
-from band_wezterm.supervisor import SupervisorClient
+from band_wezterm.supervisor import ManagedAgentLifecycle, SupervisorClient
 from band_wezterm.tui.host_pane import (
     WEZTERM_PANE_ENV,
     current_pane_id,
@@ -139,6 +139,7 @@ class ControlApp(App[None]):
             self.opencode_server
         )
         self.supervisor = supervisor or SupervisorClient()
+        self.agent_lifecycle = ManagedAgentLifecycle(self.supervisor)
         self.client.set_authentication_rejected_handler(
             self._post_authentication_rejected
         )
@@ -177,7 +178,7 @@ class ControlApp(App[None]):
         """Identify the signed-in human, then open the requested Band surface."""
         self.user_id = await self.client.whoami()
         await self.supervisor.connect(self.user_id)
-        self.agents_store.replace_workers(await self.supervisor.list_workers())
+        self.agents_store.replace_workers(await self.agent_lifecycle.workers())
         self.rooms_store.starred_ids = self.starred.list(self.user_id)
         announce_control_human(self.user_id)
         log_event("Band surface entered", user_id=self.user_id)
@@ -268,7 +269,7 @@ class ControlApp(App[None]):
     async def _stop_managed_agents(self) -> bool:
         """Request graceful shutdown for every worker in the shared runtime."""
         try:
-            await self.supervisor.stop_all()
+            await self.agent_lifecycle.stop_all()
         except Exception as error:
             format_platform_error(error, operation="stop managed agents")
             return False
@@ -280,7 +281,7 @@ class ControlApp(App[None]):
         if self.user_id is None:
             return
         try:
-            self.agents_store.replace_workers(await self.supervisor.list_workers())
+            self.agents_store.replace_workers(await self.agent_lifecycle.workers())
         except Exception as error:
             self._report_worker_error(error)
             return

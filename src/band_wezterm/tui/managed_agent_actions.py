@@ -31,9 +31,6 @@ PREFLIGHT_HARNESS_STABILITY_ATTEMPTS: Final = 5
 PROFILE_HARNESS_UNSTABLE_MESSAGE: Final = (
     "Harness kept changing during preflight — try Start again."
 )
-PANE_CLEANUP_FAILED_MESSAGE: Final = (
-    "Agent start failed and its panes could not be closed; use Stop to retry cleanup."
-)
 
 
 class ManagedAgentActions:
@@ -118,7 +115,7 @@ class ManagedAgentActions:
         self,
         agent: AgentRecord,
     ) -> tuple[AgentRecord, ManagedAgentProfile] | None:
-        """Load, preflight, and sync one durable profile for start or attach."""
+        """Load, preflight, and sync one durable profile before starting it."""
         control = self._control_screen.control
         profile = control.managed_agents.get(agent.id)
         if profile is None:
@@ -152,7 +149,7 @@ class ManagedAgentActions:
             if ready is None or control.agents_store.is_running(agent.id):
                 return
             resolved, profile = ready
-            worker = await control.supervisor.start(resolved.id, cwd=Path.cwd())
+            worker = await control.agent_lifecycle.start(resolved.id, cwd=Path.cwd())
             control.agents_store.mark_worker(worker)
             self._set_agent_operation_status(
                 f"Started {resolved.name} ({profile.harness.value}) as a detached worker."
@@ -169,7 +166,7 @@ class ManagedAgentActions:
     async def _stop_managed_agent(self, agent_id: str, agent_name: str) -> None:
         try:
             control = self._control_screen.control
-            worker = await control.supervisor.stop(agent_id)
+            worker = await control.agent_lifecycle.stop(agent_id)
             if worker is None:
                 control.agents_store.mark_stopped(agent_id)
             else:

@@ -24,7 +24,7 @@ from band_wezterm.setup_wezterm import (
     SetupConfigError,
     ensure_band_plugin_config,
 )
-from band_wezterm.supervisor import SupervisorClient
+from band_wezterm.supervisor import ManagedAgentLifecycle, SupervisorClient
 from band_wezterm.tui.control_app import AppScreen, is_control_process, run_control_app
 from band_wezterm.wezterm_cli import (
     WezTermCliError,
@@ -139,6 +139,10 @@ async def _current_supervisor() -> SupervisorClient:
     return supervisor
 
 
+async def _current_lifecycle() -> ManagedAgentLifecycle:
+    return ManagedAgentLifecycle(await _current_supervisor())
+
+
 async def _list_rooms() -> list[RoomRecord]:
     """Read the current user's accessible room catalog."""
     auth = HostAuth()
@@ -212,8 +216,8 @@ async def _run_status(rooms_only: bool, agents_only: bool) -> int:
 
 
 async def _run_agents() -> int:
-    agents, supervisor = await asyncio.gather(_list_agents(), _current_supervisor())
-    workers = {worker.agent_id: worker for worker in await supervisor.list_workers()}
+    agents, lifecycle = await asyncio.gather(_list_agents(), _current_lifecycle())
+    workers = {worker.agent_id: worker for worker in await lifecycle.workers()}
     rows: list[AgentOutput] = []
     for agent in agents:
         worker = workers.get(agent.id)
@@ -240,21 +244,21 @@ def _room_output(room: RoomRecord) -> RoomOutput:
 
 async def _run_start_agent(reference: str) -> int:
     agent = await _resolve_agent(reference)
-    supervisor = await _current_supervisor()
-    worker = await supervisor.start(agent.id, cwd=Path.cwd())
+    lifecycle = await _current_lifecycle()
+    worker = await lifecycle.start(agent.id, cwd=Path.cwd())
     print_agent(_agent_output(worker.name, worker.agent_id, worker.state.value))
     return 0
 
 
 async def _run_stop_agent(reference: str | None, all_agents: bool) -> int:
-    supervisor = await _current_supervisor()
+    lifecycle = await _current_lifecycle()
     if all_agents:
-        await supervisor.stop_all()
+        await lifecycle.stop_all()
         print("Stopping all detached agents.")
         return 0
     assert reference is not None
     agent = await _resolve_agent(reference)
-    worker = await supervisor.stop(agent.id)
+    worker = await lifecycle.stop(agent.id)
     if worker is None:
         print(f"{agent.name} is already stopped.")
     else:
@@ -264,9 +268,9 @@ async def _run_stop_agent(reference: str | None, all_agents: bool) -> int:
 
 async def _run_agent_status(reference: str) -> int:
     agent = await _resolve_agent(reference)
-    supervisor = await _current_supervisor()
+    lifecycle = await _current_lifecycle()
     worker = next(
-        (worker for worker in await supervisor.list_workers() if worker.agent_id == agent.id),
+        (worker for worker in await lifecycle.workers() if worker.agent_id == agent.id),
         None,
     )
     if worker is None:
@@ -304,8 +308,8 @@ async def _run_delete_room(reference: str) -> int:
 
 async def _run_delete_agent(reference: str) -> int:
     agent = await _resolve_agent(reference)
-    supervisor = await _current_supervisor()
-    await supervisor.stop(agent.id)
+    lifecycle = await _current_lifecycle()
+    await lifecycle.stop(agent.id)
     client = BandClient(HostAuth())
     try:
         await client.delete_agent(agent.id)

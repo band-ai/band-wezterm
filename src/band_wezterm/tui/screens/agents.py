@@ -465,7 +465,7 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
         self.store.remove_agent(agent.id)
 
     async def _stop_agent_for_delete(self, agent: AgentRecord) -> None:
-        worker = await self.control.supervisor.stop(agent.id)
+        worker = await self.control.agent_lifecycle.stop(agent.id)
         if worker is None:
             self.store.mark_stopped(agent.id)
         else:
