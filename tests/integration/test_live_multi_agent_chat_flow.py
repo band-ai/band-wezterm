@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import time
 from contextlib import suppress
-from typing import Any
 
 import pytest
 
 from band_wezterm.client import BandClient
 from band_wezterm.config import load_settings
 from tests.live_harness import (
+    LiveAgentRuntime,
     message_has_token,
     pick_harness,
     start_agent_runtime,
@@ -36,7 +36,7 @@ async def test_live_two_harness_agents_share_a_room() -> None:
 
     settings = load_settings()
     client = BandClient.from_user_api_key(api_key, settings)
-    runtimes: list[tuple[Any | None, Any | None]] = []
+    sessions: list[LiveAgentRuntime] = []
     agent_ids: list[str] = []
     room_id: str | None = None
     stamp = int(time.time())
@@ -60,7 +60,7 @@ async def test_live_two_harness_agents_share_a_room() -> None:
         for record in records:
             managed_key = client.managed_agent_api_key(record.id)
             assert managed_key
-            runtimes.append(
+            sessions.append(
                 await start_agent_runtime(
                     harness=harness,
                     agent_id=record.id,
@@ -87,8 +87,8 @@ async def test_live_two_harness_agents_share_a_room() -> None:
                 for message in messages
             )
     finally:
-        for runtime, task in reversed(runtimes):
-            await stop_agent_runtime(runtime, task)
+        for session in reversed(sessions):
+            await stop_agent_runtime(session)
         if room_id is not None:
             for agent_id in agent_ids:
                 with suppress(Exception):

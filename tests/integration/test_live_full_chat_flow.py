@@ -38,8 +38,7 @@ async def test_live_full_chat_agent_and_human_round_trips() -> None:
 
     settings = load_settings()
     client = BandClient.from_user_api_key(api_key, settings)
-    runtime = None
-    task = None
+    session = None
     room_id = None
     agent_id = None
     stamp = int(time.time())
@@ -70,7 +69,7 @@ async def test_live_full_chat_agent_and_human_round_trips() -> None:
             for participant in await client.list_participants(room_id)
         )
 
-        runtime, task = await start_agent_runtime(
+        session = await start_agent_runtime(
             harness=harness,
             agent_id=agent_id,
             api_key=managed,
@@ -126,7 +125,7 @@ async def test_live_full_chat_agent_and_human_round_trips() -> None:
             for participant in await client.list_participants(room_id)
         )
     finally:
-        await stop_agent_runtime(runtime, task)
+        await stop_agent_runtime(session)
         if room_id is not None and agent_id is not None:
             with suppress(Exception):
                 await client.remove_participant(room_id, agent_id)

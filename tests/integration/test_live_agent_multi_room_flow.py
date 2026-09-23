@@ -35,8 +35,7 @@ async def test_live_agent_serves_each_room_it_joins_before_start() -> None:
 
     settings = load_settings()
     client = BandClient.from_user_api_key(api_key, settings)
-    runtime = None
-    task = None
+    session = None
     agent_id: str | None = None
     room_ids: list[str] = []
     stamp = int(time.time())
@@ -56,7 +55,7 @@ async def test_live_agent_serves_each_room_it_joins_before_start() -> None:
         room_ids.append(second_room.id)
         await client.add_participant(second_room.id, agent_id)
 
-        runtime, task = await start_agent_runtime(
+        session = await start_agent_runtime(
             harness=harness,
             agent_id=agent_id,
             api_key=managed_key,
@@ -98,7 +97,7 @@ async def test_live_agent_serves_each_room_it_joins_before_start() -> None:
             for message in second_messages
         )
     finally:
-        await stop_agent_runtime(runtime, task)
+        await stop_agent_runtime(session)
         for room_id in room_ids:
             if agent_id is not None:
                 with suppress(Exception):
