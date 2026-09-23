@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/band-ai/band-wezterm/compare/v0.7.0...v0.7.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **wezterm:** harden first-use control flows ([#33](https://github.com/band-ai/band-wezterm/issues/33)) ([973f9ab](https://github.com/band-ai/band-wezterm/commit/973f9abfcb6ee050ccc46ae29d63e97b5ba0af2e))
+
 ## [0.7.0](https://github.com/band-ai/band-wezterm/compare/v0.6.0...v0.7.0) (2026-09-23)
 
 
