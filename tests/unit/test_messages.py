@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -15,7 +16,7 @@ from band_wezterm.client import (
     display_message_content,
     message_record_from_api,
 )
-from band_wezterm.tui.screens.rooms import message_from_event
+from band_wezterm.tui.screens.rooms import message_from_event, message_time_label
 
 
 def test_display_message_content_resolves_mention_markup() -> None:
@@ -65,6 +66,22 @@ def test_message_record_from_api_keeps_tool_type() -> None:
     record = message_record_from_api(message)
     assert record.message_type == "tool_call"
     assert record.metadata == {"tool": "search"}
+
+
+def test_message_time_label_includes_seconds() -> None:
+    record = message_record_from_api(
+        SimpleNamespace(
+            id="m3",
+            content="hello",
+            sender_name="Architect",
+            sender_id="a1",
+            metadata=None,
+            message_type="text",
+            inserted_at=datetime(2026, 9, 23, 7, 53, 42, tzinfo=UTC),
+        )
+    )
+
+    assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", message_time_label(record))
 
 
 def test_message_from_event_ignores_participant_left() -> None:
