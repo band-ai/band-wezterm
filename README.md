@@ -84,7 +84,7 @@ Read the complete, generated [CLI reference](docs/cli.md), including every argum
 
 Run the command again anywhere to open another independent Room surface.
 
-Terminal lists are paged to 20 rows by default. Use `band room --name room` (or `band room list --name room`) for room titles beginning with `room`; `--limit` and `--offset` navigate large lists. Agent lists use the same options: `band agent list --name developer --limit 20 --offset 20`.
+Terminal lists are paged to 20 rows by default. Use `band room --name room` (or `band room list --name room`) for room titles beginning with `room`; `--limit` and `--offset` navigate large lists. Agent lists use the same options, plus local runtime filters: `band agent --name my-ag --harness cp --state running`. Harnesses are `cl` (Claude), `cx` (Codex), `cp` (Copilot), and `om` (OpenCode); states are `starting`, `running`, `stopping`, `stopped`, and `error`.
 
 <p align="center">
   <img src="docs/images/rooms-browser.svg" alt="Browsing and managing Band rooms in WezTerm">

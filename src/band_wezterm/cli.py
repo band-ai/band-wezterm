@@ -9,7 +9,12 @@ from typing import Annotated, Final
 from cyclopts import App, Parameter
 
 from band_wezterm.diagnostics import DEFAULT_LOG_TAIL_LINES
-from band_wezterm.listing import DEFAULT_PAGE_SIZE, ListQuery
+from band_wezterm.listing import (
+    DEFAULT_PAGE_SIZE,
+    AgentStateFilter,
+    HarnessFilter,
+    ListQuery,
+)
 
 COMMAND_NAME: Final = "band"
 SETUP_HELP: Final = (
@@ -147,10 +152,17 @@ def create_app(
         name: str | None = None,
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
+        harness: Annotated[
+            str | None, Parameter(help="Harness: cl, cx, cp, or om.")
+        ] = None,
+        state: Annotated[
+            str | None,
+            Parameter(help="Runtime state: starting, running, stopping, stopped, or error."),
+        ] = None,
         verbose: Annotated[bool, Parameter(name=("--verbose", "-v"))] = False,
     ) -> int:
         """Open the interactive Agents surface, optionally selecting one agent."""
-        query = ListQuery(name=name, limit=limit, offset=offset)
+        query = _agent_list_query(name, limit, offset, harness, state)
         if reference is None and (not query.is_default or verbose):
             return await agents(query, verbose)
         if reference is not None and not query.is_default:
@@ -163,10 +175,17 @@ def create_app(
         name: str | None = None,
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
+        harness: Annotated[
+            str | None, Parameter(help="Harness: cl, cx, cp, or om.")
+        ] = None,
+        state: Annotated[
+            str | None,
+            Parameter(help="Runtime state: starting, running, stopping, stopped, or error."),
+        ] = None,
         verbose: Annotated[bool, Parameter(name=("--verbose", "-v"))] = False,
     ) -> int:
         """List agents by name prefix in a bounded page."""
-        return await agents(ListQuery(name=name, limit=limit, offset=offset), verbose)
+        return await agents(_agent_list_query(name, limit, offset, harness, state), verbose)
 
     @agent_app.command(name=Command.CREATE)
     def agent_create() -> int:
@@ -203,3 +222,19 @@ def create_app(
     app.command(room_app)
     app.command(agent_app)
     return app
+
+
+def _agent_list_query(
+    name: str | None,
+    limit: int,
+    offset: int,
+    harness: str | None,
+    state: str | None,
+) -> ListQuery:
+    return ListQuery(
+        name=name,
+        limit=limit,
+        offset=offset,
+        harness=HarnessFilter.parse(harness),
+        state=AgentStateFilter.parse(state),
+    )

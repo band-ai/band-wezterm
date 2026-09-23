@@ -317,8 +317,7 @@ async def _run_agents(query: ListQuery, verbose: bool = False) -> int:
     agents, lifecycle = await asyncio.gather(_list_agents(), _current_lifecycle())
     workers = {worker.agent_id: worker for worker in await lifecycle.workers()}
     rows: list[AgentOutput] = []
-    page = paginate(agents, query, display_name=lambda agent: agent.name)
-    for agent in page.items:
+    for agent in agents:
         worker = workers.get(agent.id)
         state = "stopped" if worker is None else worker.state.value
         rows.append(
@@ -334,7 +333,15 @@ async def _run_agents(query: ListQuery, verbose: bool = False) -> int:
                 pid=None if worker is None else worker.pid,
             )
         )
-    print_agents(rows, query=query, page=page.info, verbose=verbose)
+    page = paginate(
+        rows,
+        query,
+        display_name=lambda agent: agent.name,
+        predicate=lambda agent: query.matches_agent(
+            harness=agent.harness, state=agent.state
+        ),
+    )
+    print_agents(list(page.items), query=query, page=page.info, verbose=verbose)
     return 0
 
 

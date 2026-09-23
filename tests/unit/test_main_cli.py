@@ -24,7 +24,7 @@ from band_wezterm.__main__ import (
     main,
 )
 from band_wezterm.cli import Command
-from band_wezterm.listing import ListQuery
+from band_wezterm.listing import AgentStateFilter, HarnessFilter, ListQuery
 from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
 from band_wezterm.tui.control_app import AppScreen, InitialAgentAction
 from band_wezterm.wezterm_cli import WezTermNotFoundError
@@ -380,6 +380,69 @@ async def test_agents_list_verbose_renders_full_runtime_details(
     assert await _run_agents(ListQuery(), verbose=True) == 0
     output = capsys.readouterr().out
     assert all(value in output for value in ("Agent ID:", "codex", "PID: 42"))
+
+
+@pytest.mark.asyncio
+async def test_agents_list_combines_name_harness_and_state_filters(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    supervisor = MagicMock()
+    supervisor.list_workers = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                agent_id="agent-copilot",
+                state=SimpleNamespace(value="running"),
+                pid=42,
+            ),
+            SimpleNamespace(
+                agent_id="agent-copilot-active",
+                state=SimpleNamespace(value="running"),
+                pid=43,
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_supervisor", AsyncMock(return_value=supervisor)
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_agents",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    name="my-agent",
+                    id="agent-copilot",
+                    harness=SimpleNamespace(value="copilot_sdk"),
+                ),
+                SimpleNamespace(
+                    name="my-agent-active",
+                    id="agent-copilot-active",
+                    harness=SimpleNamespace(value="copilot"),
+                ),
+                SimpleNamespace(
+                    name="my-agent-idle",
+                    id="agent-codex",
+                    harness=SimpleNamespace(value="codex"),
+                ),
+            ]
+        ),
+    )
+
+    assert await _run_agents(
+        ListQuery(
+            name="my-ag",
+            harness=HarnessFilter.COPILOT,
+            state=AgentStateFilter.RUNNING,
+            limit=1,
+        )
+    ) == 0
+    output = capsys.readouterr().out
+    assert "my-agent" in output
+    assert "my-agent-active" not in output
+    assert "my-agent-idle" not in output
+    assert (
+        "band agent list --name my-ag --harness cp --state running --limit 1 --offset 1"
+        in output
+    )
 
 
 @pytest.mark.asyncio

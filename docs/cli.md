@@ -186,6 +186,8 @@ Manage detached Band agents.
 * `--name`:
 * `--limit`: *[default: 20]*
 * `--offset`: *[default: 0]*
+* `--harness`: Harness: cl, cx, cp, or om.
+* `--state`: Runtime state: starting, running, stopping, stopped, or error.
 * `--verbose, --no-verbose, -v`: *[default: False]*
 
 ### band agent list
@@ -201,6 +203,8 @@ List agents by name prefix in a bounded page.
 * `--name`:
 * `--limit`: *[default: 20]*
 * `--offset`: *[default: 0]*
+* `--harness`: Harness: cl, cx, cp, or om.
+* `--state`: Runtime state: starting, running, stopping, stopped, or error.
 * `--verbose, --no-verbose, -v`: *[default: False]*
 
 ### band agent create

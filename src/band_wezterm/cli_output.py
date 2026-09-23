@@ -118,4 +118,4 @@ def _print_page_summary(
     last = page.offset + page.count
     console.print(f"Showing {first}-{last} of {page.total} {kind.value}s.")
     if command := next_page_command(kind, query, page):
-        console.print(f"Next: {command}")
+        console.print(f"Next: {command}", soft_wrap=True)
