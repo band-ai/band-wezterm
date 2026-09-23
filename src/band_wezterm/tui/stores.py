@@ -310,6 +310,18 @@ class RoomsStore:
         self.rooms = list(rooms)
         self._reconcile_selection()
 
+    def append_rooms(self, rooms: Sequence[RoomRecord]) -> None:
+        """Merge one later cursor page without duplicating a concurrently changed room."""
+        positions = {room.id: index for index, room in enumerate(self.rooms)}
+        for room in rooms:
+            index = positions.get(room.id)
+            if index is None:
+                positions[room.id] = len(self.rooms)
+                self.rooms.append(room)
+            else:
+                self.rooms[index] = room
+        self._reconcile_selection()
+
     def add_room(self, room: RoomRecord) -> None:
         self.rooms = [room, *self.rooms]
         self.selected_id = room.id

@@ -23,6 +23,7 @@ from band_wezterm.client import (
     BandClient,
     MessageRecord,
     ParticipantRecord,
+    RoomPage,
     RoomRecord,
 )
 from band_wezterm.config import Settings
@@ -114,7 +115,7 @@ def _client() -> MagicMock:
         reviewer,
         release,
     ]
-    client.list_my_chats.return_value = [
+    rooms = [
         _room(LAUNCH_ID, "Launch"),
         _room(DESIGN_ID, "Design review"),
         _room(ONCALL_ID, "On-call"),
@@ -122,6 +123,10 @@ def _client() -> MagicMock:
         _room(INCIDENT_ID, "Incident review"),
         _room(RESEARCH_ID, "Research"),
     ]
+    client.list_my_chats.return_value = rooms
+    client.list_room_page.return_value = RoomPage(
+        rooms=tuple(rooms), next_cursor=None, has_more=False
+    )
     client.list_participants.return_value = [
         _human(),
         _participant(claude),

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from band_rest.core.api_error import ApiError
@@ -18,7 +18,9 @@ from band_wezterm.client import (
     MessageRecord,
     RealtimeEvent,
     RealtimeEventKind,
+    RoomPage,
 )
+from band_wezterm.config import ROOMS_PAGE_LIMIT
 from band_wezterm.diagnostics import diagnostics_log_path
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
@@ -39,6 +41,7 @@ from band_wezterm.tui.screens.rooms import (
     ChatEventRow,
     ChatTimeline,
     IdentityRow,
+    RoomCatalog,
     RoomDetailScreen,
 )
 from band_wezterm.tui.screens.rooms import Id as RoomId
@@ -517,6 +520,34 @@ async def test_room_prepends_an_older_cursor_page(
         band_client.list_message_page.await_args_list[1].kwargs["cursor"]
         == "older-page"
     )
+
+
+async def test_rooms_load_the_next_cursor_page_at_catalog_end(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    first = room("room-first", "First")
+    second = room("room-second", "Second")
+    band_client.list_room_page.side_effect = lambda *, cursor=None, **_kwargs: (
+        RoomPage(rooms=(first,), next_cursor="next-page", has_more=True)
+        if cursor is None
+        else RoomPage(rooms=(second,), next_cursor=None, has_more=False)
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.action_show_rooms()
+        await settle(pilot)
+        screen = control_app.screen
+        catalog = screen.query_one(room_selector(RoomId.LIST), RoomCatalog)
+        catalog.post_message(RoomCatalog.ReachedEnd())
+        await settle(pilot)
+
+        assert [item.id for item in screen.store.rooms] == [first.id, second.id]
+
+    assert band_client.list_room_page.await_args_list == [
+        call(limit=ROOMS_PAGE_LIMIT),
+        call(limit=ROOMS_PAGE_LIMIT, cursor="next-page"),
+    ]
 
 
 async def test_room_loads_history_when_the_chat_reaches_its_top(

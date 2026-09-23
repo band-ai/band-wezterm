@@ -39,10 +39,10 @@ from band_wezterm.client import (
     Unsubscribe,
     display_message_content,
 )
+from band_wezterm.config import ROOMS_PAGE_LIMIT
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, AvatarKind
 from band_wezterm.platform_models import DEFAULT_MESSAGE_TYPE
-from band_wezterm.tui.catalog_loaders import list_rooms
 from band_wezterm.tui.chat_events import (
     DISCLOSURE_COLLAPSED,
     DISCLOSURE_EXPANDED,
@@ -97,6 +97,7 @@ ROSTER_TITLE: Final = "Roster"
 ROSTER_DETAIL_EMPTY: Final = "Select an agent for details."
 ROSTER_MENTION_HINT: Final = "Double-click to insert {mention}"
 EMPTY_ROOMS: Final = "No rooms match the filter."
+LOADING_MORE_ROOMS_MESSAGE: Final = "Loading more rooms…"
 EMPTY_CHAT: Final = "*No messages yet.*"
 NEW_ACTIVITY_MESSAGE: Final = "New activity — End jumps to latest."
 OLDER_MESSAGES_LOADING: Final = "Loading older messages…"
@@ -155,6 +156,25 @@ class ChatTimeline(ListView):
         super()._on_mouse_scroll_up(event)
         if at_start:
             self.post_message(self.ReachedStart())
+
+
+class RoomCatalog(ListView):
+    """A room list that asks for its next cursor page at the bottom."""
+
+    class ReachedEnd(Message):
+        """The user tried to scroll after the last loaded room."""
+
+    def _on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        at_end = self.is_vertical_scroll_end
+        super()._on_mouse_scroll_down(event)
+        if at_end:
+            self.post_message(self.ReachedEnd())
+
+    def action_cursor_down(self) -> None:
+        at_end = self.index == len(self) - 1
+        super().action_cursor_down()
+        if at_end:
+            self.post_message(self.ReachedEnd())
 
 
 def resolve_mentions(
@@ -547,7 +567,7 @@ class RoomsScreen(ControlScreen):
             selected=frozenset({RoomFilter.ALL.value}),
             id=Id.FILTERS.value,
         )
-        yield ListView(id=Id.LIST.value)
+        yield RoomCatalog(id=Id.LIST.value)
         with Vertical(id=Id.DRAFT.value):
             yield Static(DRAFT_TITLE)
             yield Input(placeholder=DRAFT_PLACEHOLDER, id=Id.DRAFT_TITLE.value)
@@ -557,6 +577,12 @@ class RoomsScreen(ControlScreen):
     def on_mount(self) -> None:
         self.store = self.control.rooms_store
         self._pending_delete_id: str | None = None
+        self._has_more_rooms = False
+        self._loading_more_rooms = False
+        self._next_rooms_cursor: str | None = None
+        self._rendered_rows: tuple[tuple[RoomRecord, bool], ...] | None = None
+        self._follow_room_catalog = False
+        self._initial_resume = True
         self.query_one(selector(Id.LIST), ListView).focus()
         install_catalog_refresh(self, self._refresh_catalog)
         self._load_rooms()
@@ -566,6 +592,9 @@ class RoomsScreen(ControlScreen):
         if not self.is_mounted:
             return
         self._pending_delete_id = None
+        if self._initial_resume:
+            self._initial_resume = False
+            return
         self._load_rooms()
         self.mutate_reactive(RoomsScreen.store)
 
@@ -582,18 +611,24 @@ class RoomsScreen(ControlScreen):
         )
         visible = store.visible
         list_view = self.query_one(selector(Id.LIST), ListView)
-        await list_view.clear()
-        await list_view.extend(
-            RoomRow(room, starred=store.is_starred(room.id)) for room in visible
-        )
-        list_view.index = next(
-            (
-                index
-                for index, room in enumerate(visible)
-                if room.id == store.selected_id
-            ),
-            0 if visible else None,
-        )
+        rows = tuple((room, store.is_starred(room.id)) for room in visible)
+        if rows != self._rendered_rows:
+            self._rendered_rows = rows
+            await list_view.clear()
+            await list_view.extend(
+                RoomRow(room, starred=starred) for room, starred in rows
+            )
+            list_view.index = next(
+                (
+                    index
+                    for index, room in enumerate(visible)
+                    if room.id == store.selected_id
+                ),
+                0 if visible else None,
+            )
+            if self._follow_room_catalog:
+                list_view.scroll_end(animate=False)
+                self._follow_room_catalog = False
         self.query_one(selector(Id.STATUS), Static).update(
             store.status or ("" if visible else EMPTY_ROOMS)
         )
@@ -650,15 +685,19 @@ class RoomsScreen(ControlScreen):
     async def _load_rooms(self) -> None:
         store = self.store
         store.loading = True
+        self._has_more_rooms = False
+        self._next_rooms_cursor = None
         try:
-            rooms = await list_rooms(self.control.client)
+            page = await self.control.client.list_room_page(limit=ROOMS_PAGE_LIMIT)
         except Exception as error:
             store.set_status(
                 RoomStatusSource.LIST,
                 format_platform_error(error, operation="load rooms"),
             )
         else:
-            store.replace_rooms(rooms)
+            store.replace_rooms(page.rooms)
+            self._next_rooms_cursor = page.next_cursor
+            self._has_more_rooms = page.has_more
             store.clear_status(RoomStatusSource.LIST)
         finally:
             store.loading = False
@@ -666,6 +705,38 @@ class RoomsScreen(ControlScreen):
 
     def action_reload(self) -> None:
         self._load_rooms()
+
+    def on_room_catalog_reached_end(self, _event: RoomCatalog.ReachedEnd) -> None:
+        self._load_more_rooms()
+
+    @work(exclusive=True, group="rooms-load")
+    async def _load_more_rooms(self) -> None:
+        if not self._has_more_rooms or self._loading_more_rooms:
+            return
+        cursor = self._next_rooms_cursor
+        if cursor is None:
+            return
+        self._loading_more_rooms = True
+        self.store.set_status(RoomStatusSource.LIST, LOADING_MORE_ROOMS_MESSAGE)
+        self.mutate_reactive(RoomsScreen.store)
+        try:
+            page = await self.control.client.list_room_page(
+                limit=ROOMS_PAGE_LIMIT, cursor=cursor
+            )
+        except Exception as error:
+            self.store.set_status(
+                RoomStatusSource.LIST,
+                format_platform_error(error, operation="load more rooms"),
+            )
+        else:
+            self._follow_room_catalog = True
+            self.store.append_rooms(page.rooms)
+            self._next_rooms_cursor = page.next_cursor
+            self._has_more_rooms = page.has_more
+            self.store.clear_status(RoomStatusSource.LIST)
+        finally:
+            self._loading_more_rooms = False
+            self.mutate_reactive(RoomsScreen.store)
 
     # --- create room (transient overlay) -----------------------------------
 

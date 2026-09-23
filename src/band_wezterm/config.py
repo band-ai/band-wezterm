@@ -28,6 +28,8 @@ KEYRING_MANAGED_AGENT_KEY_PREFIX = "managedAgentApiKey."
 LOCAL_STATE_DIRNAME = ".band-wezterm"
 # Matches band-plugin-vsc DEFAULT_CHAT_MESSAGES_LIMIT — latest page on room enter.
 CHAT_MESSAGES_LIMIT = 20
+# One bounded catalog page; the Rooms surface requests subsequent cursors on demand.
+ROOMS_PAGE_LIMIT = 20
 # Child-pane env / CLI — never OSC.
 AGENT_API_KEY_ENV = "BAND_AGENT_API_KEY"
 AGENT_ID_ENV = "BAND_AGENT_ID"
