@@ -24,6 +24,10 @@ setup:
 test:
     uv run pytest tests/unit -q
 
+# Branch coverage for the shipped package; fails below the configured ratchet.
+coverage:
+    uv run pytest tests/unit -q --cov=band_wezterm --cov-branch --cov-report=term-missing
+
 # WezTerm CLI live checks (needs wezterm on PATH)
 test-wezterm:
     uv run pytest tests/integration/test_wezterm_cli_live.py tests/integration/test_plugin_setup_live.py -q

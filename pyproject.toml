@@ -64,10 +64,21 @@ markers = [
     "live_platform: requires BAND_API_KEY_USER from .env.test",
 ]
 
+[tool.coverage.run]
+branch = true
+source = ["band_wezterm"]
+
+[tool.coverage.report]
+# The suite currently measures 68.92%. Raise this ratchet as the uncovered UI and
+# managed-runtime flows receive executable coverage; do not mask them.
+fail_under = 68
+show_missing = true
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-cov>=7.1.0",
     "python-dotenv>=1.0.0",
     "pexpect>=4.9.0",
     "pyte>=0.8.2",

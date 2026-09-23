@@ -7,11 +7,12 @@ import json
 import os
 from pathlib import Path
 from unittest.mock import MagicMock
+from uuid import uuid4
 
 import pytest
 
-from band_wezterm.supervisor.client import SupervisorClient
-from band_wezterm.supervisor.ipc import is_tcp, open_connection
+from band_wezterm.supervisor.client import SupervisorClient, supervisor_socket_directory
+from band_wezterm.supervisor.ipc import is_tcp, new_endpoint, open_connection
 from band_wezterm.supervisor.protocol import (
     SupervisorAction,
     SupervisorRequest,
@@ -38,6 +39,12 @@ def _state_is_ready(state_path: Path) -> bool:
         return False
     state = SupervisorState.model_validate_json(state_path.read_text())
     return is_tcp(state.socket_path) or Path(state.socket_path).exists()
+
+
+def _missing_worker_endpoint() -> str:
+    return new_endpoint(
+        supervisor_socket_directory(), f"missing-worker-{uuid4().hex}.sock"
+    )
 
 
 @pytest.mark.asyncio
@@ -142,7 +149,7 @@ async def test_stop_of_unready_worker_terminates_its_process_group(
         agent_id="agent-1",
         name="Agent",
         pid=os.getpid(),
-        control_socket=str(tmp_path / "missing.sock"),
+        control_socket=_missing_worker_endpoint(),
         control_token="token",
         cwd=str(tmp_path),
         started_at=0,
@@ -173,7 +180,7 @@ async def test_refresh_force_stops_an_unresponsive_stopping_worker(
         agent_id="agent-1",
         name="Agent",
         pid=1,
-        control_socket=str(tmp_path / "missing.sock"),
+        control_socket=_missing_worker_endpoint(),
         control_token="token",
         cwd=str(tmp_path),
         started_at=0,
