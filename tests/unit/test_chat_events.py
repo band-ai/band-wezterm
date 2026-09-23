@@ -15,11 +15,13 @@ from band_wezterm.tui.chat_events import (
     count_by_category,
     error_display_content,
     event_preview,
+    event_tag_class,
     hidden_summary,
     is_always_expanded,
     message_is_visible,
     normalize_allowed_types,
     select_all_categories,
+    timeline_preview,
     toggle_category,
     verbose_active,
     visible_messages,
@@ -39,6 +41,26 @@ def test_event_preview_empty() -> None:
 
 def test_event_preview_first_line_only() -> None:
     assert event_preview("one\ntwo") == "one"
+
+
+def test_tool_result_timeline_preview_summarizes_success() -> None:
+    message = MessageRecord(
+        id="result-1",
+        author_name="Developer",
+        message_type="tool_result",
+        content=(
+            '{"name":"band_send_message","output":[{"type":"text",'
+            '"text":"{\\"status\\":\\"success\\",\\"message\\":'
+            '\\"Message sent\\"}"}]}'
+        ),
+    )
+
+    assert timeline_preview(message) == "band_send_message · Message sent"
+
+
+def test_event_tag_class_is_semantic_for_known_and_unknown_types() -> None:
+    assert event_tag_class("tool_result") == "event-tag-tool-result"
+    assert event_tag_class("future_event") == "event-tag-system"
 
 
 def test_default_visibility_hides_tools() -> None:

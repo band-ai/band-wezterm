@@ -8,6 +8,7 @@ from collections.abc import Iterable, Sequence
 from enum import StrEnum
 from typing import ClassVar, Final
 
+from rich.markdown import Markdown
 from rich.style import Style
 from rich.text import Text
 from textual import work
@@ -48,10 +49,11 @@ from band_wezterm.tui.chat_events import (
     apply_verbose,
     badge_label,
     error_display_content,
-    event_preview,
+    event_tag_class,
     hidden_summary,
     is_always_expanded,
     metadata_pretty,
+    timeline_preview,
     verbose_active,
     visible_messages,
 )
@@ -275,6 +277,20 @@ class ChatEventRow(ListItem):
         color: $text-muted;
         width: auto;
     }
+    ChatEventRow .event-tag {
+        margin-left: 1;
+        padding: 0 1;
+        text-style: bold;
+        width: auto;
+    }
+    ChatEventRow .event-tag-text { background: $accent; color: $text; }
+    ChatEventRow .event-tag-thought { background: $primary; color: $text; }
+    ChatEventRow .event-tag-task { background: $warning; color: $text; }
+    ChatEventRow .event-tag-tool-call { background: $secondary; color: $text; }
+    ChatEventRow .event-tag-tool-result { background: $success; color: $text; }
+    ChatEventRow .event-tag-error { background: $error; color: $text; }
+    ChatEventRow .event-tag-attention { background: $warning; color: $text; }
+    ChatEventRow .event-tag-system { background: $surface-lighten-1; color: $text-muted; }
     ChatEventRow .event-badge {
         color: $accent;
     }
@@ -293,10 +309,15 @@ class ChatEventRow(ListItem):
 
     def compose(self) -> ComposeResult:
         message = self.message
+        message_type = message.message_type or DEFAULT_MESSAGE_TYPE
         with Horizontal(classes="event-header"):
             yield Static(message.author_name, classes="event-author")
+            yield Static(
+                badge_label(message_type),
+                classes=f"event-tag {event_tag_class(message_type)}",
+                markup=False,
+            )
             yield Static(message_time_label(message), classes="event-timestamp")
-        message_type = message.message_type or DEFAULT_MESSAGE_TYPE
         if is_always_expanded(message_type):
             if message_type == "error":
                 body = error_display_content(message.content, message.metadata)
@@ -308,7 +329,10 @@ class ChatEventRow(ListItem):
                 )
             else:
                 body = message.content
-            yield Static(body or "(empty)", classes="event-body", markup=False)
+            content = (
+                Markdown(body) if message_type == DEFAULT_MESSAGE_TYPE else body
+            )
+            yield Static(content or "(empty)", classes="event-body", markup=False)
             return
         badge = badge_label(message_type)
         if self.expanded:
@@ -325,7 +349,7 @@ class ChatEventRow(ListItem):
             if pretty is not None:
                 yield Static(pretty, classes="event-body", markup=False)
         else:
-            preview = event_preview(message.content)
+            preview = timeline_preview(message)
             yield Static(
                 f"[{badge}] {preview}  {DISCLOSURE_COLLAPSED}",
                 classes="event-preview",

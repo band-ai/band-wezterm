@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, Final
 
+from rich.syntax import Syntax
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
@@ -17,6 +18,20 @@ from band_wezterm.tui.chat_events import (
     error_display_content,
     metadata_pretty,
 )
+
+JSON_LEXER: Final = "json"
+SYNTAX_THEME: Final = "ansi_dark"
+
+
+def syntax_highlight(content: str) -> Syntax:
+    """Render already-normalized structured event data with terminal colors."""
+    return Syntax(
+        content,
+        JSON_LEXER,
+        theme=SYNTAX_THEME,
+        word_wrap=True,
+        background_color="default",
+    )
 
 
 class ChatEventDetailScreen(ModalScreen[None]):
@@ -71,9 +86,15 @@ class ChatEventDetailScreen(ModalScreen[None]):
         with VerticalScroll() as scroll:
             scroll.border_title = "Event detail"
             yield Static(header, id="detail-header", markup=False)
-            yield Static(body or "(empty)", id="detail-body", markup=False)
+            yield Static(
+                syntax_highlight(body) if body != raw_body else body or "(empty)",
+                id="detail-body",
+                markup=False,
+            )
             pretty = metadata_pretty(message.metadata)
             if pretty is not None:
                 yield Static("metadata:", markup=False)
-                yield Static(pretty, id="detail-metadata", markup=False)
+                yield Static(
+                    syntax_highlight(pretty), id="detail-metadata", markup=False
+                )
         yield Footer()

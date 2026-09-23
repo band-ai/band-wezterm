@@ -78,6 +78,19 @@ DEFAULT_ALLOWED_TYPES: Final[tuple[str, ...]] = (
     "participant",
 )
 
+EVENT_TAG_CLASSES: Final[dict[str, str]] = {
+    EventFilterCategory.TEXT.value: "event-tag-text",
+    EventFilterCategory.THOUGHT.value: "event-tag-thought",
+    EventFilterCategory.TASK.value: "event-tag-task",
+    EventFilterCategory.TOOL_CALL.value: "event-tag-tool-call",
+    EventFilterCategory.TOOL_RESULT.value: "event-tag-tool-result",
+    EventFilterCategory.ERROR.value: "event-tag-error",
+    EventFilterCategory.ATTENTION.value: "event-tag-attention",
+    EventFilterCategory.SYSTEM.value: "event-tag-system",
+    "participant": "event-tag-system",
+}
+DEFAULT_EVENT_TAG_CLASS: Final = "event-tag-system"
+
 VERBOSE_TYPES: Final[frozenset[str]] = frozenset(
     {
         EventFilterCategory.TASK.value,
@@ -101,6 +114,11 @@ CATEGORY_ORDER: Final[tuple[EventFilterCategory, ...]] = tuple(EventFilterCatego
 
 def badge_label(message_type: str) -> str:
     return BADGE_LABELS.get(message_type, message_type)
+
+
+def event_tag_class(message_type: str) -> str:
+    """A safe, semantic CSS class for an event category tag."""
+    return EVENT_TAG_CLASSES.get(message_type, DEFAULT_EVENT_TAG_CLASS)
 
 
 def is_filterable(message_type: str) -> bool:
@@ -238,6 +256,47 @@ def event_preview(content: str) -> str:
     if len(characters) <= EVENT_PREVIEW_MAX_LENGTH:
         return first_line
     return "".join(characters[:EVENT_PREVIEW_MAX_LENGTH]) + "…"
+
+
+def timeline_preview(message: MessageRecord) -> str:
+    """One useful line for a collapsed event, favoring tool intent over JSON."""
+    if message.message_type not in {
+        EventFilterCategory.TOOL_CALL.value,
+        EventFilterCategory.TOOL_RESULT.value,
+    }:
+        return event_preview(message.content)
+    payload = _json_mapping(message.content)
+    if payload is None:
+        return event_preview(message.content)
+    name = payload.get("name")
+    tool_name = str(name) if name else badge_label(message.message_type)
+    detail = _tool_result_detail(payload)
+    return tool_name if detail is None else f"{tool_name} · {detail}"
+
+
+def _json_mapping(content: str) -> Mapping[str, Any] | None:
+    try:
+        parsed = json.loads(content)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, Mapping) else None
+
+
+def _tool_result_detail(payload: Mapping[str, Any]) -> str | None:
+    output = payload.get("output")
+    if not isinstance(output, Sequence) or isinstance(output, str) or not output:
+        return None
+    first = output[0]
+    if not isinstance(first, Mapping):
+        return None
+    text = first.get("text")
+    if not isinstance(text, str):
+        return None
+    response = _json_mapping(text)
+    if response is None:
+        return event_preview(text)
+    message = response.get("message")
+    return str(message) if message else event_preview(text)
 
 
 def error_display_content(
