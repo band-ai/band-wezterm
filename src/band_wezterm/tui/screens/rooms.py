@@ -927,6 +927,10 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             return
         if previous and timeline[: len(previous)] == previous:
             await chat.extend(rows[-new_count:])
+        elif previous and timeline[-len(previous) :] == previous:
+            previous_index = chat.index or 0
+            await chat.insert(0, rows[:new_count])
+            chat.index = previous_index + new_count
         else:
             await refill(chat, rows)
         if following:

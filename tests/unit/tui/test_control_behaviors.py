@@ -465,10 +465,14 @@ async def test_room_prepends_an_older_cursor_page(control_app: ControlApp, band_
         screen = control_app.screen
         assert isinstance(screen, RoomDetailScreen)
 
-        screen._load_older_messages()
-        await settle(pilot)
+        with patch(
+            "band_wezterm.tui.screens.rooms.refill", new_callable=AsyncMock
+        ) as refill:
+            screen._load_older_messages()
+            await settle(pilot)
 
         assert [message.id for message in screen.store.messages] == ["older", "newest"]
+        assert refill.await_args_list == []
 
     assert band_client.list_message_page.await_args_list[1].kwargs["cursor"] == "older-page"
 
