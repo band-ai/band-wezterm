@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.8.0](https://github.com/band-ai/band-wezterm/compare/v0.7.1...v0.8.0) (2026-09-23)
+
+
+### Features
+
+* **wezterm:** refine rooms and agent control surfaces ([c7d988a](https://github.com/band-ai/band-wezterm/commit/c7d988ac38c6bf5dcd8a621e195e218055f91f60))
+
+
+### Bug Fixes
+
+* **rooms:** stabilize the live message timeline ([#36](https://github.com/band-ai/band-wezterm/issues/36)) ([115a6bd](https://github.com/band-ai/band-wezterm/commit/115a6bd1a0763a4cb054d10f7ee399537678b19b))
+
+
+### Documentation
+
+* **readme:** refresh cli workflow ([#38](https://github.com/band-ai/band-wezterm/issues/38)) ([d025f7f](https://github.com/band-ai/band-wezterm/commit/d025f7f79263c500da4a67ac90674d24053c5fd6))
+
 ## [0.7.1](https://github.com/band-ai/band-wezterm/compare/v0.7.0...v0.7.1) (2026-09-23)
 
 
