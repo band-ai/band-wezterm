@@ -21,6 +21,7 @@ from band_wezterm.tui.chat_events import (
     message_is_visible,
     normalize_allowed_types,
     select_all_categories,
+    timeline_content,
     timeline_preview,
     toggle_category,
     verbose_active,
@@ -61,6 +62,12 @@ def test_tool_result_timeline_preview_summarizes_success() -> None:
 def test_event_tag_class_is_semantic_for_known_and_unknown_types() -> None:
     assert event_tag_class("tool_result") == "event-tag-tool-result"
     assert event_tag_class("future_event") == "event-tag-system"
+
+
+def test_timeline_content_removes_redundant_platform_category_prefix() -> None:
+    assert timeline_content("task", "[Task] Token usage: input=6") == "Token usage: input=6"
+    assert timeline_content("participant", "[Participant] Ada joined") == "Ada joined"
+    assert timeline_content("text", "[Task] User-authored text") == "[Task] User-authored text"
 
 
 def test_default_visibility_hides_tools() -> None:

@@ -121,6 +121,21 @@ def event_tag_class(message_type: str) -> str:
     return EVENT_TAG_CLASSES.get(message_type, DEFAULT_EVENT_TAG_CLASS)
 
 
+def timeline_content(message_type: str, content: str) -> str:
+    """Remove the platform's redundant category prefix from a timeline row."""
+    if message_type == EventFilterCategory.TEXT.value:
+        return content
+    prefixes = {
+        badge_label(message_type),
+        message_type.replace("_", " ").title(),
+    }
+    for prefix in prefixes:
+        marker = f"[{prefix}]"
+        if content.startswith(marker):
+            return content.removeprefix(marker).lstrip()
+    return content
+
+
 def is_filterable(message_type: str) -> bool:
     return message_type in ALL_FILTERABLE_TYPES
 
@@ -264,7 +279,7 @@ def timeline_preview(message: MessageRecord) -> str:
         EventFilterCategory.TOOL_CALL.value,
         EventFilterCategory.TOOL_RESULT.value,
     }:
-        return event_preview(message.content)
+        return event_preview(timeline_content(message.message_type, message.content))
     payload = _json_mapping(message.content)
     if payload is None:
         return event_preview(message.content)

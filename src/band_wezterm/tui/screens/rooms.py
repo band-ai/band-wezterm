@@ -53,6 +53,7 @@ from band_wezterm.tui.chat_events import (
     hidden_summary,
     is_always_expanded,
     metadata_pretty,
+    timeline_content,
     timeline_preview,
     verbose_active,
     visible_messages,
@@ -321,29 +322,25 @@ class ChatEventRow(ListItem):
         if is_always_expanded(message_type):
             if message_type == "error":
                 body = error_display_content(message.content, message.metadata)
-            elif message_type == "thought":
-                body = (
-                    f"[{badge_label(message_type)}] {message.content}"
-                    if message.content
-                    else f"[{badge_label(message_type)}]"
-                )
             else:
                 body = message.content
+            body = timeline_content(message_type, body)
             content = (
                 Markdown(body) if message_type == DEFAULT_MESSAGE_TYPE else body
             )
             yield Static(content or "(empty)", classes="event-body", markup=False)
             return
-        badge = badge_label(message_type)
         if self.expanded:
             disclosure = DISCLOSURE_EXPANDED
             yield Static(
-                f"[{badge}] {disclosure}",
+                disclosure,
                 classes="event-badge",
                 markup=False,
             )
             yield Static(
-                message.content or "(empty)", classes="event-body", markup=False
+                timeline_content(message_type, message.content) or "(empty)",
+                classes="event-body",
+                markup=False,
             )
             pretty = metadata_pretty(message.metadata)
             if pretty is not None:
@@ -351,7 +348,7 @@ class ChatEventRow(ListItem):
         else:
             preview = timeline_preview(message)
             yield Static(
-                f"[{badge}] {preview}  {DISCLOSURE_COLLAPSED}",
+                f"{preview}  {DISCLOSURE_COLLAPSED}",
                 classes="event-preview",
                 markup=False,
             )
