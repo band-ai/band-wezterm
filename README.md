@@ -33,17 +33,17 @@ There is no global Control window to find or reuse. `band room` and `band agent`
 
 ## Install
 
-Install [Python 3.12+](https://www.python.org/downloads/), [uv](https://github.com/astral-sh/uv), [WezTerm](https://wezterm.org/), and [GitHub CLI](https://cli.github.com/). Authenticate GitHub once with `gh auth login` for this private repository.
+Install [Python 3.12+](https://www.python.org/downloads/), [uv](https://github.com/astral-sh/uv), [WezTerm](https://wezterm.org/), and [Git](https://git-scm.com/). No GitHub account or GitHub CLI is required.
 
 ### Stable release
 
 ```bash
-gh release download --repo band-ai/band-wezterm --pattern install.sh --output - | bash -s -- --release
+curl -fsSL https://github.com/band-ai/band-wezterm/releases/latest/download/install.sh | bash -s -- --release
 ```
 
 ```powershell
 $installer = Join-Path ([System.IO.Path]::GetTempPath()) "band-wezterm-install.ps1"
-gh release download --repo band-ai/band-wezterm --pattern install.ps1 --output $installer --clobber
+Invoke-WebRequest https://github.com/band-ai/band-wezterm/releases/latest/download/install.ps1 -OutFile $installer
 & $installer -Channel release
 Remove-Item $installer
 ```
