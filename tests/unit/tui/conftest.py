@@ -1,4 +1,4 @@
-"""Shared Control-tab test tooling: autospec'd platform seams and a Pilot helper.
+"""Shared Band-screen test tooling: autospec'd platform seams and a Pilot helper.
 
 Every fixture here mocks exactly one seam — the platform client and the token
 store — so the tests exercise the real screens, stores and widgets.
