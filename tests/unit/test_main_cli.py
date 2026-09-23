@@ -135,14 +135,18 @@ async def test_status_can_select_only_rooms(
 async def test_stop_all_delegates_to_the_supervisor(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    supervisor = MagicMock()
-    supervisor.stop_all = AsyncMock()
+    operations = MagicMock()
+    operations.stop_all = AsyncMock()
+    client = MagicMock()
+    client.aclose = AsyncMock()
     monkeypatch.setattr(
-        "band_wezterm.__main__._current_supervisor", AsyncMock(return_value=supervisor)
+        "band_wezterm.__main__._current_agent_operations",
+        AsyncMock(return_value=(operations, client)),
     )
 
     assert await _run_stop_agent(None, True) == 0
-    supervisor.stop_all.assert_awaited_once()
+    operations.stop_all.assert_awaited_once()
+    client.aclose.assert_awaited_once()
     assert capsys.readouterr().out == "Stopping all detached agents.\n"
 
 
@@ -203,8 +207,8 @@ async def test_agents_list_includes_the_next_lifecycle_command(
 async def test_agent_start_reports_the_detached_worker(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    supervisor = MagicMock()
-    supervisor.start = AsyncMock(
+    operations = MagicMock()
+    operations.start = AsyncMock(
         return_value=SimpleNamespace(
             name="Architect",
             agent_id="agent-1",
@@ -212,8 +216,11 @@ async def test_agent_start_reports_the_detached_worker(
             pid=42,
         )
     )
+    client = MagicMock()
+    client.aclose = AsyncMock()
     monkeypatch.setattr(
-        "band_wezterm.__main__._current_supervisor", AsyncMock(return_value=supervisor)
+        "band_wezterm.__main__._current_agent_operations",
+        AsyncMock(return_value=(operations, client)),
     )
     monkeypatch.setattr(
         "band_wezterm.__main__._resolve_agent",
@@ -221,7 +228,8 @@ async def test_agent_start_reports_the_detached_worker(
     )
 
     assert await _run_start_agent("agent-1") == 0
-    supervisor.start.assert_awaited_once_with("agent-1", cwd=Path.cwd())
+    operations.start.assert_awaited_once_with("agent-1", cwd=Path.cwd())
+    client.aclose.assert_awaited_once()
     output = capsys.readouterr().out
     assert all(value in output for value in ("Agents", "Architect", "starting", "stop"))
 

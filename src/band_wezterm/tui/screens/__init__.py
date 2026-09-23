@@ -1,4 +1,4 @@
-"""Control tab screens.
+"""Band TUI screens.
 
 Screens only ever reach the platform through ``BandClient`` and the terminal
 through ``wezterm_cli``/``osc`` — never through ``band_rest`` or a shell.

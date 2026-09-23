@@ -28,6 +28,7 @@ from band_wezterm.local_state import StarredRooms
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.pane_identity import announce_control_human
 from band_wezterm.preferences import PreferencesStore
+from band_wezterm.resource_operations import ManagedAgentOperations, RoomOperations
 from band_wezterm.supervisor import ManagedAgentLifecycle, SupervisorClient
 from band_wezterm.tui.host_pane import (
     WEZTERM_PANE_ENV,
@@ -140,6 +141,12 @@ class ControlApp(App[None]):
         )
         self.supervisor = supervisor or SupervisorClient()
         self.agent_lifecycle = ManagedAgentLifecycle(self.supervisor)
+        self.room_operations = RoomOperations(self.client)
+        self.agent_operations = ManagedAgentOperations(
+            self.client,
+            self.agent_lifecycle,
+            self.managed_agents,
+        )
         self.client.set_authentication_rejected_handler(
             self._post_authentication_rejected
         )
@@ -269,7 +276,7 @@ class ControlApp(App[None]):
     async def _stop_managed_agents(self) -> bool:
         """Request graceful shutdown for every worker in the shared runtime."""
         try:
-            await self.agent_lifecycle.stop_all()
+            await self.agent_operations.stop_all()
         except Exception as error:
             format_platform_error(error, operation="stop managed agents")
             return False

@@ -8,7 +8,7 @@ from typing import ClassVar, Final
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Footer, Header, Input, Label, Static, Switch
+from textual.widgets import Button, Footer, Header, Input, Label, Static, Switch
 
 from band_wezterm.preferences import (
     MAX_CHAT_MESSAGES_LIMIT,
@@ -18,7 +18,7 @@ from band_wezterm.preferences import (
 )
 from band_wezterm.tui.screens import ControlScreen
 
-SAVE_HINT: Final = "Enter on a field saves it. Esc returns. Ctrl+L signs out."
+SAVE_HINT: Final = "Enter on a field saves it. Esc returns."
 
 
 class Id(StrEnum):
@@ -27,6 +27,7 @@ class Id(StrEnum):
     DIAG = "settings-diag"
     VERBOSE = "settings-verbose"
     STATUS = "settings-status"
+    SIGN_OUT = "settings-sign-out"
 
 
 def selector(widget_id: Id) -> str:
@@ -34,11 +35,10 @@ def selector(widget_id: Id) -> str:
 
 
 class SettingsScreen(ControlScreen):
-    """Local Control preferences — persisted under ~/.band-wezterm/."""
+    """Local Band preferences — persisted under ~/.band-wezterm/."""
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "back", "Back", show=False),
-        Binding("s", "sign_out", "Sign out"),
     ]
 
     DEFAULT_CSS = """
@@ -80,6 +80,7 @@ class SettingsScreen(ControlScreen):
                 yield Label("Verbose diagnostic log")
                 yield Switch(value=prefs.diagnostic_log_verbose, id=Id.VERBOSE.value)
             yield Static("", id=Id.STATUS.value)
+            yield Button("Sign out", id=Id.SIGN_OUT.value)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -88,7 +89,7 @@ class SettingsScreen(ControlScreen):
     def action_back(self) -> None:
         self.app.pop_screen()
 
-    def action_sign_out(self) -> None:
+    def _sign_out(self) -> None:
         self.app.pop_screen()
         self.control.action_sign_out()
 
@@ -102,6 +103,11 @@ class SettingsScreen(ControlScreen):
             case Id.VERBOSE:
                 self.control.preferences.update(diagnostic_log_verbose=event.value)
         self._set_status("Saved.")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        match event.button.id:
+            case Id.SIGN_OUT:
+                self._sign_out()
 
     def _save_numbers(self) -> None:
         rooms_raw = self.query_one(selector(Id.ROOMS), Input).value.strip()

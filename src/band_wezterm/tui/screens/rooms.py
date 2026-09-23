@@ -390,7 +390,7 @@ class IdentityRow(ListItem):
 def local_runtime(
     identity: AgentRecord | ParticipantRecord, running_ids: frozenset[str]
 ) -> AgentRuntime | None:
-    """The local WezTerm-pane state for an agent; humans have no process state."""
+    """The local detached-worker state for an agent; humans have no process state."""
     if identity.kind is AvatarKind.HUMAN:
         return None
     return AgentRuntime.RUNNING if identity.id in running_ids else AgentRuntime.IDLE
@@ -457,7 +457,7 @@ class RoomsScreen(ControlScreen):
         self._load_rooms()
 
     def on_screen_resume(self) -> None:
-        """Keep a view-local draft while navigating between Control surfaces."""
+        """Keep a view-local draft while navigating between Band surfaces."""
         if not self.is_mounted:
             return
         self._pending_delete_id = None
@@ -585,7 +585,7 @@ class RoomsScreen(ControlScreen):
     @work(exclusive=True, group="rooms-delete")
     async def _delete_room(self, room: RoomRecord) -> None:
         try:
-            await self.control.client.delete_room(room.id)
+            await self.control.room_operations.delete(room.id)
         except Exception as error:
             self._set_status(format_platform_error(error, operation="delete room"))
             return
@@ -626,7 +626,7 @@ class RoomsScreen(ControlScreen):
     @work(exclusive=True, group="rooms-create")
     async def _create_room(self, title: str) -> None:
         try:
-            room = await self.control.client.create_room(title=title)
+            room = await self.control.room_operations.create(title)
         except Exception as error:
             self._set_status(format_platform_error(error, operation="create room"))
             return
@@ -894,7 +894,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
     @work(exclusive=True, group="room-delete")
     async def _delete_room(self) -> None:
         try:
-            await self.control.client.delete_room(self.room.id)
+            await self.control.room_operations.delete(self.room.id)
         except Exception as error:
             self._set_status(format_platform_error(error, operation="delete room"))
             return

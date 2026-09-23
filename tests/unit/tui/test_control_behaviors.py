@@ -1,4 +1,4 @@
-"""Pilot tests for the Control tab behaviors that are easy to regress."""
+"""Pilot tests for Band screen behaviors that are easy to regress."""
 
 from __future__ import annotations
 
@@ -57,6 +57,8 @@ from band_wezterm.tui.screens.rooms import (
     RoomsScreen,
 )
 from band_wezterm.tui.screens.rooms import selector as room_selector
+from band_wezterm.tui.screens.settings import Id as SettingsId
+from band_wezterm.tui.screens.settings import selector as settings_selector
 from band_wezterm.tui.screens.sign_in import SignInScreen
 from band_wezterm.tui.widgets import MarkdownComposer
 from band_wezterm.wezterm_cli import PaneId
@@ -1103,7 +1105,8 @@ async def test_sign_out_returns_to_sign_in(
         await settle(pilot)
         assert isinstance(control_app.screen, AgentsScreen)
         control_app.action_show_settings()
-        await pilot.press("s")
+        await settle(pilot)
+        await pilot.click(settings_selector(SettingsId.SIGN_OUT))
         await settle(pilot)
         assert isinstance(control_app.screen, SignInScreen)
         assert control_app.user_id is None
@@ -1117,7 +1120,8 @@ async def test_sign_out_stops_detached_workers_before_clearing_access(
     async with control_app.run_test() as pilot:
         await settle(pilot)
         control_app.action_show_settings()
-        await pilot.press("s")
+        await settle(pilot)
+        await pilot.click(settings_selector(SettingsId.SIGN_OUT))
         await settle(pilot)
         assert isinstance(control_app.screen, SignInScreen)
 
@@ -1435,7 +1439,7 @@ async def test_register_rejects_an_unavailable_harness_before_creating_agent(
     monkeypatch.setattr(
         "band_wezterm.tui.screens.register_agent.preflight_managed_agent",
         lambda _harness: (_ for _ in ()).throw(
-            NativeConsoleUnavailableError(unavailable)
+            HarnessUnavailableError(unavailable)
         ),
     )
 

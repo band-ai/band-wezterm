@@ -149,7 +149,7 @@ class ManagedAgentActions:
             if ready is None or control.agents_store.is_running(agent.id):
                 return
             resolved, profile = ready
-            worker = await control.agent_lifecycle.start(resolved.id, cwd=Path.cwd())
+            worker = await control.agent_operations.start(resolved.id, cwd=Path.cwd())
             control.agents_store.mark_worker(worker)
             self._set_agent_operation_status(
                 f"Started {resolved.name} ({profile.harness.value}) as a detached worker."
@@ -166,7 +166,7 @@ class ManagedAgentActions:
     async def _stop_managed_agent(self, agent_id: str, agent_name: str) -> None:
         try:
             control = self._control_screen.control
-            worker = await control.agent_lifecycle.stop(agent_id)
+            worker = await control.agent_operations.stop(agent_id)
             if worker is None:
                 control.agents_store.mark_stopped(agent_id)
             else:

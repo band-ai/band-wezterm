@@ -17,7 +17,7 @@ from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error, is_missing_resource
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
 from band_wezterm.role_library import open_role_library
-from band_wezterm.supervisor.protocol import WorkerState
+from band_wezterm.supervisor.protocol import WorkerRecord, WorkerState
 from band_wezterm.tui.catalog_loaders import list_managed_agents
 from band_wezterm.tui.managed_agent_actions import (
     AGENT_STARTING_MESSAGE,
@@ -445,10 +445,11 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
     @work(exclusive=True, group="agents-delete")
     async def _delete_agent(self, agent: AgentRecord) -> None:
         try:
-            await self._stop_agent_for_delete(agent)
-            await self.control.client.delete_agent(agent.id)
+            worker = await self.control.agent_operations.delete(agent.id)
+            self._record_stopped_agent(agent.id, worker)
         except Exception as error:
             if is_missing_resource(error):
+                self.control.managed_agents.remove(agent.id)
                 self._remove_agent(agent)
                 self._set_status(STALE_AGENT_REMOVED_MESSAGE.format(name=agent.name))
                 self._refresh_catalog()
@@ -461,13 +462,11 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
         self._set_status(f"Deleted {agent.name}.")
 
     def _remove_agent(self, agent: AgentRecord) -> None:
-        self.control.managed_agents.remove(agent.id)
         self.store.remove_agent(agent.id)
 
-    async def _stop_agent_for_delete(self, agent: AgentRecord) -> None:
-        worker = await self.control.agent_lifecycle.stop(agent.id)
+    def _record_stopped_agent(self, agent_id: str, worker: WorkerRecord | None) -> None:
         if worker is None:
-            self.store.mark_stopped(agent.id)
+            self.store.mark_stopped(agent_id)
         else:
             self.store.mark_worker(worker)
 

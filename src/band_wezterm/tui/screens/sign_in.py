@@ -53,9 +53,6 @@ class SignInScreen(ControlScreen):
         self.status = SIGN_IN_PENDING
         self._sign_in()
 
-    def action_quit_host(self) -> None:
-        self.control.exit()
-
     def action_cancel_sign_in(self) -> None:
         if self.busy:
             self.control.host_auth.cancel_sign_in()
