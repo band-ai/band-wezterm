@@ -47,9 +47,8 @@ from band_wezterm.tui.chat_events import (
     DISCLOSURE_EXPANDED,
     FILTERED_EMPTY_CHAT,
     apply_verbose,
-    badge_label,
     error_display_content,
-    event_tag_class,
+    event_tag,
     hidden_summary,
     is_always_expanded,
     metadata_pretty,
@@ -292,14 +291,6 @@ class ChatEventRow(ListItem):
         text-style: bold;
         width: auto;
     }
-    ChatEventRow .event-tag-text { background: $accent; color: $text; }
-    ChatEventRow .event-tag-thought { background: $primary; color: $text; }
-    ChatEventRow .event-tag-task { background: $warning; color: $text; }
-    ChatEventRow .event-tag-tool-call { background: $secondary; color: $text; }
-    ChatEventRow .event-tag-tool-result { background: $success; color: $text; }
-    ChatEventRow .event-tag-error { background: $error; color: $text; }
-    ChatEventRow .event-tag-attention { background: $warning; color: $text; }
-    ChatEventRow .event-tag-system { background: $surface-lighten-1; color: $text-muted; }
     ChatEventRow .event-badge {
         color: $accent;
     }
@@ -331,8 +322,8 @@ class ChatEventRow(ListItem):
             yield Static(author, classes="event-author", markup=False)
             with Horizontal(classes="event-meta"):
                 yield Static(
-                    badge_label(message_type),
-                    classes=f"event-tag {event_tag_class(message_type)}",
+                    event_tag(message_type),
+                    classes="event-tag",
                     markup=False,
                 )
                 timestamp = message_time_label(message)
@@ -1187,7 +1178,9 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         row = self._chat_view().highlighted_child
         if not isinstance(row, ChatEventRow):
             return
-        self.app.push_screen(ChatEventDetailScreen(row.message))
+        self.app.push_screen(
+            ChatEventDetailScreen(row.message, author_color=row.author_color)
+        )
 
     def action_toggle_chat_expand(self) -> None:
         chat = self._chat_view()

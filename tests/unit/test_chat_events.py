@@ -15,7 +15,7 @@ from band_wezterm.tui.chat_events import (
     count_by_category,
     error_display_content,
     event_preview,
-    event_tag_class,
+    event_tag,
     hidden_summary,
     is_always_expanded,
     message_is_visible,
@@ -59,9 +59,9 @@ def test_tool_result_timeline_preview_summarizes_success() -> None:
     assert timeline_preview(message) == "band_send_message · Message sent"
 
 
-def test_event_tag_class_is_semantic_for_known_and_unknown_types() -> None:
-    assert event_tag_class("tool_result") == "event-tag-tool-result"
-    assert event_tag_class("future_event") == "event-tag-system"
+def test_event_tag_uses_the_category_label_and_a_fallback_style() -> None:
+    assert event_tag("tool_result").plain == "Tool Result"
+    assert event_tag("future_event").plain == "future_event"
 
 
 def test_timeline_content_removes_redundant_platform_category_prefix() -> None:

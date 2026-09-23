@@ -7,6 +7,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from enum import StrEnum
 from typing import Any, Final
 
+from rich.style import Style
+from rich.text import Text
+
 from band_wezterm.platform_models import DEFAULT_MESSAGE_TYPE, MessageRecord
 
 EVENT_PREVIEW_MAX_LENGTH: Final = 100
@@ -78,18 +81,20 @@ DEFAULT_ALLOWED_TYPES: Final[tuple[str, ...]] = (
     "participant",
 )
 
-EVENT_TAG_CLASSES: Final[dict[str, str]] = {
-    EventFilterCategory.TEXT.value: "event-tag-text",
-    EventFilterCategory.THOUGHT.value: "event-tag-thought",
-    EventFilterCategory.TASK.value: "event-tag-task",
-    EventFilterCategory.TOOL_CALL.value: "event-tag-tool-call",
-    EventFilterCategory.TOOL_RESULT.value: "event-tag-tool-result",
-    EventFilterCategory.ERROR.value: "event-tag-error",
-    EventFilterCategory.ATTENTION.value: "event-tag-attention",
-    EventFilterCategory.SYSTEM.value: "event-tag-system",
-    "participant": "event-tag-system",
+TAG_FOREGROUND: Final = "#111111"
+TAG_LIGHT_FOREGROUND: Final = "#ffffff"
+EVENT_TAG_STYLES: Final[dict[str, Style]] = {
+    EventFilterCategory.TEXT.value: Style(color=TAG_FOREGROUND, bgcolor="#f0a12a", bold=True),
+    EventFilterCategory.THOUGHT.value: Style(color=TAG_LIGHT_FOREGROUND, bgcolor="#7c4dff", bold=True),
+    EventFilterCategory.TASK.value: Style(color=TAG_FOREGROUND, bgcolor="#f0a12a", bold=True),
+    EventFilterCategory.TOOL_CALL.value: Style(color=TAG_LIGHT_FOREGROUND, bgcolor="#1976d2", bold=True),
+    EventFilterCategory.TOOL_RESULT.value: Style(color=TAG_FOREGROUND, bgcolor="#42c965", bold=True),
+    EventFilterCategory.ERROR.value: Style(color=TAG_LIGHT_FOREGROUND, bgcolor="#d04668", bold=True),
+    EventFilterCategory.ATTENTION.value: Style(color=TAG_FOREGROUND, bgcolor="#f0a12a", bold=True),
+    EventFilterCategory.SYSTEM.value: Style(color="#b0b0b0", bgcolor="#383838"),
+    "participant": Style(color="#b0b0b0", bgcolor="#383838"),
 }
-DEFAULT_EVENT_TAG_CLASS: Final = "event-tag-system"
+DEFAULT_EVENT_TAG_STYLE: Final = EVENT_TAG_STYLES[EventFilterCategory.SYSTEM.value]
 
 VERBOSE_TYPES: Final[frozenset[str]] = frozenset(
     {
@@ -116,9 +121,12 @@ def badge_label(message_type: str) -> str:
     return BADGE_LABELS.get(message_type, message_type)
 
 
-def event_tag_class(message_type: str) -> str:
-    """A safe, semantic CSS class for an event category tag."""
-    return EVENT_TAG_CLASSES.get(message_type, DEFAULT_EVENT_TAG_CLASS)
+def event_tag(message_type: str) -> Text:
+    """A consistently styled Rich label for an event category."""
+    return Text(
+        badge_label(message_type),
+        style=EVENT_TAG_STYLES.get(message_type, DEFAULT_EVENT_TAG_STYLE),
+    )
 
 
 def timeline_content(message_type: str, content: str) -> str:
