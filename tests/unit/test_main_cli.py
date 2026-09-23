@@ -281,6 +281,41 @@ async def test_agents_list_renders_compact_state_without_an_action_column(
 
 
 @pytest.mark.asyncio
+async def test_agents_list_verbose_renders_full_runtime_details(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    supervisor = MagicMock()
+    supervisor.list_workers = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                agent_id="agent-12345678",
+                state=SimpleNamespace(value="running"),
+                pid=42,
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_supervisor", AsyncMock(return_value=supervisor)
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_agents",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    name="Architect",
+                    id="agent-12345678",
+                    harness=SimpleNamespace(value="codex"),
+                )
+            ]
+        ),
+    )
+
+    assert await _run_agents(verbose=True) == 0
+    output = capsys.readouterr().out
+    assert all(value in output for value in ("Agent ID:", "codex", "PID: 42"))
+
+
+@pytest.mark.asyncio
 async def test_agent_start_reports_the_detached_worker(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

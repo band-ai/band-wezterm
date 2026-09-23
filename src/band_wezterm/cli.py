@@ -33,12 +33,6 @@ class Command(StrEnum):
     STOP = "stop"
 
 
-class AgentAction(StrEnum):
-    START = Command.START
-    STOP = Command.STOP
-    STATUS = Command.STATUS
-
-
 SetupHandler = Callable[[], int]
 ViewHandler = Callable[[str | None], int]
 AgentViewHandler = Callable[[], int]

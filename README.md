@@ -94,6 +94,8 @@ Run the command again anywhere to open another independent Room surface.
 
 `band agent create` opens that registration wizard immediately. `band agent configure NAME_OR_ID` resolves one exact agent first, then opens its reconfiguration wizard; it never silently falls back to an unselected list. The list remains the right surface for browsing, runtime status, role management, and ad-hoc lifecycle actions.
 
+`band agent list` is a compact overview. Add `--verbose` (or `-v`) for full agent IDs, selected harnesses, and local worker PIDs.
+
 Roles are Markdown personas in `~/.band/roles`. Default roles are seeded on first use. A registered agent saves a role snapshot and tuning as its durable local profile; reconfigure it to adopt later role edits.
 
 <p align="center">

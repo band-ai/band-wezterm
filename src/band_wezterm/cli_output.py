@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final
 
 from rich.console import Console
 from rich.table import Table
@@ -18,18 +17,14 @@ class TableTitle(StrEnum):
 class RoomColumn(StrEnum):
     TITLE = "Title"
     ID = "Room ID"
-    ACTION = "Action"
 
 
 class AgentColumn(StrEnum):
     NAME = "Name"
     STATE = "State"
-    ID = "Agent ID"
+    ID = "ID"
     HARNESS = "Harness"
     PID = "PID"
-
-
-ROOM_COMMAND_HINT: Final = "Run: band room open ROOM_ID"
 
 
 @dataclass(frozen=True)
@@ -51,28 +46,22 @@ def print_rooms(rows: list[RoomOutput]) -> None:
     table = _table(TableTitle.ROOMS)
     table.add_column(RoomColumn.TITLE, no_wrap=True)
     table.add_column(RoomColumn.ID, no_wrap=True)
-    table.add_column(RoomColumn.ACTION, no_wrap=True)
     for row in rows:
-        table.add_row(row.title, row.room_id, "open")
-    console = Console()
-    console.print(table)
-    console.print(ROOM_COMMAND_HINT)
+        table.add_row(row.title, row.room_id)
+    Console().print(table)
 
 
 def print_agents(rows: list[AgentOutput], *, verbose: bool = False) -> None:
+    console = Console()
+    if verbose:
+        _print_agent_details(console, rows)
+        return
     table = _table(TableTitle.AGENTS)
     table.add_column(AgentColumn.NAME, no_wrap=True)
     table.add_column(AgentColumn.STATE, no_wrap=True)
     table.add_column(AgentColumn.ID, no_wrap=True)
-    if verbose:
-        table.add_column(AgentColumn.HARNESS, no_wrap=True)
-        table.add_column(AgentColumn.PID, no_wrap=True)
     for row in rows:
-        values = [row.name, row.state, row.agent_id]
-        if verbose:
-            values.extend((row.harness or "—", str(row.pid) if row.pid else "—"))
-        table.add_row(*values)
-    console = Console()
+        table.add_row(row.name, row.state, _short_id(row.agent_id))
     console.print(table)
 
 
@@ -82,4 +71,20 @@ def print_agent(row: AgentOutput) -> None:
 
 
 def _table(title: TableTitle) -> Table:
-    return Table(title=title, header_style="bold cyan", expand=True)
+    return Table(title=title, header_style="bold cyan", expand=False)
+
+
+def _print_agent_details(console: Console, rows: list[AgentOutput]) -> None:
+    console.print(TableTitle.AGENTS)
+    for row in rows:
+        console.print(
+            f"{row.name}\n"
+            f"  State: {row.state}\n"
+            f"  Agent ID: {row.agent_id}\n"
+            f"  Harness: {row.harness or '—'}\n"
+            f"  PID: {row.pid if row.pid else '—'}"
+        )
+
+
+def _short_id(agent_id: str) -> str:
+    return agent_id.split("-", maxsplit=1)[0]
