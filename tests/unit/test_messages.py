@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -40,6 +41,7 @@ def test_message_record_from_api_oldest_fields() -> None:
         sender_name="user1 ci",
         sender_id="u1",
         metadata={"mentions": [{"id": "aaaa", "name": "omp"}]},
+        inserted_at=datetime(2026, 9, 23, 7, 53, tzinfo=UTC),
         message_type="text",
     )
     record = message_record_from_api(message)
@@ -48,6 +50,7 @@ def test_message_record_from_api_oldest_fields() -> None:
     assert record.content == "@omp hello"
     assert record.message_type == "text"
     assert record.metadata == {"mentions": [{"id": "aaaa", "name": "omp"}]}
+    assert record.inserted_at == datetime(2026, 9, 23, 7, 53, tzinfo=UTC)
 
 
 def test_message_record_from_api_keeps_tool_type() -> None:
@@ -81,6 +84,7 @@ def test_message_from_event_maps_sender_name() -> None:
             "id": "m2",
             "content": "pong",
             "sender_name": "omp",
+            "inserted_at": "2026-09-23T07:53:00Z",
         },
     )
     record = message_from_event(event)
@@ -88,6 +92,7 @@ def test_message_from_event_maps_sender_name() -> None:
     assert record.author_name == "omp"
     assert record.content == "pong"
     assert record.message_type == "text"
+    assert record.inserted_at == datetime(2026, 9, 23, 7, 53, tzinfo=UTC)
 
 
 def test_message_from_event_created_maps_type_and_empty_content() -> None:

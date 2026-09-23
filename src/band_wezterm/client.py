@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from uuid import UUID
 
 import httpx
@@ -328,6 +329,7 @@ class BandClient:
             id=str(response.data.id),
             content=content,
             author_name=sender_name,
+            inserted_at=datetime.now(UTC),
             message_type=DEFAULT_MESSAGE_TYPE,
             metadata={
                 "mentions": [

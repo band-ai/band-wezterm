@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from band_wezterm.client import RoomRecord
+from datetime import UTC, datetime
+
+from band_wezterm.client import MessageRecord, RoomRecord
 from band_wezterm.tui.stores import RoomFilter, RoomsStore, RoomStatusSource
 
 
@@ -58,3 +60,23 @@ def test_entering_another_room_clears_old_detail_failure() -> None:
     store.enter_room("room-2")
 
     assert store.status == "Room list unavailable"
+
+
+def test_messages_are_ordered_by_platform_timestamp() -> None:
+    store = RoomsStore()
+    later = MessageRecord(
+        id="later",
+        content="later",
+        author_name="Agent",
+        inserted_at=datetime(2026, 9, 23, 8, 1, tzinfo=UTC),
+    )
+    earlier = MessageRecord(
+        id="earlier",
+        content="earlier",
+        author_name="Agent",
+        inserted_at=datetime(2026, 9, 23, 8, 0, tzinfo=UTC),
+    )
+
+    store.replace_messages([later, earlier])
+
+    assert [message.id for message in store.messages] == ["earlier", "later"]

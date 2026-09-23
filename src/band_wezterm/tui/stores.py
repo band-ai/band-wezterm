@@ -20,6 +20,8 @@ from band_wezterm.client import (
 from band_wezterm.identity import HARNESS_BADGES, HarnessBadge
 from band_wezterm.supervisor.protocol import WorkerRecord, WorkerState
 
+UNSTAMPED_MESSAGE_ORDER: Final = 0
+
 
 class AgentSource(StrEnum):
     """Which catalog the Agents screen is currently projecting."""
@@ -279,7 +281,13 @@ class RoomsStore:
 
     @property
     def messages(self) -> list[MessageRecord]:
-        return list(self._messages.values())
+        """Chronological timeline, with receipt order as a stable fallback."""
+        return sorted(
+            self._messages.values(),
+            key=lambda message: message.inserted_at.timestamp()
+            if message.inserted_at is not None
+            else UNSTAMPED_MESSAGE_ORDER,
+        )
 
     @property
     def visible(self) -> list[RoomRecord]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -64,6 +65,7 @@ class MessageRecord(BaseModel):
     id: str
     content: str
     author_name: str
+    inserted_at: datetime | None = None
     message_type: str = DEFAULT_MESSAGE_TYPE
     metadata: Mapping[str, Any] | None = None
 
@@ -140,6 +142,7 @@ def message_record_from_api(message: object) -> MessageRecord:
             or getattr(message, "sender_id", None)
             or "unknown"
         ),
+        inserted_at=getattr(message, "inserted_at", None),
         message_type=str(raw_type or DEFAULT_MESSAGE_TYPE),
         metadata=meta,
     )

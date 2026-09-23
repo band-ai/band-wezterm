@@ -92,6 +92,7 @@ ROSTER_TITLE: Final = "Roster"
 EMPTY_ROOMS: Final = "No rooms match the filter."
 EMPTY_CHAT: Final = "*No messages yet.*"
 NEW_ACTIVITY_MESSAGE: Final = "New activity — End jumps to latest."
+MESSAGE_TIME_FORMAT: Final = "%H:%M"
 EMPTY_CANDIDATES: Final = "Every one of your agents is already in this room."
 ROSTER_UPDATING_MESSAGE: Final = "Updating room roster…"
 NO_SELECTION_MESSAGE: Final = "Select a room first."
@@ -238,8 +239,19 @@ def message_from_event(event: RealtimeEvent) -> MessageRecord | None:
             or payload.get("sender")
             or "unknown"
         ),
+        inserted_at=payload.get("inserted_at") or payload.get("insertedAt"),
         message_type=str(raw_type or DEFAULT_MESSAGE_TYPE),
         metadata=meta,
+    )
+
+
+def message_time_label(message: MessageRecord) -> str:
+    """Render a compact local time when the platform supplied one."""
+    inserted_at = message.inserted_at
+    return (
+        ""
+        if inserted_at is None
+        else inserted_at.astimezone().strftime(MESSAGE_TIME_FORMAT)
     )
 
 
@@ -254,6 +266,11 @@ class ChatEventRow(ListItem):
     }
     ChatEventRow .event-author {
         text-style: bold;
+        width: 1fr;
+    }
+    ChatEventRow .event-timestamp {
+        color: $text-muted;
+        width: auto;
     }
     ChatEventRow .event-badge {
         color: $accent;
@@ -273,7 +290,9 @@ class ChatEventRow(ListItem):
 
     def compose(self) -> ComposeResult:
         message = self.message
-        yield Static(message.author_name, classes="event-author")
+        with Horizontal(classes="event-header"):
+            yield Static(message.author_name, classes="event-author")
+            yield Static(message_time_label(message), classes="event-timestamp")
         message_type = message.message_type or DEFAULT_MESSAGE_TYPE
         if is_always_expanded(message_type):
             if message_type == "error":
@@ -720,7 +739,13 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         self._roster_mutation_pending = False
         self._send_draft: str | None = None
         self._expanded_message_ids: set[str] = set()
-        self._rendered_message_ids: frozenset[str] = frozenset()
+        self._rendered_chat: tuple[tuple[MessageRecord, bool], ...] | None = None
+        self._rendered_roster: (
+            tuple[tuple[ParticipantRecord, AgentRuntime], ...] | None
+        ) = None
+        self._rendered_candidates: (
+            tuple[tuple[AgentRecord, AgentRuntime], ...] | None
+        ) = None
         self._unseen_activity = 0
         self._pre_verbose_types: tuple[str, ...] | None = None
 
@@ -785,12 +810,21 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         visible = visible_messages(store.messages, allowed)
         hidden = hidden_summary(store.messages, allowed)
         chat = self._chat_view()
-        following = chat.scroll_y >= chat.max_scroll_y - 1
-        message_ids = frozenset(message.id for message in visible)
-        new_count = len(message_ids - self._rendered_message_ids)
-        if self._rendered_message_ids and new_count and not following:
+        following = chat.is_vertical_scroll_end
+        timeline = tuple(
+            (message, message.id in self._expanded_message_ids) for message in visible
+        )
+        previous = self._rendered_chat
+        message_ids = frozenset(message.id for message, _expanded in timeline)
+        previous_ids = (
+            frozenset(message.id for message, _expanded in previous)
+            if previous is not None
+            else frozenset()
+        )
+        new_count = len(message_ids - previous_ids)
+        if previous is not None and new_count and not following:
             self._unseen_activity += new_count
-        self._rendered_message_ids = message_ids
+        self._rendered_chat = timeline
         if following:
             self._unseen_activity = 0
         notice = NEW_ACTIVITY_MESSAGE if self._unseen_activity else ""
@@ -809,7 +843,12 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
                 )
                 for message in visible
             ]
-        await refill(chat, rows)
+        if previous == timeline:
+            return
+        if previous and timeline[: len(previous)] == previous:
+            await chat.extend(rows[-new_count:])
+        else:
+            await refill(chat, rows)
         if following:
             chat.scroll_end(animate=False)
 
@@ -822,6 +861,13 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
 
     async def _render_roster(self, store: RoomsStore) -> None:
         running_ids = self.control.agents_store.running_ids
+        roster = tuple(
+            (participant, local_runtime(participant, running_ids))
+            for participant in store.participants
+        )
+        if roster == self._rendered_roster:
+            return
+        self._rendered_roster = roster
         self.query_one(selector(Id.COMPOSER), MarkdownComposer).set_mention_handles(
             key
             for participant in store.participants
@@ -830,26 +876,25 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         await refill(
             self._roster_view(),
             [
-                IdentityRow(
-                    participant,
-                    participant.id,
-                    runtime=local_runtime(participant, running_ids),
-                )
-                for participant in store.participants
+                IdentityRow(participant, participant.id, runtime=runtime)
+                for participant, runtime in roster
             ],
         )
 
     async def _render_picker(self, store: RoomsStore) -> None:
         running_ids = self.control.agents_store.running_ids
+        candidates = tuple(
+            (candidate, local_runtime(candidate, running_ids))
+            for candidate in store.addable_candidates()
+        )
+        if candidates == self._rendered_candidates:
+            return
+        self._rendered_candidates = candidates
         await refill(
             self.query_one(selector(Id.PICKER_LIST), ListView),
             [
-                IdentityRow(
-                    candidate,
-                    candidate.id,
-                    runtime=local_runtime(candidate, running_ids),
-                )
-                for candidate in store.addable_candidates()
+                IdentityRow(candidate, candidate.id, runtime=runtime)
+                for candidate, runtime in candidates
             ],
         )
 

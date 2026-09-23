@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from band_rest.core.api_error import ApiError
@@ -11,7 +12,7 @@ from textual.widgets import Input, Static
 
 from band_wezterm.agent_draft import apply_draft_patch
 from band_wezterm.backends import AgentTuning
-from band_wezterm.client import MessageRecord
+from band_wezterm.client import MessageRecord, RealtimeEvent, RealtimeEventKind
 from band_wezterm.diagnostics import diagnostics_log_path
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
@@ -27,8 +28,8 @@ from band_wezterm.tui.screens.register_agent import (
     RegisterAgentScreen,
     WizardStep,
 )
+from band_wezterm.tui.screens.rooms import ChatEventRow, RoomDetailScreen
 from band_wezterm.tui.screens.rooms import Id as RoomId
-from band_wezterm.tui.screens.rooms import RoomDetailScreen
 from band_wezterm.tui.screens.rooms import selector as room_selector
 from band_wezterm.tui.screens.settings import Id as SettingsId
 from band_wezterm.tui.screens.settings import selector as settings_selector
@@ -397,6 +398,46 @@ async def test_room_loads_message_history(
         screen = control_app.screen
         assert isinstance(screen, RoomDetailScreen)
         assert screen.store.messages == [message]
+
+
+async def test_room_appends_realtime_messages_without_rebuilding_history(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    target_room = room(ROOM_ID, "Planning")
+    history = MessageRecord(
+        id="history",
+        content="Earlier message.",
+        author_name="Architect",
+        inserted_at=datetime(2026, 9, 23, 7, 0, tzinfo=UTC),
+    )
+    band_client.list_messages.return_value = [history]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target_room)
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RoomDetailScreen)
+
+        event = RealtimeEvent(
+            kind=RealtimeEventKind.MESSAGE_CREATED,
+            room_id=ROOM_ID,
+            payload={
+                "id": "latest",
+                "content": "Latest message.",
+                "sender_name": "Architect",
+                "inserted_at": "2026-09-23T07:01:00Z",
+            },
+        )
+        with patch("band_wezterm.tui.screens.rooms.refill", new_callable=AsyncMock) as refill:
+            screen.on_room_detail_screen_incoming(RoomDetailScreen.Incoming(event))
+            await settle(pilot)
+
+        assert refill.await_args_list == []
+        assert [row.message.id for row in screen.query(ChatEventRow)] == [
+            "history",
+            "latest",
+        ]
 
 
 async def test_room_message_and_event_filter_flow(
