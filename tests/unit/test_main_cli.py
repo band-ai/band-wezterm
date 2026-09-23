@@ -278,12 +278,13 @@ def test_room_command_starts_the_textual_view_outside_cyclopts_event_loop(
 ) -> None:
     monkeypatch.setenv("WEZTERM_PANE", "81")
     opened: list[str | None] = []
-    monkeypatch.setattr(
-        "band_wezterm.__main__.run_control_app",
-        lambda *, initial_room_id=None, initial_screen=None: (
-            opened.append(initial_room_id) or 0
-        ),
-    )
+
+    def run_textual(*, initial_room_id: str | None = None, **_kwargs: object) -> int:
+        asyncio.run(asyncio.sleep(0))
+        opened.append(initial_room_id)
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__.run_control_app", run_textual)
 
     assert main(["room"]) == 0
     assert opened == [None]
@@ -343,10 +344,13 @@ def test_agent_reference_opens_agents_with_the_resolved_selection(
         ),
     )
     opened: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        "band_wezterm.__main__.run_control_app",
-        lambda **kwargs: opened.append(kwargs) or 0,
-    )
+
+    def run_textual(**kwargs: object) -> int:
+        asyncio.run(asyncio.sleep(0))
+        opened.append(kwargs)
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__.run_control_app", run_textual)
 
     assert main([Command.AGENT.value, "agent-1"]) == 0
     assert opened == [
@@ -357,6 +361,91 @@ def test_agent_reference_opens_agents_with_the_resolved_selection(
             "initial_agent_id": "agent-1",
         }
     ]
+
+
+def test_room_open_resolves_before_starting_textual_outside_the_cli_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_room_id", AsyncMock(return_value="room-1")
+    )
+    opened: list[str | None] = []
+
+    def run_textual(*, initial_room_id: str | None = None, **_kwargs: object) -> int:
+        asyncio.run(asyncio.sleep(0))
+        opened.append(initial_room_id)
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__.run_control_app", run_textual)
+
+    assert main([Command.ROOM.value, Command.OPEN.value, "Planning"]) == 0
+    assert opened == ["room-1"]
+
+
+def test_room_filters_route_to_the_list_handler_without_opening_textual(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listed: list[ListQuery] = []
+
+    async def rooms(query: ListQuery) -> int:
+        listed.append(query)
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__._run_rooms", rooms)
+    monkeypatch.setattr(
+        "band_wezterm.__main__.run_control_app",
+        lambda **_kwargs: pytest.fail("filtered rooms must not open Textual"),
+    )
+
+    assert main([Command.ROOM.value, "--name", "plan", "--limit", "5"]) == 0
+    assert listed == [ListQuery(name="plan", limit=5)]
+
+
+def test_agent_filters_route_to_the_list_handler_without_opening_textual(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listed: list[tuple[ListQuery, bool]] = []
+
+    async def agents(query: ListQuery, verbose: bool) -> int:
+        listed.append((query, verbose))
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__._run_agents", agents)
+    monkeypatch.setattr(
+        "band_wezterm.__main__.run_control_app",
+        lambda **_kwargs: pytest.fail("filtered agents must not open Textual"),
+    )
+
+    assert main(
+        [
+            Command.AGENT.value,
+            "--name",
+            "my-ag",
+            "--harness",
+            HarnessFilter.COPILOT.value,
+            "--state",
+            AgentStateFilter.RUNNING.value,
+            "--verbose",
+        ]
+    ) == 0
+    assert listed == [
+        (
+            ListQuery(
+                name="my-ag",
+                harness=HarnessFilter.COPILOT,
+                state=AgentStateFilter.RUNNING,
+            ),
+            True,
+        )
+    ]
+
+
+def test_agent_reference_and_filters_report_a_clear_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main([Command.AGENT.value, "architect", "--name", "arch"]) == 1
+    assert "Use a reference or list filters, not both." in capsys.readouterr().err
 
 
 @pytest.mark.asyncio
