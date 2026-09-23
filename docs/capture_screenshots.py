@@ -17,18 +17,21 @@ from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 from textual.pilot import Pilot
 
 from band_wezterm.auth.host_auth import HostAuth
+from band_wezterm.backends import AgentTuning
 from band_wezterm.client import (
     AgentRecord,
     BandClient,
     MessageRecord,
     ParticipantRecord,
+    RoomPage,
     RoomRecord,
 )
 from band_wezterm.config import Settings
 from band_wezterm.identity import AvatarKind, HarnessId, agent_accent, parse_harness
 from band_wezterm.local_state import StarredRooms
-from band_wezterm.managed_profiles import ManagedAgentStore
+from band_wezterm.managed_profiles import ManagedAgentProfile, ManagedAgentStore
 from band_wezterm.preferences import PreferencesStore
+from band_wezterm.roles import list_roles
 from band_wezterm.room_color import room_accent
 from band_wezterm.supervisor import SupervisorClient, WorkerRecord, WorkerState
 from band_wezterm.tui.control_app import ControlApp
@@ -112,7 +115,7 @@ def _client() -> MagicMock:
         reviewer,
         release,
     ]
-    client.list_my_chats.return_value = [
+    rooms = [
         _room(LAUNCH_ID, "Launch"),
         _room(DESIGN_ID, "Design review"),
         _room(ONCALL_ID, "On-call"),
@@ -120,6 +123,10 @@ def _client() -> MagicMock:
         _room(INCIDENT_ID, "Incident review"),
         _room(RESEARCH_ID, "Research"),
     ]
+    client.list_my_chats.return_value = rooms
+    client.list_room_page.return_value = RoomPage(
+        rooms=tuple(rooms), next_cursor=None, has_more=False
+    )
     client.list_participants.return_value = [
         _human(),
         _participant(claude),
@@ -174,12 +181,46 @@ def _app(tmp: Path, client: MagicMock) -> ControlApp:
             )
         ]
     )
+    managed_agents = ManagedAgentStore(tmp / "managed_agents.json")
+    roles = {role.id: role for role in list_roles(tmp / "roles")}
+    for agent_id, name, harness, role_id, tuning in (
+        (
+            CLAUDE_ID,
+            "Claude",
+            HarnessId.CLAUDE_SDK,
+            "architect",
+            AgentTuning(model="sonnet", reasoning="high"),
+        ),
+        (
+            CODEX_ID,
+            "Codex",
+            HarnessId.CODEX,
+            "developer",
+            AgentTuning(model="gpt-5.6-sol", reasoning="medium"),
+        ),
+        (
+            DESIGNER_ID,
+            "Designer",
+            HarnessId.OPENCODE,
+            "ux-ui-product-designer",
+            AgentTuning(model="gpt-5.4"),
+        ),
+    ):
+        managed_agents.record(
+            ManagedAgentProfile(
+                agent_id=agent_id,
+                name=name,
+                harness=harness,
+                persona=roles[role_id].content,
+                tuning=tuning,
+            )
+        )
     return ControlApp(
         settings=Settings(),
         host_auth=host_auth,
         client=client,
         starred=starred,
-        managed_agents=ManagedAgentStore(tmp / "managed_agents.json"),
+        managed_agents=managed_agents,
         preferences=PreferencesStore(tmp / "preferences.json"),
         supervisor=supervisor,
     )
@@ -209,14 +250,21 @@ async def _capture_register(app: ControlApp, pilot: Pilot[None]) -> None:
     await _settle(pilot)
 
 
+async def _capture_settings(app: ControlApp, pilot: Pilot[None]) -> None:
+    app.action_show_settings()
+    await _settle(pilot)
+
+
 async def _write(name: str, capture: Capture, size: tuple[int, int]) -> Path:
     client = _client()
     with tempfile.TemporaryDirectory() as raw:
-        app = _app(Path(raw), client)
-        async with app.run_test(size=size) as pilot:
-            await _settle(pilot)
-            await capture(app, pilot)
-            svg = app.export_screenshot()
+        tmp = Path(raw)
+        with patch("band_wezterm.roles.ROLES_DIRNAME", tmp / "roles"):
+            app = _app(tmp, client)
+            async with app.run_test(size=size) as pilot:
+                await _settle(pilot)
+                await capture(app, pilot)
+                svg = app.export_screenshot()
     path = IMAGES / name
     path.write_text(svg, encoding="utf-8")
     return path
@@ -231,6 +279,7 @@ async def _main() -> None:
             await _write("room-view.svg", _capture_room, (110, 28)),
             await _write("agents-browser.svg", _capture_agents, (110, 18)),
             await _write("agent-register.svg", _capture_register, (110, 20)),
+            await _write("settings.svg", _capture_settings, (110, 28)),
         ]
     for path in written:
         print(path.relative_to(REPO))

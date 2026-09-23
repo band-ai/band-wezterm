@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from band_wezterm.client import BandClient
-from band_wezterm.config import Settings
+from band_wezterm.config import ROOMS_PAGE_LIMIT, Settings
 from tests.memory_agent_keys import MemoryAgentKeyStore
 
 
@@ -74,3 +74,33 @@ async def test_list_my_agents_leaves_runtime_to_the_local_profile() -> None:
 
     agents = await client.list_my_agents()
     assert agents[0].harness is None
+
+
+@pytest.mark.asyncio
+async def test_list_my_chats_follows_each_cursor_page() -> None:
+    client = BandClient.from_user_api_key("user-key", Settings())
+    client._chats = MagicMock()
+    client._chats.list_my_chats = AsyncMock(
+        side_effect=[
+            SimpleNamespace(
+                data=[SimpleNamespace(id="first", title="First")],
+                metadata=SimpleNamespace(next_cursor="next-page"),
+            ),
+            SimpleNamespace(
+                data=[SimpleNamespace(id="second", title="Second")],
+                metadata=SimpleNamespace(next_cursor=None),
+            ),
+        ]
+    )
+
+    rooms = await client.list_my_chats()
+
+    assert [room.id for room in rooms] == ["first", "second"]
+    assert client._chats.list_my_chats.await_args_list[0].kwargs == {
+        "cursor": None,
+        "limit": ROOMS_PAGE_LIMIT,
+    }
+    assert client._chats.list_my_chats.await_args_list[1].kwargs == {
+        "cursor": "next-page",
+        "limit": ROOMS_PAGE_LIMIT,
+    }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from band_rest.core.api_error import ApiError
@@ -18,13 +18,16 @@ from band_wezterm.client import (
     MessageRecord,
     RealtimeEvent,
     RealtimeEventKind,
+    RoomPage,
 )
+from band_wezterm.config import ROOMS_PAGE_LIMIT
 from band_wezterm.diagnostics import diagnostics_log_path
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.supervisor import WorkerRecord, WorkerState
 from band_wezterm.supervisor.client import SupervisorError
 from band_wezterm.tui.control_app import AppScreen, ControlApp, InitialAgentAction
+from band_wezterm.tui.mentions import participant_mention_text
 from band_wezterm.tui.screens.agents import AgentsScreen
 from band_wezterm.tui.screens.event_type_filter import EventTypeFilterScreen
 from band_wezterm.tui.screens.register_agent import (
@@ -37,8 +40,9 @@ from band_wezterm.tui.screens.register_agent import (
 from band_wezterm.tui.screens.rooms import (
     ChatEventRow,
     ChatTimeline,
+    IdentityRow,
+    RoomCatalog,
     RoomDetailScreen,
-    participant_mention_text,
 )
 from band_wezterm.tui.screens.rooms import Id as RoomId
 from band_wezterm.tui.screens.rooms import selector as room_selector
@@ -81,6 +85,34 @@ async def test_signed_in_surface_opens_agents(control_app: ControlApp) -> None:
     async with control_app.run_test() as pilot:
         await settle(pilot)
         assert isinstance(control_app.screen, AgentsScreen)
+
+
+async def test_agents_catalog_shows_durable_configuration(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    selected = agent(AGENT_ID, "Architect", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [selected]
+    control_app.managed_agents.record(
+        ManagedAgentProfile(
+            agent_id=selected.id,
+            name=selected.name,
+            harness=HarnessId.CODEX,
+            persona="# System Architect\n",
+            tuning=AgentTuning(model="gpt-5.6-sol", reasoning="high"),
+        )
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, AgentsScreen)
+        rendered = "\n".join(
+            str(label.render()) for label in screen.query(".agent-column-role, .agent-column-model, .agent-column-options")
+        )
+
+    assert "Custom" in rendered
+    assert "gpt-5.6-sol" in rendered
+    assert "Reasoning effort: high" in rendered
 
 
 async def test_worker_poll_waits_for_the_readiness_gate(
@@ -490,6 +522,57 @@ async def test_room_prepends_an_older_cursor_page(
     )
 
 
+async def test_rooms_load_the_next_cursor_page_at_catalog_end(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    first = room("room-first", "First")
+    second = room("room-second", "Second")
+    band_client.list_room_page.side_effect = lambda *, cursor=None, **_kwargs: (
+        RoomPage(rooms=(first,), next_cursor="next-page", has_more=True)
+        if cursor is None
+        else RoomPage(rooms=(second,), next_cursor=None, has_more=False)
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.action_show_rooms()
+        await settle(pilot)
+        screen = control_app.screen
+        catalog = screen.query_one(room_selector(RoomId.LIST), RoomCatalog)
+        catalog.post_message(RoomCatalog.ReachedEnd())
+        await settle(pilot)
+
+        assert [item.id for item in screen.store.rooms] == [first.id, second.id]
+
+    assert band_client.list_room_page.await_args_list == [
+        call(limit=ROOMS_PAGE_LIMIT),
+        call(limit=ROOMS_PAGE_LIMIT, cursor="next-page"),
+    ]
+
+
+async def test_room_search_queries_every_platform_page(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    first = room("room-first", "First")
+    matched = room("room-matched", "Target room")
+    band_client.list_room_page.return_value = RoomPage(
+        rooms=(first,), next_cursor="next-page", has_more=True
+    )
+    band_client.list_my_chats.return_value = [first, matched]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.action_show_rooms()
+        await settle(pilot)
+        search = control_app.screen.query_one(room_selector(RoomId.SEARCH), Input)
+        search.value = "target"
+        await settle(pilot)
+
+        assert [item.id for item in control_app.screen.store.visible] == [matched.id]
+
+    band_client.list_my_chats.assert_awaited_once()
+
+
 async def test_room_loads_history_when_the_chat_reaches_its_top(
     control_app: ControlApp, band_client: MagicMock
 ) -> None:
@@ -583,6 +666,32 @@ async def test_room_message_and_event_filter_flow(
         mentions=[(AGENT_ID, selected.name)],
         sender_name="You",
     )
+
+
+async def test_roster_double_click_inserts_agent_mention(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    selected = participant(agent(AGENT_ID, "Architect", harness=HarnessId.CODEX)).model_copy(
+        update={"handle": "architect"}
+    )
+    target_room = room(ROOM_ID, "Planning")
+    band_client.list_participants.return_value = [selected]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.open_room(target_room)
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RoomDetailScreen)
+        roster_row = screen.query(IdentityRow).first()
+        composer = screen.query_one(room_selector(RoomId.COMPOSER), MarkdownComposer)
+        composer.value = "Please ask"
+        composer.cursor_position = len(composer.value)
+
+        await pilot.click(roster_row, times=2)
+        await settle(pilot)
+
+        assert composer.value == "Please ask @architect "
 
 
 async def test_stale_agent_delete_removes_local_profile(

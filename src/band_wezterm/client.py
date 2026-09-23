@@ -33,7 +33,12 @@ from pydantic import ValidationError
 
 from band_wezterm.auth.credentials import ManagedAgentKeyStore, NoApiKeyError
 from band_wezterm.auth.host_auth import HostAuth
-from band_wezterm.config import CHAT_MESSAGES_LIMIT, Settings, load_settings
+from band_wezterm.config import (
+    CHAT_MESSAGES_LIMIT,
+    ROOMS_PAGE_LIMIT,
+    Settings,
+    load_settings,
+)
 from band_wezterm.diagnostics import log_event
 from band_wezterm.platform_models import (
     DEFAULT_MESSAGE_TYPE,
@@ -68,6 +73,15 @@ class MessagePage:
     next_cursor: str | None
     has_more: bool
 
+
+@dataclass(frozen=True)
+class RoomPage:
+    """One platform page of rooms, normalized for catalog surfaces."""
+
+    rooms: tuple[RoomRecord, ...]
+    next_cursor: str | None
+    has_more: bool
+
 # Compatibility boundary: UI and integrations import stable records from here.
 __all__ = (
     "AgentRecord",
@@ -78,6 +92,7 @@ __all__ = (
     "ParticipantRole",
     "RealtimeEvent",
     "RealtimeEventKind",
+    "RoomPage",
     "RoomRecord",
     "Unsubscribe",
     "avatar_label",
@@ -265,8 +280,31 @@ class BandClient:
         self._agent_keys.delete(agent_id)
 
     async def list_my_chats(self) -> list[RoomRecord]:
-        response = await self._chats.list_my_chats()
-        return [room_record_from_api(chat) for chat in response.data or ()]
+        """Read every room page for non-interactive callers such as CLI listings."""
+        rooms: list[RoomRecord] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        while True:
+            page = await self.list_room_page(cursor=cursor)
+            rooms.extend(page.rooms)
+            if not page.has_more:
+                return rooms
+            cursor = page.next_cursor
+            if cursor is None or cursor in seen_cursors:
+                raise RuntimeError("Platform returned a repeated room-list cursor.")
+            seen_cursors.add(cursor)
+
+    async def list_room_page(
+        self, *, limit: int = ROOMS_PAGE_LIMIT, cursor: str | None = None
+    ) -> RoomPage:
+        """Fetch one room catalog page without hiding pagination from interactive UIs."""
+        response = await self._chats.list_my_chats(cursor=cursor, limit=limit)
+        next_cursor = response.metadata.next_cursor
+        return RoomPage(
+            rooms=tuple(room_record_from_api(chat) for chat in response.data or ()),
+            next_cursor=next_cursor,
+            has_more=next_cursor is not None,
+        )
 
     async def create_room(self, *, title: str | None = None) -> RoomRecord:
         response = await self._chats.create_my_chat_room(

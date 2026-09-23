@@ -28,6 +28,7 @@ from textual.widgets import (
     Static,
 )
 
+from band_wezterm.agent_display import agent_configuration
 from band_wezterm.client import (
     AgentRecord,
     MessageRecord,
@@ -38,10 +39,10 @@ from band_wezterm.client import (
     Unsubscribe,
     display_message_content,
 )
+from band_wezterm.config import CATALOG_SEARCH_DEBOUNCE_SECONDS, ROOMS_PAGE_LIMIT
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, AvatarKind
 from band_wezterm.platform_models import DEFAULT_MESSAGE_TYPE
-from band_wezterm.tui.catalog_loaders import list_rooms
 from band_wezterm.tui.chat_events import (
     DISCLOSURE_COLLAPSED,
     DISCLOSURE_EXPANDED,
@@ -58,6 +59,7 @@ from band_wezterm.tui.chat_events import (
     visible_messages,
 )
 from band_wezterm.tui.managed_agent_actions import ManagedAgentActions
+from band_wezterm.tui.mentions import mention_keys, participant_mention_text
 from band_wezterm.tui.refresh import install_catalog_refresh
 from band_wezterm.tui.roster_order import order_roster
 from band_wezterm.tui.screens import ControlScreen
@@ -75,6 +77,7 @@ from band_wezterm.tui.widgets import (
     FilterChips,
     Identity,
     MarkdownComposer,
+    mention_token,
 )
 
 ROOM_DOT: Final = "●"
@@ -91,7 +94,11 @@ DRAFT_PLACEHOLDER: Final = "Room title"
 COMPOSER_PLACEHOLDER: Final = "@mention a participant, **bold**, `code`"
 PICKER_TITLE: Final = "Add participant — Enter adds the highlighted agent"
 ROSTER_TITLE: Final = "Roster"
+ROSTER_DETAIL_EMPTY: Final = "Select an agent for details."
+ROSTER_MENTION_HINT: Final = "Double-click to insert {mention}"
 EMPTY_ROOMS: Final = "No rooms match the filter."
+LOADING_MORE_ROOMS_MESSAGE: Final = "Loading more rooms…"
+SEARCHING_ALL_ROOMS_MESSAGE: Final = "Searching all rooms…"
 EMPTY_CHAT: Final = "*No messages yet.*"
 NEW_ACTIVITY_MESSAGE: Final = "New activity — End jumps to latest."
 OLDER_MESSAGES_LOADING: Final = "Loading older messages…"
@@ -124,6 +131,8 @@ class Id(StrEnum):
     TOOLBAR = "room-toolbar"
     HEADING = "room-heading"
     ROSTER = "room-roster"
+    ROSTER_LIST = "room-roster-list"
+    ROSTER_DETAIL = "room-roster-detail"
     PICKER = "room-picker"
     PICKER_LIST = "room-picker-list"
     CHAT = "room-chat"
@@ -150,10 +159,23 @@ class ChatTimeline(ListView):
             self.post_message(self.ReachedStart())
 
 
-def mention_keys(participant: ParticipantRecord) -> tuple[str, ...]:
-    """Accepted composer keys, preferring the platform's canonical handle."""
-    keys = (participant.handle, participant.name)
-    return tuple(dict.fromkeys(key for key in keys if key))
+class RoomCatalog(ListView):
+    """A room list that asks for its next cursor page at the bottom."""
+
+    class ReachedEnd(Message):
+        """The user tried to scroll after the last loaded room."""
+
+    def _on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        at_end = self.is_vertical_scroll_end
+        super()._on_mouse_scroll_down(event)
+        if at_end:
+            self.post_message(self.ReachedEnd())
+
+    def action_cursor_down(self) -> None:
+        at_end = self.index == len(self) - 1
+        super().action_cursor_down()
+        if at_end:
+            self.post_message(self.ReachedEnd())
 
 
 def resolve_mentions(
@@ -210,28 +232,6 @@ def resolve_mention(
         return None
     mentioned, remainder = resolved
     return mentioned[0], remainder
-
-
-def participant_mention_text(
-    content: str, participants: Iterable[ParticipantRecord]
-) -> Text | None:
-    """Color unambiguous ``@mentions`` with their roster identity color."""
-    matches = sorted(
-        (
-            (key, participant.color)
-            for participant in participants
-            for key in mention_keys(participant)
-        ),
-        key=lambda item: len(item[0]),
-        reverse=True,
-    )
-    rendered = Text(content)
-    styled = False
-    for key, color in matches:
-        for match in re.finditer(rf"(?<!\S)@{re.escape(key)}(?=\s|$)", content, re.I):
-            rendered.stylize(Style(color=color, bold=True), *match.span())
-            styled = True
-    return rendered if styled else None
 
 
 async def refill(list_view: ListView, rows: Sequence[ListItem]) -> None:
@@ -471,17 +471,31 @@ class IdentityRow(ListItem):
     }
     """
 
+    class DoubleClicked(Message):
+        """A roster row was double-clicked."""
+
+        def __init__(self, row: IdentityRow) -> None:
+            super().__init__()
+            self.row = row
+
     def __init__(
         self,
         identity: Identity,
         identity_id: str,
         *,
         runtime: AgentRuntime | None = None,
+        tooltip: str | None = None,
     ) -> None:
         super().__init__()
         self.identity = identity
         self.identity_id = identity_id
         self.runtime = runtime
+        self.tooltip = tooltip
+
+    def _on_click(self, event: events.Click) -> None:
+        super()._on_click(event)
+        if event.chain == 2:
+            self.post_message(self.DoubleClicked(self))
 
     def compose(self) -> ComposeResult:
         yield AvatarChip(self.identity)
@@ -554,7 +568,7 @@ class RoomsScreen(ControlScreen):
             selected=frozenset({RoomFilter.ALL.value}),
             id=Id.FILTERS.value,
         )
-        yield ListView(id=Id.LIST.value)
+        yield RoomCatalog(id=Id.LIST.value)
         with Vertical(id=Id.DRAFT.value):
             yield Static(DRAFT_TITLE)
             yield Input(placeholder=DRAFT_PLACEHOLDER, id=Id.DRAFT_TITLE.value)
@@ -564,22 +578,31 @@ class RoomsScreen(ControlScreen):
     def on_mount(self) -> None:
         self.store = self.control.rooms_store
         self._pending_delete_id: str | None = None
+        self._has_more_rooms = False
+        self._loading_more_rooms = False
+        self._next_rooms_cursor: str | None = None
+        self._rendered_rows: tuple[tuple[RoomRecord, bool], ...] | None = None
+        self._follow_room_catalog = False
+        self._initial_resume = True
         self.query_one(selector(Id.LIST), ListView).focus()
         install_catalog_refresh(self, self._refresh_catalog)
-        self._load_rooms()
+        self._reload_catalog()
 
     def on_screen_resume(self) -> None:
         """Keep a view-local draft while navigating between Band surfaces."""
         if not self.is_mounted:
             return
         self._pending_delete_id = None
-        self._load_rooms()
+        if self._initial_resume:
+            self._initial_resume = False
+            return
+        self._reload_catalog()
         self.mutate_reactive(RoomsScreen.store)
 
     def _refresh_catalog(self) -> None:
         """Refresh the room catalog only while this surface is visible."""
         if self.is_current:
-            self._load_rooms()
+            self._reload_catalog()
 
     async def watch_store(self, store: RoomsStore) -> None:
         if not self.is_mounted:
@@ -589,18 +612,24 @@ class RoomsScreen(ControlScreen):
         )
         visible = store.visible
         list_view = self.query_one(selector(Id.LIST), ListView)
-        await list_view.clear()
-        await list_view.extend(
-            RoomRow(room, starred=store.is_starred(room.id)) for room in visible
-        )
-        list_view.index = next(
-            (
-                index
-                for index, room in enumerate(visible)
-                if room.id == store.selected_id
-            ),
-            0 if visible else None,
-        )
+        rows = tuple((room, store.is_starred(room.id)) for room in visible)
+        if rows != self._rendered_rows:
+            self._rendered_rows = rows
+            await list_view.clear()
+            await list_view.extend(
+                RoomRow(room, starred=starred) for room, starred in rows
+            )
+            list_view.index = next(
+                (
+                    index
+                    for index, room in enumerate(visible)
+                    if room.id == store.selected_id
+                ),
+                0 if visible else None,
+            )
+            if self._follow_room_catalog:
+                list_view.scroll_end(animate=False)
+                self._follow_room_catalog = False
         self.query_one(selector(Id.STATUS), Static).update(
             store.status or ("" if visible else EMPTY_ROOMS)
         )
@@ -617,6 +646,7 @@ class RoomsScreen(ControlScreen):
         if event.input.id != Id.SEARCH:
             return
         self.store.set_search(event.value)
+        self._reload_catalog()
         self.mutate_reactive(RoomsScreen.store)
 
     def on_filter_chips_changed(self, event: FilterChips.Changed) -> None:
@@ -653,16 +683,53 @@ class RoomsScreen(ControlScreen):
         self.control.toggle_star(room.id)
         self.mutate_reactive(RoomsScreen.store)
 
+    def _reload_catalog(self) -> None:
+        query = self.store.search.strip()
+        if query:
+            self._search_rooms(query)
+        else:
+            self._load_rooms()
+
     @work(exclusive=True, group="rooms-load")
     async def _load_rooms(self) -> None:
         store = self.store
         store.loading = True
+        self._has_more_rooms = False
+        self._next_rooms_cursor = None
         try:
-            rooms = await list_rooms(self.control.client)
+            page = await self.control.client.list_room_page(limit=ROOMS_PAGE_LIMIT)
         except Exception as error:
             store.set_status(
                 RoomStatusSource.LIST,
                 format_platform_error(error, operation="load rooms"),
+            )
+        else:
+            store.replace_rooms(page.rooms)
+            self._next_rooms_cursor = page.next_cursor
+            self._has_more_rooms = page.has_more
+            store.clear_status(RoomStatusSource.LIST)
+        finally:
+            store.loading = False
+            self.mutate_reactive(RoomsScreen.store)
+
+    @work(exclusive=True, group="rooms-load")
+    async def _search_rooms(self, query: str) -> None:
+        """Load every REST page before applying a room-name search locally."""
+        await asyncio.sleep(CATALOG_SEARCH_DEBOUNCE_SECONDS)
+        if query != self.store.search.strip():
+            return
+        store = self.store
+        store.loading = True
+        self._has_more_rooms = False
+        self._next_rooms_cursor = None
+        store.set_status(RoomStatusSource.LIST, SEARCHING_ALL_ROOMS_MESSAGE)
+        self.mutate_reactive(RoomsScreen.store)
+        try:
+            rooms = await self.control.client.list_my_chats()
+        except Exception as error:
+            store.set_status(
+                RoomStatusSource.LIST,
+                format_platform_error(error, operation="search all rooms"),
             )
         else:
             store.replace_rooms(rooms)
@@ -672,7 +739,39 @@ class RoomsScreen(ControlScreen):
             self.mutate_reactive(RoomsScreen.store)
 
     def action_reload(self) -> None:
-        self._load_rooms()
+        self._reload_catalog()
+
+    def on_room_catalog_reached_end(self, _event: RoomCatalog.ReachedEnd) -> None:
+        self._load_more_rooms()
+
+    @work(exclusive=True, group="rooms-load")
+    async def _load_more_rooms(self) -> None:
+        if not self._has_more_rooms or self._loading_more_rooms:
+            return
+        cursor = self._next_rooms_cursor
+        if cursor is None:
+            return
+        self._loading_more_rooms = True
+        self.store.set_status(RoomStatusSource.LIST, LOADING_MORE_ROOMS_MESSAGE)
+        self.mutate_reactive(RoomsScreen.store)
+        try:
+            page = await self.control.client.list_room_page(
+                limit=ROOMS_PAGE_LIMIT, cursor=cursor
+            )
+        except Exception as error:
+            self.store.set_status(
+                RoomStatusSource.LIST,
+                format_platform_error(error, operation="load more rooms"),
+            )
+        else:
+            self._follow_room_catalog = True
+            self.store.append_rooms(page.rooms)
+            self._next_rooms_cursor = page.next_cursor
+            self._has_more_rooms = page.has_more
+            self.store.clear_status(RoomStatusSource.LIST)
+        finally:
+            self._loading_more_rooms = False
+            self.mutate_reactive(RoomsScreen.store)
 
     # --- create room (transient overlay) -----------------------------------
 
@@ -786,6 +885,10 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
     RoomDetailScreen #room-roster > Static {
         padding: 0 1;
     }
+    RoomDetailScreen #room-roster-detail {
+        height: 1;
+        color: $text-muted;
+    }
     RoomDetailScreen #room-chat-scroll {
         width: 1fr;
     }
@@ -854,7 +957,8 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         with Horizontal():
             with Vertical(id=Id.ROSTER.value):
                 yield Static(ROSTER_TITLE)
-                yield ListView()
+                yield ListView(id=Id.ROSTER_LIST.value)
+                yield Static(ROSTER_DETAIL_EMPTY, id=Id.ROSTER_DETAIL.value)
             with Vertical(id=Id.CHAT_SCROLL.value):
                 yield Static("", id=Id.CHAT_HIDDEN.value)
                 yield ChatTimeline(id=Id.CHAT.value)
@@ -882,7 +986,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         await self.control.client.unsubscribe_room(self.room.id)
 
     def _roster_view(self) -> ListView:
-        return self.query_one(selector(Id.ROSTER), Vertical).query_one(ListView)
+        return self.query_one(selector(Id.ROSTER_LIST), ListView)
 
     async def watch_store(self, store: RoomsStore) -> None:
         if not self.is_mounted:
@@ -996,10 +1100,16 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         await refill(
             self._roster_view(),
             [
-                IdentityRow(participant, participant.id, runtime=runtime)
+                IdentityRow(
+                    participant,
+                    participant.id,
+                    runtime=runtime,
+                    tooltip=self._participant_tooltip(participant, runtime),
+                )
                 for participant, runtime in roster
             ],
         )
+        self._update_roster_detail(self._highlighted_agent_participant())
 
     async def _render_picker(self, store: RoomsStore) -> None:
         running_ids = self.control.agents_store.running_ids
@@ -1136,6 +1246,41 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             case _:
                 return None
 
+    def _participant_tooltip(
+        self, participant: ParticipantRecord, runtime: AgentRuntime | None
+    ) -> str | None:
+        if participant.kind is AvatarKind.HUMAN:
+            return None
+        configuration = agent_configuration(
+            self.control.managed_agents.get(participant.id)
+        )
+        mention = mention_token(mention_keys(participant)[0])
+        runtime_label = runtime.value if runtime is not None else "external"
+        return "\n".join(
+            (
+                participant.name,
+                f"Role: {configuration.role}",
+                f"Harness: {configuration.harness}",
+                f"Model: {configuration.model}",
+                configuration.options,
+                f"Runtime: {runtime_label}",
+                ROSTER_MENTION_HINT.format(mention=mention),
+            )
+        )
+
+    def _update_roster_detail(self, participant: ParticipantRecord | None) -> None:
+        detail = ROSTER_DETAIL_EMPTY
+        if participant is not None:
+            configuration = agent_configuration(
+                self.control.managed_agents.get(participant.id)
+            )
+            mention = mention_token(mention_keys(participant)[0])
+            detail = (
+                f"{configuration.role} · {configuration.model} · "
+                f"{ROSTER_MENTION_HINT.format(mention=mention)}"
+            )
+        self.query_one(selector(Id.ROSTER_DETAIL), Static).update(detail)
+
     def _agent_record_for(self, participant: ParticipantRecord) -> AgentRecord:
         profile = self.control.managed_agents.get(participant.id)
         return AgentRecord(
@@ -1235,6 +1380,32 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         # refill or hide that ListView until Textual has finished dispatching it.
         self.call_after_refresh(self._select_candidate, event.item.identity_id)
 
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        if event.list_view.id != Id.ROSTER_LIST:
+            return
+        match event.item:
+            case IdentityRow(identity=ParticipantRecord() as participant):
+                self._update_roster_detail(
+                    participant if participant.kind is AvatarKind.AGENT else None
+                )
+            case _:
+                self._update_roster_detail(None)
+
+    def on_identity_row_double_clicked(self, event: IdentityRow.DoubleClicked) -> None:
+        if event.row.parent is not self._roster_view():
+            return
+        match event.row.identity:
+            case ParticipantRecord() as participant if participant.kind is AvatarKind.AGENT:
+                self._insert_participant_mention(participant)
+
+    def _insert_participant_mention(self, participant: ParticipantRecord) -> None:
+        composer = self.query_one(selector(Id.COMPOSER), MarkdownComposer)
+        handle = mention_keys(participant)[0]
+        before_cursor = composer.value[: composer.cursor_position]
+        separator = "" if not before_cursor or before_cursor[-1].isspace() else " "
+        composer.insert_text_at_cursor(f"{separator}{mention_token(handle)} ")
+        composer.focus()
+
     def _select_candidate(self, participant_id: str) -> None:
         if self._begin_roster_mutation():
             self._set_picker_open(False)
@@ -1296,7 +1467,11 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         if not isinstance(row, ChatEventRow):
             return
         self.app.push_screen(
-            ChatEventDetailScreen(row.message, author_color=row.author_color)
+            ChatEventDetailScreen(
+                row.message,
+                author_color=row.author_color,
+                mention_text=row.mention_text,
+            )
         )
 
     def action_toggle_chat_expand(self) -> None:

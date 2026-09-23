@@ -15,7 +15,13 @@ from band_wezterm.agent.opencode_server import OpenCodeServerManager
 from band_wezterm.auth.host_auth import HostAuth
 from band_wezterm.backends import TuningOption
 from band_wezterm.catalogs import HarnessCatalog, ModelCatalogEntry, ModelCatalogService
-from band_wezterm.client import AgentRecord, BandClient, ParticipantRecord, RoomRecord
+from band_wezterm.client import (
+    AgentRecord,
+    BandClient,
+    ParticipantRecord,
+    RoomPage,
+    RoomRecord,
+)
 from band_wezterm.config import Settings
 from band_wezterm.identity import AvatarKind, HarnessId, agent_accent, parse_harness
 from band_wezterm.local_state import StarredRooms
@@ -61,6 +67,9 @@ def band_client() -> MagicMock:
     client.whoami.return_value = HOST_USER_ID
     client.list_my_agents.return_value = []
     client.list_my_chats.return_value = []
+    client.list_room_page.return_value = RoomPage(
+        rooms=(), next_cursor=None, has_more=False
+    )
     client.list_participants.return_value = []
     client.list_directory.return_value = []
     client.list_messages.return_value = []

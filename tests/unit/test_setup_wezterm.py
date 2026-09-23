@@ -13,6 +13,8 @@ from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 import pytest
 
@@ -169,10 +171,10 @@ def test_ensure_creates_fresh_config(tmp_path: Path) -> None:
     assert MANAGED_END in text
     assert "wezterm.plugin.require 'file://" in text
     assert "wezterm.config_builder()" in text
-    plugin_repo = home / LOCAL_STATE_DIRNAME / PLUGIN_REPO_DIRNAME
+    require_url = resolve_plugin_require_url(home=home)
+    plugin_repo = Path(url2pathname(urlparse(require_url).path))
     assert (plugin_repo / PLUGIN_DIRNAME / PLUGIN_INIT_NAME).is_file()
     assert (plugin_repo / ".git").is_dir()
-    require_url = resolve_plugin_require_url(home=home)
     assert require_url == plugin_repo.as_uri()
     assert f"wezterm.plugin.require '{require_url}'" in text
     block = text[text.index(MANAGED_BEGIN) : text.index(MANAGED_END)]

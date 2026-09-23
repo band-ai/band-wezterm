@@ -13,7 +13,9 @@ from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
 
+from band_wezterm.agent_display import AgentConfiguration, agent_configuration
 from band_wezterm.client import AgentRecord
+from band_wezterm.config import CATALOG_SEARCH_DEBOUNCE_SECONDS
 from band_wezterm.errors import format_platform_error, is_missing_resource
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
 from band_wezterm.role_library import open_role_library
@@ -37,8 +39,6 @@ from band_wezterm.tui.stores import (
 from band_wezterm.tui.widgets import AvatarChip, Chip, FilterChips
 
 NO_BADGE: Final = "  "
-
-SEARCH_DEBOUNCE_SECONDS: Final = 0.25
 
 SEARCH_PLACEHOLDER: Final = "Search agents by name"
 SOURCE_LABELS: Final[dict[AgentSource, str]] = {
@@ -70,6 +70,7 @@ class Id(StrEnum):
     LIST = "agent-list"
     STATUS = "agent-status"
     TOOLBAR = "agent-toolbar"
+    COLUMNS = "agent-columns"
 
 
 AGENT_CHIPS: Final[tuple[Chip, ...]] = tuple(
@@ -92,7 +93,7 @@ def badge_label(agent: AgentRecord) -> str:
 
 
 class AgentRow(ListItem):
-    """One catalog entry: avatar, name, harness badge, run state."""
+    """One catalog entry: identity, durable configuration, harness and state."""
 
     DEFAULT_CSS = """
     AgentRow {
@@ -100,35 +101,31 @@ class AgentRow(ListItem):
         height: 1;
         padding: 0 1;
     }
-    AgentRow .row-name {
-        width: 1fr;
-    }
-    AgentRow .row-badge {
-        width: 4;
-    }
-    AgentRow .row-state {
-        width: 9;
-    }
     """
 
     def __init__(
         self,
         agent: AgentRecord,
         *,
+        configuration: AgentConfiguration,
         running: bool,
         worker_state: WorkerState | None = None,
         deleting: bool = False,
     ) -> None:
         super().__init__()
         self.agent = agent
+        self.configuration = configuration
         self.running = running
         self.worker_state = worker_state
         self.deleting = deleting
 
     def compose(self) -> ComposeResult:
         yield AvatarChip(self.agent)
-        yield Label(self.agent.name, classes="row-name")
-        yield Label(badge_label(self.agent), classes="row-badge")
+        yield Label(self.agent.name, classes="agent-column-name")
+        yield Label(self.configuration.role, classes="agent-column-role")
+        yield Label(self.configuration.model, classes="agent-column-model")
+        yield Label(self.configuration.options, classes="agent-column-options")
+        yield Label(badge_label(self.agent), classes="agent-column-badge")
         yield Label(
             (
                 DELETING_LABEL
@@ -141,7 +138,7 @@ class AgentRow(ListItem):
                     ).value
                 )
             ),
-            classes="row-state",
+            classes="agent-column-state",
         )
 
 
@@ -176,6 +173,33 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
         height: 1;
         padding: 0 1;
     }
+    AgentsScreen #agent-columns {
+        height: 1;
+        layout: horizontal;
+        padding: 0 1;
+        color: $text-muted;
+    }
+    AgentsScreen .agent-column-avatar {
+        width: 5;
+    }
+    AgentsScreen .agent-column-name {
+        width: 1fr;
+    }
+    AgentsScreen .agent-column-role {
+        width: 18;
+    }
+    AgentsScreen .agent-column-model {
+        width: 24;
+    }
+    AgentsScreen .agent-column-options {
+        width: 24;
+    }
+    AgentsScreen .agent-column-badge {
+        width: 4;
+    }
+    AgentsScreen .agent-column-state {
+        width: 9;
+    }
     """
 
     store: reactive[AgentsStore] = reactive(AgentsStore, always_update=True, init=False)
@@ -191,6 +215,14 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
             selected=frozenset({AgentFilter.ALL.value}),
             id=Id.FILTERS.value,
         )
+        with Horizontal(id=Id.COLUMNS.value):
+            yield Static("", classes="agent-column-avatar")
+            yield Static("Name", classes="agent-column-name")
+            yield Static("Role", classes="agent-column-role")
+            yield Static("Model", classes="agent-column-model")
+            yield Static("Other configuration", classes="agent-column-options")
+            yield Static("", classes="agent-column-badge")
+            yield Static("State", classes="agent-column-state")
         yield ListView(id=Id.LIST.value)
         yield Static("", id=Id.STATUS.value)
         yield Footer()
@@ -222,6 +254,9 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
         await list_view.extend(
             AgentRow(
                 agent,
+                configuration=agent_configuration(
+                    self.control.managed_agents.get(agent.id)
+                ),
                 running=store.is_running(agent.id),
                 worker_state=store.worker_state(agent.id),
                 deleting=store.is_deleting(agent.id),
@@ -283,7 +318,7 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
 
     @work(exclusive=True, group="agents-load")
     async def _load_agents(self, *, announce: bool = False) -> None:
-        await asyncio.sleep(SEARCH_DEBOUNCE_SECONDS)
+        await asyncio.sleep(CATALOG_SEARCH_DEBOUNCE_SECONDS)
         store = self.store
         if store.source is AgentSource.DIRECTORY:
             self.mutate_reactive(AgentsScreen.store)

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/band-matrix-logo.png" alt="Band" width="240">
+<img src="docs/images/readme-hero.png" alt="Band for WezTerm" width="320">
 
 # Band for WezTerm
 
@@ -179,6 +179,8 @@ Settings also control chat-history page size, event visibility, and an optional
 very-low-opacity Band background. The background is off by default, applies only
 to the active Band WezTerm window, and restores that window's prior runtime
 background when disabled.
+
+![Band settings screen](docs/images/settings.svg)
 
 ## Development
 
