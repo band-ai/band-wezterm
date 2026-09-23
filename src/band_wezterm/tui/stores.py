@@ -112,6 +112,7 @@ class AgentsStore:
     filter: AgentFilter = AgentFilter.ALL
     workers: dict[str, WorkerRecord] = field(default_factory=dict)
     starting_ids: set[str] = field(default_factory=set)
+    stop_after_start_ids: set[str] = field(default_factory=set)
     selected_id: str | None = None
     loading: bool = False
     deleting_ids: set[str] = field(default_factory=set)
@@ -228,6 +229,13 @@ class AgentsStore:
 
     def finish_start(self, agent_id: str) -> None:
         self.starting_ids.discard(agent_id)
+        self.stop_after_start_ids.discard(agent_id)
+
+    def request_stop_after_start(self, agent_id: str) -> None:
+        self.stop_after_start_ids.add(agent_id)
+
+    def should_stop_after_start(self, agent_id: str) -> bool:
+        return agent_id in self.stop_after_start_ids
 
     def replace_workers(self, workers: Iterable[WorkerRecord]) -> None:
         """Project the supervisor's runtime inventory into this view-local store."""
