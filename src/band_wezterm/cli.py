@@ -128,7 +128,7 @@ def create_app(
     @agent_app.default
     def agent_interactive() -> int:
         """Open the interactive Agents surface."""
-        return agent_view(None)
+        return agent_view()
 
     @agent_app.command(name=Command.LIST)
     async def agent_list(

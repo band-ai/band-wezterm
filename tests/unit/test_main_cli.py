@@ -239,6 +239,20 @@ def test_room_command_starts_the_textual_view_outside_cyclopts_event_loop(
     assert opened == [None]
 
 
+def test_agent_command_opens_the_agents_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+    opened: list[object] = []
+    monkeypatch.setattr(
+        "band_wezterm.__main__.run_control_app",
+        lambda **kwargs: opened.append(kwargs["initial_screen"]) or 0,
+    )
+
+    assert main([Command.AGENT.value]) == 0
+    assert opened == [AppScreen.AGENTS]
+
+
 @pytest.mark.asyncio
 async def test_agents_list_renders_compact_state_without_an_action_column(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
