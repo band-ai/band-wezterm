@@ -70,28 +70,7 @@ wezterm tab / split / window
           └── band agent             # agent and role management
 ```
 
-| Command | Purpose |
-| --- | --- |
-| `band` | Show help. It never opens a view. |
-| `band room` | Open Rooms: browse, create, select, and manage rooms. |
-| `band room open NAME_OR_ID` | Open one accessible room directly. |
-| `band room list` | List rooms with IDs and direct open commands. |
-| `band room create TITLE` | Create a room. |
-| `band room delete NAME_OR_ID` | Delete one room. |
-| `band agent` | Open Agents: register, configure, manage roles, start, stop, or delete agents. |
-| `band agent list` | List registered agents, detached runtime state, and next command. |
-| `band agent create` | Open the agent registration wizard directly. |
-| `band agent configure NAME_OR_ID` | Open reconfiguration for one exact agent. |
-| `band status` | Show Rooms and Agents as separate operational tables. |
-| `band agent start AGENT_ID` | Start one detached managed worker. |
-| `band agent stop AGENT_ID` | Gracefully stop one detached managed worker. |
-| `band agent status AGENT_ID` | Inspect one detached managed worker. |
-| `band agent stop --all` | Gracefully stop every detached managed worker. |
-| `band agent delete AGENT_ID` | Stop and delete one agent. |
-| `band status --room` / `--agent` | Show only the selected status table. |
-| `band setup` | Install or update the Band WezTerm plugin configuration. |
-
-`band status --room` and `band status --agent` are mutually exclusive. So are an agent reference and `--all` in `band agent stop`. The surface uses local, context-specific keys and does not reserve global Ctrl- or function-key bindings. WezTerm shortcuts remain yours.
+Read the complete, generated [CLI reference](docs/cli.md), including every argument and option. `band status --room` and `band status --agent` are mutually exclusive; so are an agent reference and `--all` in `band agent stop`. The surface uses local, context-specific keys and does not reserve global Ctrl- or function-key bindings. WezTerm shortcuts remain yours.
 
 ### Rooms
 

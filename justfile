@@ -35,3 +35,7 @@ test-live:
 # Refresh README Band-view SVGs (no WezTerm or platform required)
 screenshots:
     uv run python docs/capture_screenshots.py
+
+# Regenerate the CLI Markdown reference from the real Cyclopts command tree
+cli-docs:
+    uv run python docs/generate_cli_docs.py
