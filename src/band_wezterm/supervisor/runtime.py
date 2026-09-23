@@ -20,7 +20,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from band_wezterm.auth.credentials import ManagedAgentKeyStore
-from band_wezterm.diagnostics import configure_diagnostics, log_event
+from band_wezterm.diagnostics import configure_diagnostics, log_event, log_failure
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.supervisor.client import supervisor_socket_directory
 from band_wezterm.supervisor.ipc import (
@@ -127,6 +127,7 @@ class SupervisorServer:
         except (PermissionError, ValidationError, ValueError) as error:
             response = {"ok": False, "error": str(error)}
         except Exception as error:  # Keep the supervisor reachable after one failure.
+            log_failure("supervisor request", error, str(error))
             response = {"ok": False, "error": str(error)}
         writer.write(json.dumps(response).encode() + b"\n")
         with suppress(OSError):
@@ -375,6 +376,13 @@ def _pid_alive(pid: int) -> bool:
             reaped, _status = os.waitpid(pid, os.WNOHANG)
         except ChildProcessError:
             pass
+        except OSError as error:
+            log_event(
+                "worker probe skipped",
+                pid=pid,
+                reason=type(error).__name__,
+            )
+            return False
         else:
             if reaped == pid:
                 return False
