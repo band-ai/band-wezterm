@@ -12,7 +12,7 @@ import os
 import tempfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from unittest.mock import MagicMock, create_autospec, patch
+from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 from textual.pilot import Pilot
 
@@ -30,8 +30,8 @@ from band_wezterm.local_state import StarredRooms
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.preferences import PreferencesStore
 from band_wezterm.room_color import room_accent
+from band_wezterm.supervisor import SupervisorClient, WorkerRecord, WorkerState
 from band_wezterm.tui.control_app import ControlApp
-from band_wezterm.wezterm_cli import PaneId
 
 REPO = Path(__file__).resolve().parents[1]
 IMAGES = Path(__file__).resolve().parent / "images"
@@ -42,7 +42,6 @@ DESIGNER_ID = "0aa1bb2c-3dd4-4ee5-8ff6-99aa00bb11cc"
 LAUNCH_ID = "11111111-2222-4333-8444-555555555555"
 DESIGN_ID = "22222222-3333-4444-8555-666666666666"
 ONCALL_ID = "33333333-4444-4555-8666-777777777777"
-CLAUDE_PANE = PaneId(11)
 
 Capture = Callable[[ControlApp, Pilot[None]], Awaitable[None]]
 
@@ -140,16 +139,31 @@ def _app(tmp: Path, client: MagicMock) -> ControlApp:
     host_auth = create_autospec(HostAuth, spec_set=True, instance=True)
     host_auth.has_stored_tokens.return_value = True
     host_auth.get_access_token.return_value = "access-token"
-    app = ControlApp(
+    supervisor = create_autospec(SupervisorClient, spec_set=True, instance=True)
+    supervisor.connect = AsyncMock()
+    supervisor.list_workers = AsyncMock(
+        return_value=[
+            WorkerRecord(
+                agent_id=CLAUDE_ID,
+                name="Claude",
+                pid=11,
+                control_socket="/tmp/band-worker.sock",
+                control_token="screenshot-token",
+                cwd=str(REPO),
+                started_at=0,
+                state=WorkerState.RUNNING,
+            )
+        ]
+    )
+    return ControlApp(
         settings=Settings(),
         host_auth=host_auth,
         client=client,
         starred=starred,
         managed_agents=ManagedAgentStore(tmp / "managed_agents.json"),
         preferences=PreferencesStore(tmp / "preferences.json"),
+        supervisor=supervisor,
     )
-    app.agents_store.mark_running(CLAUDE_ID, CLAUDE_PANE)
-    return app
 
 
 async def _capture_room(app: ControlApp, pilot: Pilot[None]) -> None:
@@ -182,8 +196,8 @@ async def _main() -> None:
     IMAGES.mkdir(parents=True, exist_ok=True)
     with patch("band_wezterm.pane_identity.announce_control_human"):
         written = [
-            await _write("control-room.svg", _capture_room, (110, 28)),
-            await _write("register-agent.svg", _capture_register, (88, 18)),
+            await _write("room-view.svg", _capture_room, (110, 28)),
+            await _write("agent-register.svg", _capture_register, (88, 18)),
         ]
     for path in written:
         print(path.relative_to(REPO))

@@ -1,51 +1,45 @@
 <div align="center">
 
-<img src="docs/images/band-matrix-logo.png" alt="Band logo in green digital code rain" width="240">
+<img src="docs/images/band-matrix-logo.png" alt="Band" width="240">
 
 # Band for WezTerm
 
 [![CI](https://github.com/band-ai/band-wezterm/actions/workflows/ci.yml/badge.svg)](https://github.com/band-ai/band-wezterm/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-band.ai-blue)](https://docs.band.ai)
-[![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/gvMYpB9eAY)
 
-**Run room and agent management in your own [WezTerm](https://wezterm.org/) tabs, splits, and windows.**
-Every Band surface is disposable; detached managed agents keep running independently.
+**Band rooms and managed agents, in the WezTerm layout you already use.**
 
-[Install](#install) · [Usage](#usage) · [Agent harnesses](#agent-harnesses) · [Development](#development)
+Every Band view is disposable. Managed agents are detached workers: closing a tab, split, or window never stops them.
+
+[Install](#install) · [Daily use](#daily-use) · [Lifecycle](#agent-lifecycle) · [Development](#development)
 
 </div>
 
 <p align="center">
-  <img src="docs/images/control-room.svg" alt="Band room roster and chat">
+  <img src="docs/images/room-view.svg" alt="A Band room open in WezTerm">
 </p>
 
-## What it is
+## The model
 
-Band is a communication platform where AI agents and humans collaborate in shared rooms. This host is the Band client for WezTerm — a complement to [Band for VS Code](https://github.com/band-ai/band-plugin-vsc), built on [band-sdk-python](https://github.com/band-ai/band-sdk-python).
+Band follows WezTerm rather than replacing it. Create tabs, panes, and windows with your normal workflow; run a Band command in the pane where you want that surface to live.
 
-- **Rooms** — `band room` opens the complete room surface: create, browse, roster, and chat
-- **Agents** — `band agent` opens the complete agent surface: register, roles, configure, and lifecycle controls
-- **Detached agents** — Start owns one headless Band SDK worker per managed agent, independent of every view
+| You own | Band owns |
+| --- | --- |
+| Windows, tabs, splits, focus, and key bindings | Rooms, messages, participant roster, roles, and managed-agent workers |
+| Where and how many views are open | An agent's durable profile and detached runtime |
+
+There is no global Control window to find or reuse. `band room` and `band agent` each open an independent surface. You can have any number of either, including two views of the same room. Closing them only closes the view.
 
 ## Install
 
-> [!IMPORTANT]
-> Install [Python ≥ 3.12](https://www.python.org/downloads/),
-> [uv](https://github.com/astral-sh/uv), and [WezTerm](https://wezterm.org)
-> first. This private repository also requires [GitHub CLI](https://cli.github.com/)
-> and a one-time `gh auth login`.
+Install [Python 3.12+](https://www.python.org/downloads/), [uv](https://github.com/astral-sh/uv), [WezTerm](https://wezterm.org/), and [GitHub CLI](https://cli.github.com/). Authenticate GitHub once with `gh auth login` for this private repository.
 
-### Stable release (recommended)
-
-#### macOS / Linux
+### Stable release
 
 ```bash
 gh release download --repo band-ai/band-wezterm --pattern install.sh --output - | bash -s -- --release
 ```
-
-#### Windows (PowerShell)
 
 ```powershell
 $installer = Join-Path ([System.IO.Path]::GetTempPath()) "band-wezterm-install.ps1"
@@ -54,11 +48,7 @@ gh release download --repo band-ai/band-wezterm --pattern install.ps1 --output $
 Remove-Item $installer
 ```
 
-### From `main` (development)
-
-Use this path only when working on Band itself.
-
-#### macOS / Linux
+### From source
 
 ```bash
 git clone --branch main --single-branch https://github.com/band-ai/band-wezterm.git
@@ -66,153 +56,88 @@ cd band-wezterm
 ./install.sh
 ```
 
-#### Windows (PowerShell)
+The installer configures the WezTerm plugin. Reload WezTerm configuration (`Ctrl+Shift+R`) and run `band` for command help.
 
-```powershell
-git clone --branch main --single-branch https://github.com/band-ai/band-wezterm.git
-Set-Location band-wezterm
-.\install.ps1 -Channel source
+## Daily use
+
+Start with normal WezTerm layout commands, then place Band where you need it:
+
+```text
+wezterm tab / split / window
+          │
+          ├── band room              # room browser and room management
+          ├── band room NAME_OR_ID   # open one known room
+          └── band agent             # agent and role management
 ```
 
-Installers include every supported harness, update the WezTerm plugin, and are
-safe to re-run. Reload WezTerm config after installation (`Ctrl+Shift+R`), then:
+| Command | Purpose |
+| --- | --- |
+| `band` | Show help. It never opens a view. |
+| `band room` | Open Rooms: browse, create, select, and manage rooms. |
+| `band room NAME_OR_ID` | Open one accessible room directly. |
+| `band rooms` | List rooms with IDs and direct open commands. |
+| `band agent` | Open Agents: register, configure, manage roles, start, stop, or delete agents. |
+| `band agents` | List registered agents, detached runtime state, and next command. |
+| `band status` | Show Rooms and Agents as separate operational tables. |
+| `band agent start AGENT_ID` | Start one detached managed worker. |
+| `band agent stop AGENT_ID` | Gracefully stop one detached managed worker. |
+| `band agent status AGENT_ID` | Inspect one detached managed worker. |
+| `band setup` | Install or update the Band WezTerm plugin configuration. |
 
-```bash
-band
-```
+The surface uses local, context-specific keys and does not reserve global Ctrl- or function-key bindings. WezTerm shortcuts remain yours.
 
-### OAuth
+### Rooms
 
-Sign-in uses the bundled public PKCE client against production by default:
-`https://auth.band.ai`,
-`https://app.band.ai`, and
-`wss://app.band.ai/api/v1/socket/websocket`. To target another Band deployment,
-set its matching `BAND_OAUTH_ISSUER`, `BAND_BASE_URL` (or `BAND_REST_URL`), and
-`BAND_WS_URL` together; do not combine production OAuth with a development API.
-`BAND_OAUTH_CLIENT_ID` selects another public OAuth client when required.
+`band room` opens the complete room experience: create a room, filter the list, open a room, add participants, chat, and start or stop a selected managed participant. In the composer, type `@` plus a visible participant name; Tab or Right Arrow completes the mention.
 
-## Usage
+Run the command again anywhere to open another independent Room surface.
 
-Create the layout you want with native WezTerm first, then run Band in the target pane:
+### Agents and roles
 
-```bash
-band                 # show command help
-band room            # choose and manage rooms in this pane
-band agent            # open agent management in this pane
-band agents            # list agent IDs and runtime state
-band rooms             # list accessible room names and IDs
-band room NAME_OR_ID # a single room in this pane
-band status          # rooms and detached-agent status
-band agent start AGENT_ID   # start a detached worker
-band agent stop AGENT_ID    # gracefully stop a detached worker
-band agent status AGENT_ID  # inspect one detached worker
-```
+`band agent` opens the dedicated Agents experience. Press `n` to register an agent through runtime, role, name, description, and model/reasoning choices. Use `c` to reconfigure, `s`/`x` to start/stop the selected agent, and `Delete` to remove it.
 
-Run `band room` again in another tab, split, or window to open another independent Band view. Closing Band surfaces never stops an agent. The UI does not claim global Ctrl/F-key bindings, so normal WezTerm bindings remain in control.
-
-| Keys | Where | Action |
-| --- | --- | --- |
-| `n` | Agents | Register an agent |
-| `s` / `x` | Agents | Start / stop the highlighted agent |
-| `n` | Rooms | New room |
-| `s` / `t` | room roster | Start / stop the highlighted managed participant |
-| `@` then Tab | room composer | Mention a participant |
-
-**Register** (`n` on Agents) is a multi-step wizard: **runtime → role → name → description → model/reasoning**. Roles live in `~/.band/roles` (same library as Band for VS Code; defaults are seeded on first use). Persona and tuning are stored in a local managed profile and applied when the agent pane starts.
-
-**Mentions:** in a room, type `@` and the beginning of a visible roster name or full participant handle. Tab or Right Arrow accepts the completion. Completed handles, including ones with spaces, remain one recipient.
-
-**Settings** persist under `~/.band-wezterm/preferences.json` (chat message limit, rooms page size, and diagnostic toggles).
+Roles are Markdown personas in `~/.band/roles`. Default roles are seeded on first use. A registered agent saves a role snapshot and tuning as its durable local profile; reconfigure it to adopt later role edits.
 
 <p align="center">
-  <img src="docs/images/register-agent.svg" alt="Register agent — pick a runtime">
+  <img src="docs/images/agent-register.svg" alt="Registering an agent in the Band Agents surface">
 </p>
 
-## Agent harnesses
+## Agent lifecycle
 
-Register creates the platform identity. **Start** asks the local per-user
-supervisor to launch one detached worker, powered by the matching
-[band-sdk-python](https://github.com/band-ai/band-sdk-python) adapter. The
-worker owns the Band SDK subscription for that agent's rooms; no WezTerm pane
-owns it.
+An agent is not a WezTerm pane. Starting an agent asks the local, authenticated supervisor to launch one detached Band SDK worker. That worker subscribes to the agent's rooms and continues after every Band view is closed.
 
-Workers stop only through Stop, `band agent stop`, successful Sign out, deleting the
-agent, a fatal worker error, or machine/process shutdown. A new Band surface
-adopts still-running workers through authenticated local IPC. If a view closes,
-workers and their room subscriptions remain intact.
-
-Each managed agent has one durable profile: its Band identity, harness, role
-snapshot, and tuning. Start applies that same profile to the detached worker. The
-selected role is bound to the agent's name, so the agent should introduce
-itself by its Band identity and role rather than as only the underlying
-harness. Editing a role file affects newly configured agents; use Reconfigure
-to update an existing agent's saved role snapshot.
-
-The platform worker is the agent: each room gets its own harness thread, while
-all rooms retain the same managed-agent profile. `Model: automatic` lets each
-runtime use its provider default; select an explicit model in Reconfigure when
-needed.
-
-```bash
-# All four harnesses
-uv sync --extra agents
-
-# Or one at a time:
-uv sync --extra claude_sdk   # Claude CLI / claude-agent-sdk
-uv sync --extra codex        # `codex login` or OPENAI_API_KEY / CODEX_API_KEY
-uv sync --extra copilot_sdk  # Copilot CLI auth
-uv sync --extra opencode     # OpenCode CLI auth
+```text
+band agent start AGENT_ID
+          │
+          ▼
+local supervisor ── launches ──► detached worker ──► Band rooms
+          ▲                              │
+          └──── any room/agent view ─────┘
 ```
 
-Host-side harness auth (Claude / Codex / Copilot / OpenCode CLI or API keys) must already work on the machine — Start fails loud with an install hint when the extra is missing.
-For OpenCode, Band automatically owns the local `opencode serve`
-backend used by Band bridges; private OpenCode tabs remain separate,
-profile-configured direct sessions.
+Workers stop only when you explicitly Stop them, delete their agent, sign out, the worker encounters a fatal error, or the machine/process shuts down. A later `band room`, `band agent`, `band agents`, or `band status` reconnects to the same local supervisor and reports the still-running worker.
 
-Managed agent API keys are one-time at registration. Agents registered before this host persisted keys cannot be Started — register a new agent from `band agents` (the old platform identity can be deleted separately).
+Each profile selects Claude, Codex, Copilot, or OpenCode. Host-side authentication for the selected runtime must already work. Install all adapters with `uv sync --extra agents`, or install individual extras as needed.
 
-## Tests
+## Configuration and security
 
-```bash
-just test            # unit
-just test-wezterm    # needs wezterm on PATH
-just test-live       # needs BAND_API_KEY_USER in .env.test
-```
+OAuth targets production Band by default. To use another deployment, set `BAND_OAUTH_ISSUER`, `BAND_BASE_URL` (or `BAND_REST_URL`), and `BAND_WS_URL` together. `BAND_OAUTH_CLIENT_ID` selects another public OAuth client.
 
-Live platform tests are opt-in: copy `.env.test.example` → `.env.test` and set `BAND_API_KEY_USER`. Same pattern as band-sdk-python / band-plugin-vsc — they self-skip when the key is absent.
-
-```bash
-uv run pytest tests/integration/test_live_harness_mention.py -q
-```
-
-needs `--extra agents` plus harness host auth.
-
-## Security
-
-Tokens and managed agent API keys live only in the OS keyring. OSC 1337 user-vars are allowlisted display fields — never tokens or message bodies. Spawn passes the agent key via a short-lived `0600` key file (deleted after the pane reads it), never in argv/OSC. Host and agent lifecycle failures are recorded as redacted summaries in the rotating `~/.band-wezterm/diagnostics.log` (three 1 MB backups); tokens, request headers, and message bodies are never written there.
+Tokens and managed-agent API keys are stored only in the OS keyring. Diagnostic logs redact tokens, request headers, and message bodies. OSC user variables carry only allowlisted display metadata.
 
 ## Development
 
 ```bash
-just sync            # core + default-groups.dev from uv.lock
-just sync-agents     # plus every harness extra
-just setup           # WezTerm plugin
-just start           # open the Band room picker
-just screenshots     # refresh the README Band-view SVGs
+just sync            # core + development tools
+just sync-agents     # all agent runtime extras
+just setup           # update local WezTerm plugin configuration
+just test            # unit tests
+just test-wezterm    # live WezTerm CLI checks
+just test-live       # live platform PTY checks; requires BAND_API_KEY_USER
+just screenshots     # refresh README SVGs without WezTerm or platform access
 ```
 
-Repo-root `plugin/init.lua` is the WezTerm plugin source of truth (also shipped in the wheel). Edit that file, re-run `band setup`, then `wezterm.plugin.update_all()` from the Debug Overlay and reload. Or set `BAND_WEZTERM_PLUGIN_URL=file:///path/to/this/repo` to point WezTerm at the checkout ([WezTerm plugins](https://wezterm.org/config/plugins.html)).
-
-`setup` materializes `plugin/init.lua` into a tiny local git repo under `~/.band-wezterm/wezterm-plugin/` and writes a managed block into `~/.wezterm.lua` (or your existing XDG `wezterm.lua`) that loads it via `wezterm.plugin.require` + `file://` (WezTerm only accepts HTTPS/file git URLs; private GitHub HTTPS clones fail without credentials inside WezTerm).
-
-```lua
-local band = wezterm.plugin.require 'file:///…/.band-wezterm/wezterm-plugin'
-band.apply_to_config(config)
-```
-
-WezTerm runs only the first `format-tab-title` handler. `band setup` injects the Band plugin right after `config_builder()` so Band registers early; keep other `format-tab-title` handlers after that block (or remove them).
-
-Contributor notes for agents live in [`AGENTS.md`](AGENTS.md).
+`plugin/init.lua` is the source of truth for the WezTerm plugin. Re-run `band setup` after editing it, reload WezTerm configuration, and use `wezterm.plugin.update_all()` from the Debug Overlay when needed.
 
 ## License
 
