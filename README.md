@@ -8,11 +8,11 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Band rooms and managed agents, in the WezTerm layout you already use.**
+**Persistent Band rooms and managed agents, in the WezTerm layout you already use.**
 
 Every Band view is disposable. Managed agents are detached workers: closing a tab, split, or window never stops them.
 
-[Install](#install) · [Daily use](#daily-use) · [Lifecycle](#agent-lifecycle) · [Development](#development)
+[Install](#install) · [Commands](#commands) · [Lifecycle](#agent-lifecycle) · [Development](#development)
 
 </div>
 
@@ -64,27 +64,62 @@ install.bat
 
 The installer configures the WezTerm plugin. Reload WezTerm configuration (`Ctrl+Shift+R`) and run `band` for command help.
 
-## Daily use
+## Commands
 
-Start with normal WezTerm layout commands, then place Band where you need it:
+Use your normal WezTerm tabs, panes, windows, and shortcuts. Run Band in the
+pane where you want a disposable view; reopening a view never creates or stops
+an agent.
 
-```text
-wezterm tab / split / window
-          │
-          ├── band room              # room browser and room management
-          ├── band room open NAME_OR_ID
-          └── band agent             # agent and role management
+```console
+band                         # help and the primary workflows
+band room                    # interactive room browser
+band room open planning      # open an exact title or unique ID prefix
+band room list --name plan --limit 20 --offset 0
+band room create planning
+band room delete planning
+
+band agent                   # interactive agent browser
+band agent list --name writer --harness cx --state running
+band agent create
+band agent configure 693c9f27
+band agent start 693c9f27
+band agent stop 693c9f27
+band agent stop --all
+band agent status 693c9f27
+band agent delete 693c9f27
+
+band status                  # paged rooms, then agents
+band status --room           # rooms only
+band status --agent          # agents only
+band logs --tail 100
+band completion              # install zsh, bash, or fish completion
 ```
 
-Read the complete, generated [CLI reference](docs/cli.md), including every argument and option. `band status --room` and `band status --agent` are mutually exclusive; so are an agent reference and `--all` in `band agent stop`. The surface uses local, context-specific keys and does not reserve global Ctrl- or function-key bindings. WezTerm shortcuts remain yours.
+Read the complete generated [CLI reference](docs/cli.md) for every argument
+and option. `band status --room` and `band status --agent` are mutually
+exclusive; so are an agent reference and `--all` in `band agent stop`.
+The surface uses local, context-specific keys and never reserves global Ctrl or
+function-key bindings. WezTerm shortcuts remain yours.
 
 ### Rooms
 
-`band room` opens the complete room experience: create a room, filter the list, open a room, add participants, chat, and start or stop a selected managed participant. In the composer, type `@` plus a visible participant name; Tab or Right Arrow completes the mention.
+`band room` opens the complete room experience: create and filter rooms, open
+one, add participants, chat, and start or stop a selected managed participant.
+The timeline follows the newest event. Scroll upward at its earliest loaded
+event to fetch the next page of older history; `End` returns to live activity.
+Each event shows seconds, a semantic tag, colored authors, and color-matched
+mentions. Select an event then press `d` for its full formatted detail.
+In the composer, type `@` plus a visible participant name; Tab or Right Arrow
+completes the mention.
 
 Run the command again anywhere to open another independent Room surface.
 
-Terminal lists are paged to 20 rows by default. Use `band room --name room` (or `band room list --name room`) for room titles beginning with `room`; `--limit` and `--offset` navigate large lists. Agent lists use the same options, plus local runtime filters: `band agent --name my-ag --harness cp --state running`. Harnesses are `cl` (Claude), `cx` (Codex), `cp` (Copilot), and `om` (OpenCode); states are `starting`, `running`, `stopping`, `stopped`, and `error`.
+Terminal lists are paged to 20 rows by default. Use `band room --name room`
+(or `band room list --name room`) for room titles beginning with `room`;
+`--limit` and `--offset` navigate large lists. Agent lists use the same options,
+plus local runtime filters: `band agent --name my-ag --harness cp --state running`.
+Harnesses are `cl` (Claude), `cx` (Codex), `cp` (Copilot), and `om` (OpenCode);
+states are `starting`, `running`, `stopping`, `stopped`, and `error`.
 
 <p align="center">
   <img src="docs/images/rooms-browser.svg" alt="Browsing and managing Band rooms in WezTerm">
@@ -96,7 +131,10 @@ Terminal lists are paged to 20 rows by default. Use `band room --name room` (or 
 
 `band agent create` opens that registration wizard immediately. `band agent configure NAME_OR_ID` resolves one exact agent first, then opens its reconfiguration wizard; it never silently falls back to an unselected list. The list remains the right surface for browsing, runtime status, role management, and ad-hoc lifecycle actions.
 
-`band agent list` is a compact overview. Add `--verbose` (or `-v`) for full agent IDs, selected harnesses, and local worker PIDs.
+`band agent list` is a compact overview. Add `--verbose` (or `-v`) for full
+agent IDs, selected harnesses, and local worker PIDs. References accept an
+exact name or a unique ID prefix; ambiguous prefixes show matches instead of
+guessing.
 
 Use a unique ID prefix anywhere an agent or room reference is accepted: `band agent 693c9f27` opens Agents with that agent selected, and `band agent start 693c9f27` starts it. Run `band completion` once to install zsh, bash, or fish completion for Band commands and options.
 
@@ -131,7 +169,16 @@ Each profile selects Claude, Codex, Copilot, or OpenCode. Host-side authenticati
 
 Band targets production by default. Set `BAND_DEPLOYMENT=development` before launching Band to use the development REST and WebSocket deployment; development credentials, local agent profiles, room state, diagnostics, and supervisor state remain isolated from production. `BAND_OAUTH_ISSUER`, `BAND_BASE_URL` (or `BAND_REST_URL`), and `BAND_WS_URL` support an explicit custom deployment; `BAND_OAUTH_CLIENT_ID` selects another public OAuth client.
 
-Tokens and managed-agent API keys are stored only in the OS keyring. Diagnostic logs at `~/.band-wezterm/diagnostics.log` rotate locally and record room/agent operation requests, outcomes, resource IDs, worker state, and safe error types—never tokens, request headers, message bodies, room titles, or working directories. OSC user variables carry only allowlisted display metadata.
+Tokens and managed-agent API keys are stored only in the OS keyring. Diagnostic
+logs at `~/.band-wezterm/diagnostics.log` rotate locally and record room/agent
+operation requests, outcomes, resource IDs, worker state, and safe error
+types—never tokens, request headers, message bodies, room titles, or working
+directories. OSC user variables carry only allowlisted display metadata.
+
+Settings also control chat-history page size, event visibility, and an optional
+very-low-opacity Band background. The background is off by default, applies only
+to the active Band WezTerm window, and restores that window's prior runtime
+background when disabled.
 
 ## Development
 
