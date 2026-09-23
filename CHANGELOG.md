@@ -5,8 +5,7 @@
 
 ### Bug Fixes
 
-* **tui:** honor stop during agent startup ([64d819b](https://github.com/band-ai/band-wezterm/commit/64d819b70a4858c2380b22057fc3378b09e00bda))
-* **tui:** honor stop during agent startup ([071d29b](https://github.com/band-ai/band-wezterm/commit/071d29bd156cd9a95fc83d91b47dea7d7568e254))
+* **tui:** honor stop during agent startup ([#43](https://github.com/band-ai/band-wezterm/pull/43)) ([64d819b](https://github.com/band-ai/band-wezterm/commit/64d819b70a4858c2380b22057fc3378b09e00bda))
 
 ## [0.8.1](https://github.com/band-ai/band-wezterm/compare/v0.8.0...v0.8.1) (2026-09-23)
 
