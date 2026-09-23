@@ -605,7 +605,7 @@ class RoomsScreen(ControlScreen):
             self._reload_catalog()
 
     async def watch_store(self, store: RoomsStore) -> None:
-        if not self.is_mounted:
+        if not self.is_attached:
             return
         self.query_one(selector(Id.DRAFT), Vertical).set_class(
             store.draft_open, OPEN_CLASS
@@ -989,7 +989,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         return self.query_one(selector(Id.ROSTER_LIST), ListView)
 
     async def watch_store(self, store: RoomsStore) -> None:
-        if not self.is_mounted:
+        if not self.is_attached:
             return
         self.query_one(selector(Id.PICKER), Vertical).set_class(
             store.picker_open, OPEN_CLASS
@@ -1396,7 +1396,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             return
         match event.row.identity:
             case ParticipantRecord() as participant if participant.kind is AvatarKind.AGENT:
-                self._insert_participant_mention(participant)
+                self.call_after_refresh(self._insert_participant_mention, participant)
 
     def _insert_participant_mention(self, participant: ParticipantRecord) -> None:
         composer = self.query_one(selector(Id.COMPOSER), MarkdownComposer)

@@ -164,6 +164,7 @@ class MarkdownComposer(Input):
             placeholder=placeholder,
             highlighter=MarkdownSpanHighlighter(),
             suggester=MentionSuggester(lambda: self._mention_handles),
+            select_on_focus=False,
             id=id,
             classes=classes,
         )
