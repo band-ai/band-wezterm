@@ -148,7 +148,7 @@ Manage detached Band agents.
 * [`configure`](#band-agent-configure): Open the reconfiguration surface for one existing agent.
 * [`create`](#band-agent-create): Open the agent registration surface.
 * [`delete`](#band-agent-delete): Stop and delete one managed agent.
-* [`list`](#band-agent-list): List registered agents and detached runtime state.
+* [`list`](#band-agent-list): List registered agents; include runtime details with --verbose / -v.
 * [`start`](#band-agent-start): Start one detached managed agent.
 * [`status`](#band-agent-status): Show one managed agent's runtime state.
 * [`stop`](#band-agent-stop): Gracefully stop one agent, or every agent with --all.
@@ -156,10 +156,14 @@ Manage detached Band agents.
 ### band agent list
 
 ```console
-band agent list
+band agent list [OPTIONS]
 ```
 
-List registered agents and detached runtime state.
+List registered agents; include runtime details with --verbose / -v.
+
+**Parameters**:
+
+* `--verbose, --no-verbose, -v`: *[default: False]*
 
 ### band agent create
 

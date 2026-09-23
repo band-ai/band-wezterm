@@ -67,7 +67,7 @@ class HostAuth:
         open_browser: Callable[[str], bool] | None = None,
     ) -> None:
         self._settings = settings or load_settings()
-        self._store = store or TokenStore()
+        self._store = store or TokenStore(service=self._settings.keyring_service)
         self._now = now or time.time
         self._open_browser = open_browser or webbrowser.open
         self._token_generation = 0
@@ -242,7 +242,9 @@ class HostAuth:
         try:
             payload = TokenResponse.model_validate(response.json())
         except ValidationError as error:
-            raise TokenExchangeError(None, f"Malformed token response: {error}") from error
+            raise TokenExchangeError(
+                None, f"Malformed token response: {error}"
+            ) from error
         if response.status_code >= 400:
             raise TokenExchangeError(
                 payload.error,
@@ -252,9 +254,7 @@ class HostAuth:
             raise TokenExchangeError(None, "Token response missing access_token")
         refresh_token = payload.refresh_token or prior_refresh_token
         if not refresh_token:
-            raise TokenExchangeError(
-                None, "Token response missing refresh_token"
-            )
+            raise TokenExchangeError(None, "Token response missing refresh_token")
         lifetime = payload.expires_in or DEFAULT_TOKEN_LIFETIME_SECONDS
         lifetime_s = max(MINIMUM_TOKEN_LIFETIME_SECONDS, int(lifetime))
         expires_at = int(self._now() * 1000) + lifetime_s * 1000
@@ -355,9 +355,7 @@ def _start_loopback_server(state: str) -> tuple[_LoopbackServer, int]:
     return server, int(server.server_address[1])
 
 
-def _wait_for_code(
-    server: _LoopbackServer, cancellation: threading.Event
-) -> str:
+def _wait_for_code(server: _LoopbackServer, cancellation: threading.Event) -> str:
     while (
         server.authorization_code is None
         and server.error is None

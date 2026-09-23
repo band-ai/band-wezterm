@@ -143,14 +143,16 @@ class ControlApp(App[None]):
         self.settings = settings or load_settings()
         self.host_auth = host_auth or HostAuth(self.settings)
         self.client = client or BandClient(self.host_auth, self.settings)
-        self.starred = starred or StarredRooms()
-        self.managed_agents = managed_agents or ManagedAgentStore()
-        self.preferences = preferences or PreferencesStore()
+        self.starred = starred or StarredRooms(settings=self.settings)
+        self.managed_agents = managed_agents or ManagedAgentStore(
+            settings=self.settings
+        )
+        self.preferences = preferences or PreferencesStore(settings=self.settings)
         self.opencode_server = opencode_server or OpenCodeServerManager()
         self.model_catalogs = model_catalogs or ModelCatalogService(
             self.opencode_server
         )
-        self.supervisor = supervisor or SupervisorClient()
+        self.supervisor = supervisor or SupervisorClient(settings=self.settings)
         self.agent_lifecycle = ManagedAgentLifecycle(self.supervisor)
         self.room_operations = RoomOperations(self.client)
         self.agent_operations = ManagedAgentOperations(
@@ -244,7 +246,9 @@ class ControlApp(App[None]):
                 severity="error",
             )
             return
-        agent = next((candidate for candidate in agents if candidate.id == agent_id), None)
+        agent = next(
+            (candidate for candidate in agents if candidate.id == agent_id), None
+        )
         if agent is None:
             self.notify("That Band agent is unavailable.", severity="error")
             return

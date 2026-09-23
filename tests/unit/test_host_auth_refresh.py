@@ -109,6 +109,21 @@ async def test_invalid_refresh_token_clears_the_local_session(
 
 
 @pytest.mark.asyncio
+async def test_sign_out_removes_local_session_and_invalidates_in_flight_state() -> None:
+    store = _MemoryStore()
+    store.set_user_tokens(
+        UserTokens(access_token="access", refresh_token="refresh", expires_at=2_000_000)
+    )
+    auth = HostAuth(Settings(band_oauth_client_id="client"), store)
+
+    generation = auth.token_generation
+    await auth.sign_out()
+
+    assert store.get_user_tokens() is None
+    assert auth.token_generation == generation + 1
+
+
+@pytest.mark.asyncio
 async def test_concurrent_access_token_requests_share_one_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -156,6 +171,7 @@ async def test_cancel_sign_in_unblocks_the_callback_wait(
 
     monkeypatch.setattr(auth, "_discover", discover)
     monkeypatch.setattr(auth, "_open_browser", lambda _url: True)
+
     def start_server(_state: str) -> tuple[_FakeLoopbackServer, int]:
         return _FakeLoopbackServer(), FAKE_CALLBACK_PORT
 
@@ -164,7 +180,9 @@ async def test_cancel_sign_in_unblocks_the_callback_wait(
         cancellation.wait()
         raise RuntimeError(SIGN_IN_CANCELLED_MESSAGE)
 
-    monkeypatch.setattr("band_wezterm.auth.host_auth._start_loopback_server", start_server)
+    monkeypatch.setattr(
+        "band_wezterm.auth.host_auth._start_loopback_server", start_server
+    )
     monkeypatch.setattr("band_wezterm.auth.host_auth._wait_for_code", wait_for_code)
 
     sign_in = asyncio.create_task(auth.sign_in())

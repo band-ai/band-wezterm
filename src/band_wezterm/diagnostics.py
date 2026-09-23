@@ -7,7 +7,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Final
 
-from band_wezterm.config import LOCAL_STATE_DIRNAME
+from band_wezterm.config import Settings, load_settings
 
 LOGGER_NAME: Final = "band_wezterm"
 LOG_FILENAME: Final = "diagnostics.log"
@@ -17,9 +17,12 @@ LOG_FORMAT: Final = "%(asctime)s %(levelname)s %(message)s"
 DEFAULT_LOG_TAIL_LINES: Final = 100
 
 
-def diagnostics_log_path(*, home: Path | None = None) -> Path:
-    root = home if home is not None else Path.home()
-    return root / LOCAL_STATE_DIRNAME / LOG_FILENAME
+def diagnostics_log_path(
+    *, home: Path | None = None, settings: Settings | None = None
+) -> Path:
+    if home is not None:
+        return home / ".band-wezterm" / LOG_FILENAME
+    return (settings or load_settings()).local_state_path(LOG_FILENAME)
 
 
 def configure_diagnostics(*, path: Path | None = None) -> None:
@@ -69,4 +72,7 @@ def read_diagnostics(*, lines: int = DEFAULT_LOG_TAIL_LINES) -> str:
         return "No Band diagnostics have been recorded yet."
     except OSError as error:
         return f"Unable to read Band diagnostics: {type(error).__name__}."
-    return "\n".join(content.splitlines()[-lines:]) or "No Band diagnostics have been recorded yet."
+    return (
+        "\n".join(content.splitlines()[-lines:])
+        or "No Band diagnostics have been recorded yet."
+    )

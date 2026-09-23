@@ -114,7 +114,7 @@ async def test_status_separates_rooms_and_agents(
     output = capsys.readouterr().out
     assert all(
         value in output
-        for value in ("Rooms", "Planning", "Agents", "Architect", "stop")
+        for value in ("Rooms", "Planning", "Agents", "Architect", "running")
     )
 
 
@@ -240,7 +240,7 @@ def test_room_command_starts_the_textual_view_outside_cyclopts_event_loop(
 
 
 @pytest.mark.asyncio
-async def test_agents_list_includes_the_next_lifecycle_command(
+async def test_agents_list_renders_compact_state_without_an_action_column(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     supervisor = MagicMock()
@@ -261,10 +261,9 @@ async def test_agents_list_includes_the_next_lifecycle_command(
             "Agents",
             "Architect",
             "stopped",
-            "start",
-            "band agent ACTION AGENT_ID",
         )
     )
+    assert "Action" not in output
 
 
 @pytest.mark.asyncio
@@ -295,7 +294,8 @@ async def test_agent_start_reports_the_detached_worker(
     operations.start.assert_awaited_once_with("agent-1", cwd=Path.cwd())
     client.aclose.assert_awaited_once()
     output = capsys.readouterr().out
-    assert all(value in output for value in ("Agents", "Architect", "starting", "stop"))
+    assert all(value in output for value in ("Agents", "Architect", "starting"))
+    assert "Action" not in output
 
 
 def test_setup_help_mentions_active_config(

@@ -39,6 +39,9 @@ def test_resource_commands_execute_a_multi_step_session() -> None:
     async def no_result() -> int:
         return 0
 
+    async def no_agents(_verbose: bool) -> int:
+        return 0
+
     async def no_reference(_reference: str) -> int:
         return 0
 
@@ -52,7 +55,7 @@ def test_resource_commands_execute_a_multi_step_session() -> None:
         create_agent=lambda: 0,
         configure_agent=lambda _reference: 0,
         rooms=no_result,
-        agents=no_result,
+        agents=no_agents,
         create_room=create_room,
         delete_room=no_reference,
         delete_agent=no_reference,

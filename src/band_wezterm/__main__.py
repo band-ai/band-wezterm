@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Final
 
 from band_wezterm.auth.host_auth import HostAuth
-from band_wezterm.cli import COMMAND_NAME, AgentAction, create_app
+from band_wezterm.cli import COMMAND_NAME, create_app
 from band_wezterm.cli_output import (
     AgentOutput,
     RoomOutput,
@@ -18,6 +18,7 @@ from band_wezterm.cli_output import (
     print_rooms,
 )
 from band_wezterm.client import AgentRecord, BandClient, RoomRecord
+from band_wezterm.config import load_settings
 from band_wezterm.diagnostics import configure_diagnostics, log_event, read_diagnostics
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.resource_operations import ManagedAgentOperations, RoomOperations
@@ -190,13 +191,14 @@ def _run_configure_agent(reference: str) -> int:
 
 
 async def _current_supervisor() -> SupervisorClient:
-    auth = HostAuth()
-    client = BandClient(auth)
+    settings = load_settings()
+    auth = HostAuth(settings)
+    client = BandClient(auth, settings)
     try:
         user_id = await client.whoami()
     finally:
         await client.aclose()
-    supervisor = SupervisorClient()
+    supervisor = SupervisorClient(settings=settings)
     await supervisor.connect(user_id)
     return supervisor
 
@@ -206,16 +208,19 @@ async def _current_lifecycle() -> ManagedAgentLifecycle:
 
 
 async def _current_agent_operations() -> tuple[ManagedAgentOperations, BandClient]:
-    client = BandClient(HostAuth())
+    settings = load_settings()
+    client = BandClient(HostAuth(settings), settings)
     try:
         user_id = await client.whoami()
-        supervisor = SupervisorClient()
+        supervisor = SupervisorClient(settings=settings)
         await supervisor.connect(user_id)
     except Exception:
         await client.aclose()
         raise
     lifecycle = ManagedAgentLifecycle(supervisor)
-    return ManagedAgentOperations(client, lifecycle, ManagedAgentStore()), client
+    return ManagedAgentOperations(
+        client, lifecycle, ManagedAgentStore(settings=settings)
+    ), client
 
 
 async def _list_rooms() -> list[RoomRecord]:
@@ -290,23 +295,27 @@ async def _run_status(rooms_only: bool, agents_only: bool) -> int:
     return 0
 
 
-async def _run_agents() -> int:
+async def _run_agents(verbose: bool = False) -> int:
     agents, lifecycle = await asyncio.gather(_list_agents(), _current_lifecycle())
     workers = {worker.agent_id: worker for worker in await lifecycle.workers()}
     rows: list[AgentOutput] = []
     for agent in agents:
         worker = workers.get(agent.id)
         state = "stopped" if worker is None else worker.state.value
-        action = AgentAction.START if worker is None else AgentAction.STOP
         rows.append(
             AgentOutput(
                 name=agent.name,
                 state=state,
                 agent_id=agent.id,
-                action=action.value,
+                harness=(
+                    None
+                    if getattr(agent, "harness", None) is None
+                    else agent.harness.value
+                ),
+                pid=None if worker is None else worker.pid,
             )
         )
-    print_agents(rows)
+    print_agents(rows, verbose=verbose)
     return 0
 
 
@@ -366,8 +375,7 @@ async def _run_agent_status(reference: str) -> int:
 
 
 def _agent_output(name: str, agent_id: str, state: str) -> AgentOutput:
-    action = AgentAction.START if state == "stopped" else AgentAction.STOP
-    return AgentOutput(name=name, state=state, agent_id=agent_id, action=action.value)
+    return AgentOutput(name=name, state=state, agent_id=agent_id)
 
 
 async def _run_create_room(title: str) -> int:

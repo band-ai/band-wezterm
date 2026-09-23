@@ -25,10 +25,10 @@ class AgentColumn(StrEnum):
     NAME = "Name"
     STATE = "State"
     ID = "Agent ID"
-    ACTION = "Action"
+    HARNESS = "Harness"
+    PID = "PID"
 
 
-AGENT_COMMAND_HINT: Final = "Run: band agent ACTION AGENT_ID"
 ROOM_COMMAND_HINT: Final = "Run: band room open ROOM_ID"
 
 
@@ -43,7 +43,8 @@ class AgentOutput:
     name: str
     state: str
     agent_id: str
-    action: str
+    harness: str | None = None
+    pid: int | None = None
 
 
 def print_rooms(rows: list[RoomOutput]) -> None:
@@ -58,22 +59,26 @@ def print_rooms(rows: list[RoomOutput]) -> None:
     console.print(ROOM_COMMAND_HINT)
 
 
-def print_agents(rows: list[AgentOutput]) -> None:
+def print_agents(rows: list[AgentOutput], *, verbose: bool = False) -> None:
     table = _table(TableTitle.AGENTS)
     table.add_column(AgentColumn.NAME, no_wrap=True)
     table.add_column(AgentColumn.STATE, no_wrap=True)
     table.add_column(AgentColumn.ID, no_wrap=True)
-    table.add_column(AgentColumn.ACTION, no_wrap=True)
+    if verbose:
+        table.add_column(AgentColumn.HARNESS, no_wrap=True)
+        table.add_column(AgentColumn.PID, no_wrap=True)
     for row in rows:
-        table.add_row(row.name, row.state, row.agent_id, row.action)
+        values = [row.name, row.state, row.agent_id]
+        if verbose:
+            values.extend((row.harness or "—", str(row.pid) if row.pid else "—"))
+        table.add_row(*values)
     console = Console()
     console.print(table)
-    console.print(AGENT_COMMAND_HINT)
 
 
 def print_agent(row: AgentOutput) -> None:
     """Render one lifecycle result with the same contract as ``band agent list``."""
-    print_agents([row])
+    print_agents([row], verbose=True)
 
 
 def _table(title: TableTitle) -> Table:

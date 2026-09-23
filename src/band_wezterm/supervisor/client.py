@@ -19,7 +19,7 @@ from typing import Final
 from filelock import FileLock
 from pydantic import ValidationError
 
-from band_wezterm.config import LOCAL_STATE_DIRNAME
+from band_wezterm.config import BandDeployment, Settings, load_settings
 from band_wezterm.supervisor.ipc import open_connection
 from band_wezterm.supervisor.protocol import (
     SupervisorAction,
@@ -39,14 +39,18 @@ class SupervisorError(RuntimeError):
     """The local supervisor is unavailable or rejected a request."""
 
 
-def supervisor_directory() -> Path:
-    return Path.home() / LOCAL_STATE_DIRNAME / SUPERVISOR_DIRNAME
+def supervisor_directory(settings: Settings | None = None) -> Path:
+    return (settings or load_settings()).local_state_directory / SUPERVISOR_DIRNAME
 
 
-def supervisor_state_path(user_id: str) -> Path:
+def supervisor_state_path(user_id: str, settings: Settings | None = None) -> Path:
     """Stable short filename for a user id without leaking it in a path."""
-    digest = hashlib.sha256(user_id.encode()).hexdigest()
-    return supervisor_directory() / f"{digest}.json"
+    resolved = settings or load_settings()
+    identity = user_id
+    if resolved.band_deployment is not BandDeployment.PRODUCTION:
+        identity = f"{resolved.band_deployment.value}:{user_id}"
+    digest = hashlib.sha256(identity.encode()).hexdigest()
+    return supervisor_directory(resolved) / f"{digest}.json"
 
 
 def supervisor_socket_directory() -> Path:
@@ -67,9 +71,14 @@ def supervisor_socket_directory() -> Path:
 class SupervisorClient:
     """Authenticate a disposable Band surface to one per-user supervisor."""
 
-    def __init__(self, user_id: str | None = None) -> None:
+    def __init__(
+        self, user_id: str | None = None, *, settings: Settings | None = None
+    ) -> None:
+        self._settings = settings or load_settings()
         self._user_id = user_id
-        self._state_path = supervisor_state_path(user_id) if user_id else None
+        self._state_path = (
+            supervisor_state_path(user_id, self._settings) if user_id else None
+        )
         self._connect_lock = asyncio.Lock()
 
     @property
@@ -82,9 +91,11 @@ class SupervisorClient:
             if self._user_id == user_id and await self._is_healthy():
                 return
             self._user_id = user_id
-            self._state_path = supervisor_state_path(user_id)
+            self._state_path = supervisor_state_path(user_id, self._settings)
             state_path = self._state_path
-            await asyncio.to_thread(state_path.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(
+                state_path.parent.mkdir, parents=True, exist_ok=True
+            )
             async with _supervisor_lock(state_path):
                 if await self._is_healthy():
                     return
@@ -135,6 +146,13 @@ class SupervisorClient:
         return True
 
     def _start_supervisor(self, user_id: str, state_path: Path) -> None:
+        env = {
+            **os.environ,
+            "BAND_DEPLOYMENT": self._settings.band_deployment.value,
+            "BAND_OAUTH_ISSUER": self._settings.band_oauth_issuer,
+            "BAND_BASE_URL": self._settings.band_base_url,
+            "BAND_WS_URL": self._settings.band_ws_url,
+        }
         subprocess.Popen(
             [
                 sys.executable,
@@ -148,6 +166,7 @@ class SupervisorClient:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=env,
             start_new_session=True,
             close_fds=True,
         )

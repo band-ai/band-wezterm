@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
-from typing import Final
+from typing import Annotated, Final
 
-from cyclopts import App
+from cyclopts import App, Parameter
 
 from band_wezterm.diagnostics import DEFAULT_LOG_TAIL_LINES
 
@@ -43,6 +43,7 @@ SetupHandler = Callable[[], int]
 ViewHandler = Callable[[str | None], int]
 AgentViewHandler = Callable[[], int]
 AsyncHandler = Callable[[], Awaitable[int]]
+AgentListHandler = Callable[[bool], Awaitable[int]]
 ReferenceHandler = Callable[[str], Awaitable[int]]
 ConfigureAgentHandler = Callable[[str], int]
 StopHandler = Callable[[str | None, bool], Awaitable[int]]
@@ -58,7 +59,7 @@ def create_app(
     create_agent: AgentViewHandler,
     configure_agent: ConfigureAgentHandler,
     rooms: AsyncHandler,
-    agents: AsyncHandler,
+    agents: AgentListHandler,
     create_room: ReferenceHandler,
     delete_room: ReferenceHandler,
     delete_agent: ReferenceHandler,
@@ -69,7 +70,11 @@ def create_app(
     logs: LogsHandler,
 ) -> App:
     """Build resource-oriented commands; UI is each resource's default."""
-    app = App(name=COMMAND_NAME, help="Manage Band rooms and detached agents in WezTerm.", result_action="return_int_as_exit_code_else_zero")
+    app = App(
+        name=COMMAND_NAME,
+        help="Manage Band rooms and detached agents in WezTerm.",
+        result_action="return_int_as_exit_code_else_zero",
+    )
     room_app = App(name=Command.ROOM, help="Manage Band rooms.")
     agent_app = App(name=Command.AGENT, help="Manage detached Band agents.")
 
@@ -126,9 +131,12 @@ def create_app(
         return agent_view(None)
 
     @agent_app.command(name=Command.LIST)
-    async def agent_list() -> int:
-        """List registered agents and detached runtime state."""
-        return await agents()
+    async def agent_list(
+        *,
+        verbose: Annotated[bool, Parameter(name=("--verbose", "-v"))] = False,
+    ) -> int:
+        """List registered agents; include runtime details with --verbose / -v."""
+        return await agents(verbose)
 
     @agent_app.command(name=Command.CREATE)
     def agent_create() -> int:

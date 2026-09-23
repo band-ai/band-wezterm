@@ -11,7 +11,7 @@ from typing import Final
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from band_wezterm.backends import AgentTuning, normalize_tuning
-from band_wezterm.config import LOCAL_STATE_DIRNAME
+from band_wezterm.config import Settings, load_settings
 from band_wezterm.identity import HarnessId, parse_harness
 
 _PROFILE_SAVE_TMP_PREFIX: Final = ".managed_agents."
@@ -47,15 +47,17 @@ class _ProfilesFile(BaseModel):
     profiles: list[ManagedAgentProfile] = Field(default_factory=list)
 
 
-def default_profiles_path() -> Path:
-    return Path.home() / LOCAL_STATE_DIRNAME / "managed_agents.json"
+def default_profiles_path(settings: Settings | None = None) -> Path:
+    return (settings or load_settings()).local_state_path("managed_agents.json")
 
 
 class ManagedAgentStore:
     """Durable launch profile — independent of keyring credentials."""
 
-    def __init__(self, path: Path | None = None) -> None:
-        self._path = path or default_profiles_path()
+    def __init__(
+        self, path: Path | None = None, *, settings: Settings | None = None
+    ) -> None:
+        self._path = path or default_profiles_path(settings)
         self._profiles: dict[str, ManagedAgentProfile] = {}
         self._load()
 
@@ -79,13 +81,17 @@ class ManagedAgentStore:
     @staticmethod
     def _normalized_profile(profile: ManagedAgentProfile) -> ManagedAgentProfile:
         tuning = normalize_tuning(profile.harness, profile.tuning)
-        return profile if tuning is profile.tuning else profile.model_copy(
-            update={"tuning": tuning}
+        return (
+            profile
+            if tuning is profile.tuning
+            else profile.model_copy(update={"tuning": tuning})
         )
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        file = _ProfilesFile(profiles=sorted(self._profiles.values(), key=lambda p: p.agent_id))
+        file = _ProfilesFile(
+            profiles=sorted(self._profiles.values(), key=lambda p: p.agent_id)
+        )
         content = file.model_dump_json(indent=2) + "\n"
         fd, tmp_name = tempfile.mkstemp(
             dir=self._path.parent,

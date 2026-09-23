@@ -50,6 +50,12 @@ class SettingsScreen(ControlScreen):
         with Vertical():
             yield Label("Settings")
             yield Static(SAVE_HINT)
+            yield Label("Platform")
+            deployment = self.control.settings.band_deployment.value
+            yield Static(
+                f"{deployment.title()} ({self.control.settings.band_base_url})\n"
+                "Set BAND_DEPLOYMENT=development before launching Band to use dev."
+            )
             yield Label("Chat messages limit")
             yield Input(
                 value=str(prefs.chat_messages_limit),

@@ -114,7 +114,7 @@ async def test_client_starts_one_supervisor_for_concurrent_connects(
     started: list[str] = []
     monkeypatch.setattr(
         "band_wezterm.supervisor.client.supervisor_state_path",
-        lambda _user_id: tmp_path / "supervisor.json",
+        lambda _user_id, _settings: tmp_path / "supervisor.json",
     )
 
     async def healthy() -> bool:

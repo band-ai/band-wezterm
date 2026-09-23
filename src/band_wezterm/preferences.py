@@ -6,7 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from band_wezterm.config import CHAT_MESSAGES_LIMIT, LOCAL_STATE_DIRNAME
+from band_wezterm.config import CHAT_MESSAGES_LIMIT, Settings, load_settings
+from band_wezterm.local_storage import atomic_write_text
 from band_wezterm.tui.chat_events import DEFAULT_ALLOWED_TYPES, normalize_allowed_types
 
 MIN_CHAT_MESSAGES_LIMIT = 1
@@ -42,13 +43,15 @@ class HostPreferences(BaseModel):
         raise TypeError("chat_event_types must be a sequence of strings")
 
 
-def default_preferences_path() -> Path:
-    return Path.home() / LOCAL_STATE_DIRNAME / "preferences.json"
+def default_preferences_path(settings: Settings | None = None) -> Path:
+    return (settings or load_settings()).local_state_path("preferences.json")
 
 
 class PreferencesStore:
-    def __init__(self, path: Path | None = None) -> None:
-        self._path = path or default_preferences_path()
+    def __init__(
+        self, path: Path | None = None, *, settings: Settings | None = None
+    ) -> None:
+        self._path = path or default_preferences_path(settings)
         self._prefs = HostPreferences()
         self._load()
 
@@ -63,10 +66,7 @@ class PreferencesStore:
             self._prefs = HostPreferences()
 
     def _save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            self._prefs.model_dump_json(indent=2) + "\n", encoding="utf-8"
-        )
+        atomic_write_text(self._path, self._prefs.model_dump_json(indent=2) + "\n")
 
     @property
     def current(self) -> HostPreferences:
