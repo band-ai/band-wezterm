@@ -1,4 +1,4 @@
-"""Host preferences — rooms/chat limits and diagnostic verbosity (VSC settings parity)."""
+"""Host preferences that alter an active Band view."""
 
 from __future__ import annotations
 
@@ -9,9 +9,6 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from band_wezterm.config import CHAT_MESSAGES_LIMIT, LOCAL_STATE_DIRNAME
 from band_wezterm.tui.chat_events import DEFAULT_ALLOWED_TYPES, normalize_allowed_types
 
-DEFAULT_ROOMS_PAGE_SIZE = 20
-MIN_ROOMS_PAGE_SIZE = 5
-MAX_ROOMS_PAGE_SIZE = 100
 MIN_CHAT_MESSAGES_LIMIT = 1
 MAX_CHAT_MESSAGES_LIMIT = 100
 
@@ -21,20 +18,8 @@ class HostPreferences(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    rooms_page_size: int = DEFAULT_ROOMS_PAGE_SIZE
     chat_messages_limit: int = CHAT_MESSAGES_LIMIT
-    diagnostic_log: bool = True
-    diagnostic_log_verbose: bool = False
     chat_event_types: tuple[str, ...] = DEFAULT_ALLOWED_TYPES
-
-    @field_validator("rooms_page_size")
-    @classmethod
-    def _rooms_page_size(cls, value: int) -> int:
-        if not MIN_ROOMS_PAGE_SIZE <= value <= MAX_ROOMS_PAGE_SIZE:
-            raise ValueError(
-                f"rooms_page_size must be {MIN_ROOMS_PAGE_SIZE}-{MAX_ROOMS_PAGE_SIZE}"
-            )
-        return value
 
     @field_validator("chat_messages_limit")
     @classmethod
