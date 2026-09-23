@@ -1,4 +1,4 @@
-"""Host preferences — rooms/chat limits and diagnostic verbosity (VSC settings parity)."""
+"""Host preferences that alter an active Band view."""
 
 from __future__ import annotations
 
@@ -6,36 +6,21 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from band_wezterm.config import CHAT_MESSAGES_LIMIT, LOCAL_STATE_DIRNAME
+from band_wezterm.config import CHAT_MESSAGES_LIMIT, Settings, load_settings
+from band_wezterm.local_storage import atomic_write_text
 from band_wezterm.tui.chat_events import DEFAULT_ALLOWED_TYPES, normalize_allowed_types
 
-DEFAULT_ROOMS_PAGE_SIZE = 20
-MIN_ROOMS_PAGE_SIZE = 5
-MAX_ROOMS_PAGE_SIZE = 100
 MIN_CHAT_MESSAGES_LIMIT = 1
 MAX_CHAT_MESSAGES_LIMIT = 100
 
 
 class HostPreferences(BaseModel):
-    """Local-only Control settings — not secrets, not platform config."""
+    """Local-only Band settings — not secrets, not platform config."""
 
     model_config = ConfigDict(frozen=True)
 
-    rooms_page_size: int = DEFAULT_ROOMS_PAGE_SIZE
     chat_messages_limit: int = CHAT_MESSAGES_LIMIT
-    diagnostic_log: bool = True
-    diagnostic_log_verbose: bool = False
-    interactive_agent_console: bool = False
     chat_event_types: tuple[str, ...] = DEFAULT_ALLOWED_TYPES
-
-    @field_validator("rooms_page_size")
-    @classmethod
-    def _rooms_page_size(cls, value: int) -> int:
-        if not MIN_ROOMS_PAGE_SIZE <= value <= MAX_ROOMS_PAGE_SIZE:
-            raise ValueError(
-                f"rooms_page_size must be {MIN_ROOMS_PAGE_SIZE}-{MAX_ROOMS_PAGE_SIZE}"
-            )
-        return value
 
     @field_validator("chat_messages_limit")
     @classmethod
@@ -58,13 +43,15 @@ class HostPreferences(BaseModel):
         raise TypeError("chat_event_types must be a sequence of strings")
 
 
-def default_preferences_path() -> Path:
-    return Path.home() / LOCAL_STATE_DIRNAME / "preferences.json"
+def default_preferences_path(settings: Settings | None = None) -> Path:
+    return (settings or load_settings()).local_state_path("preferences.json")
 
 
 class PreferencesStore:
-    def __init__(self, path: Path | None = None) -> None:
-        self._path = path or default_preferences_path()
+    def __init__(
+        self, path: Path | None = None, *, settings: Settings | None = None
+    ) -> None:
+        self._path = path or default_preferences_path(settings)
         self._prefs = HostPreferences()
         self._load()
 
@@ -79,10 +66,7 @@ class PreferencesStore:
             self._prefs = HostPreferences()
 
     def _save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            self._prefs.model_dump_json(indent=2) + "\n", encoding="utf-8"
-        )
+        atomic_write_text(self._path, self._prefs.model_dump_json(indent=2) + "\n")
 
     @property
     def current(self) -> HostPreferences:

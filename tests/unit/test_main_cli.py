@@ -2,27 +2,34 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from filelock import Timeout
 
 from band_wezterm.__main__ import (
-    COMMAND_NAME,
-    SETUP_COMMAND,
-    _parse_args,
-    _run_control,
+    RoomSelectionError,
+    _resolve_agent,
+    _resolve_room_id,
+    _run_agent_status,
+    _run_agents,
+    _run_configure_agent,
+    _run_create_agent,
+    _run_rooms,
+    _run_start_agent,
+    _run_status,
+    _run_stop_agent,
+    _run_view,
     main,
 )
+from band_wezterm.cli import Command
+from band_wezterm.listing import AgentStateFilter, HarnessFilter, ListQuery
 from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
-from band_wezterm.wezterm_cli import (
-    PaneId,
-    PaneInfo,
-    WezTermCliError,
-    WezTermNotFoundError,
-    WindowId,
-)
+from band_wezterm.tui.control_app import AppScreen, InitialAgentAction
+from band_wezterm.wezterm_cli import WezTermNotFoundError
 
 
 @pytest.fixture(autouse=True)
@@ -33,39 +40,609 @@ def _not_control_process(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_parse_default_has_no_setup_command() -> None:
-    args = _parse_args([])
-    assert args.command is None
-    assert args.restart is False
+@pytest.mark.asyncio
+async def test_room_reference_resolves_an_exact_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = MagicMock()
+    client.list_my_chats = AsyncMock(
+        return_value=[MagicMock(id="room-1", title="Planning")]
+    )
+    client.aclose = AsyncMock()
+    monkeypatch.setattr("band_wezterm.__main__.BandClient", lambda _auth: client)
+
+    assert await _resolve_room_id("planning") == "room-1"
+    client.aclose.assert_awaited_once()
 
 
-def test_help_uses_the_band_command(
+@pytest.mark.asyncio
+async def test_agent_reference_resolves_a_unique_id_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = SimpleNamespace(id="693c9f27-7fcc-462e-ac4f-bb3e5e8a5aa7", name="Product")
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_agents", AsyncMock(return_value=[selected])
+    )
+
+    assert await _resolve_agent("693c9f27") is selected
+
+
+@pytest.mark.asyncio
+async def test_unknown_room_reference_explains_how_to_choose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = MagicMock()
+    client.list_my_chats = AsyncMock(return_value=[])
+    client.aclose = AsyncMock()
+    monkeypatch.setattr("band_wezterm.__main__.BandClient", lambda _auth: client)
+
+    with pytest.raises(RoomSelectionError, match="Run `band room` to choose a room"):
+        await _resolve_room_id("missing")
+
+
+@pytest.mark.asyncio
+async def test_rooms_lists_titles_and_ids(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client = MagicMock()
+    client.list_my_chats = AsyncMock(
+        return_value=[
+            MagicMock(id="room-1", title="Planning"),
+            MagicMock(id="room-2", title="Delivery"),
+        ]
+    )
+    client.aclose = AsyncMock()
+    monkeypatch.setattr("band_wezterm.__main__.BandClient", lambda _auth: client)
+
+    assert await _run_rooms(ListQuery()) == 0
+    output = capsys.readouterr().out
+    assert all(value in output for value in ("Rooms", "Planning", "Delivery", "room-1"))
+
+
+@pytest.mark.asyncio
+async def test_rooms_list_filters_and_pages_output(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_rooms",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(id="room-1", title="Planning"),
+                SimpleNamespace(id="room-2", title="Plan review"),
+                SimpleNamespace(id="room-3", title="Delivery"),
+            ]
+        ),
+    )
+
+    assert await _run_rooms(ListQuery(name="plan", limit=1)) == 0
+    output = capsys.readouterr().out
+    assert all(
+        value in output
+        for value in (
+            "Planning",
+            "Showing 1-1 of 2 rooms.",
+            "band room list --name plan --limit 1 --offset 1",
+        )
+    )
+    assert "Plan review" not in output
+
+
+@pytest.mark.asyncio
+async def test_status_separates_rooms_and_agents(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    supervisor = MagicMock()
+    supervisor.list_workers = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                name="Architect",
+                agent_id="agent-1",
+                state=SimpleNamespace(value="running"),
+                pid=42,
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_rooms",
+        AsyncMock(return_value=[SimpleNamespace(title="Planning", id="room-1")]),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_supervisor", AsyncMock(return_value=supervisor)
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_agents",
+        AsyncMock(return_value=[SimpleNamespace(name="Architect", id="agent-1")]),
+    )
+
+    assert await _run_status(False, False) == 0
+    output = capsys.readouterr().out
+    assert all(
+        value in output
+        for value in ("Rooms", "Planning", "Agents", "Architect", "running")
+    )
+
+
+@pytest.mark.asyncio
+async def test_status_can_select_only_rooms(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_rooms",
+        AsyncMock(return_value=[SimpleNamespace(title="Planning", id="room-1")]),
+    )
+    agents = AsyncMock()
+    monkeypatch.setattr("band_wezterm.__main__._run_agents", agents)
+
+    assert await _run_status(True, False) == 0
+    assert "Rooms" in capsys.readouterr().out
+    agents.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stop_all_delegates_to_the_supervisor(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    operations = MagicMock()
+    operations.stop_all = AsyncMock()
+    client = MagicMock()
+    client.aclose = AsyncMock()
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_agent_operations",
+        AsyncMock(return_value=(operations, client)),
+    )
+
+    assert await _run_stop_agent(None, True) == 0
+    operations.stop_all.assert_awaited_once()
+    client.aclose.assert_awaited_once()
+    assert capsys.readouterr().out == "Stopping all detached agents.\n"
+
+
+def test_bare_band_shows_the_resource_commands(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    with pytest.raises(SystemExit) as exited:
-        _parse_args(["--help"])
-    assert exited.value.code == 0
-    assert f"usage: {COMMAND_NAME}" in capsys.readouterr().out
+    assert main(["help"]) == 0
+    help_text = capsys.readouterr().out
+    assert "agent" in help_text
+    assert "room" in help_text
 
 
-def test_parse_restart_flag() -> None:
-    args = _parse_args(["--restart"])
-    assert args.command is None
-    assert args.restart is True
+def test_agent_create_opens_the_registration_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    opened: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "band_wezterm.__main__._run_view",
+        lambda **kwargs: opened.append(kwargs) or 0,
+    )
+
+    assert _run_create_agent() == 0
+    assert opened == [
+        {
+            "screen": AppScreen.AGENTS,
+            "agent_action": InitialAgentAction.CREATE,
+        }
+    ]
 
 
-def test_parse_setup_subcommand() -> None:
-    args = _parse_args([SETUP_COMMAND])
-    assert args.command == SETUP_COMMAND
-    assert args.restart is False
+def test_agent_create_command_routes_to_the_registration_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create = MagicMock(return_value=0)
+    monkeypatch.setattr("band_wezterm.__main__._run_create_agent", create)
+
+    assert main([Command.AGENT.value, Command.CREATE.value]) == 0
+    create.assert_called_once_with()
+
+
+def test_agent_configure_resolves_before_opening_its_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    opened: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_agent",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id="agent-1",
+                name="Architect",
+                harness=SimpleNamespace(value="codex"),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._run_view",
+        lambda **kwargs: opened.append(kwargs) or 0,
+    )
+
+    assert _run_configure_agent("Architect") == 0
+    assert opened == [
+        {
+            "screen": AppScreen.AGENTS,
+            "agent_action": InitialAgentAction.CONFIGURE,
+            "agent_id": "agent-1",
+        }
+    ]
+
+
+def test_agent_configure_command_routes_the_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure = MagicMock(return_value=0)
+    monkeypatch.setattr("band_wezterm.__main__._run_configure_agent", configure)
+
+    assert main([Command.AGENT.value, Command.CONFIGURE.value, "Architect"]) == 0
+    configure.assert_called_once_with("Architect")
+
+
+def test_room_command_starts_the_textual_view_outside_cyclopts_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+    opened: list[str | None] = []
+
+    def run_textual(*, initial_room_id: str | None = None, **_kwargs: object) -> int:
+        asyncio.run(asyncio.sleep(0))
+        opened.append(initial_room_id)
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__.run_control_app", run_textual)
+
+    assert main(["room"]) == 0
+    assert opened == [None]
+
+
+def test_agent_command_opens_the_agents_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+    opened: list[object] = []
+    monkeypatch.setattr(
+        "band_wezterm.__main__.run_control_app",
+        lambda **kwargs: opened.append(kwargs["initial_screen"]) or 0,
+    )
+
+    assert main([Command.AGENT.value]) == 0
+    assert opened == [AppScreen.AGENTS]
+
+
+def test_agent_view_runs_outside_the_cli_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+
+    def run_textual(**_kwargs: object) -> int:
+        asyncio.run(asyncio.sleep(0))
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__.run_control_app", run_textual)
+
+    assert main([Command.AGENT.value]) == 0
+
+
+def test_unknown_command_prints_top_level_help(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit, match="1"):
+        main(["unknown-command"])
+
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert all(value in output for value in ("Usage: band COMMAND", "agent", "room"))
+
+
+def test_agent_reference_opens_agents_with_the_resolved_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_agent",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id="agent-1",
+                name="Architect",
+                harness=SimpleNamespace(value="codex"),
+            )
+        ),
+    )
+    opened: list[dict[str, object]] = []
+
+    def run_textual(**kwargs: object) -> int:
+        asyncio.run(asyncio.sleep(0))
+        opened.append(kwargs)
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__.run_control_app", run_textual)
+
+    assert main([Command.AGENT.value, "agent-1"]) == 0
+    assert opened == [
+        {
+            "initial_room_id": None,
+            "initial_screen": AppScreen.AGENTS,
+            "initial_agent_action": InitialAgentAction.BROWSE,
+            "initial_agent_id": "agent-1",
+        }
+    ]
+
+
+def test_room_open_resolves_before_starting_textual_outside_the_cli_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_room_id", AsyncMock(return_value="room-1")
+    )
+    opened: list[str | None] = []
+
+    def run_textual(*, initial_room_id: str | None = None, **_kwargs: object) -> int:
+        asyncio.run(asyncio.sleep(0))
+        opened.append(initial_room_id)
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__.run_control_app", run_textual)
+
+    assert main([Command.ROOM.value, Command.OPEN.value, "Planning"]) == 0
+    assert opened == ["room-1"]
+
+
+def test_room_filters_route_to_the_list_handler_without_opening_textual(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listed: list[ListQuery] = []
+
+    async def rooms(query: ListQuery) -> int:
+        listed.append(query)
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__._run_rooms", rooms)
+    monkeypatch.setattr(
+        "band_wezterm.__main__.run_control_app",
+        lambda **_kwargs: pytest.fail("filtered rooms must not open Textual"),
+    )
+
+    assert main([Command.ROOM.value, "--name", "plan", "--limit", "5"]) == 0
+    assert listed == [ListQuery(name="plan", limit=5)]
+
+
+def test_agent_filters_route_to_the_list_handler_without_opening_textual(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listed: list[tuple[ListQuery, bool]] = []
+
+    async def agents(query: ListQuery, verbose: bool) -> int:
+        listed.append((query, verbose))
+        return 0
+
+    monkeypatch.setattr("band_wezterm.__main__._run_agents", agents)
+    monkeypatch.setattr(
+        "band_wezterm.__main__.run_control_app",
+        lambda **_kwargs: pytest.fail("filtered agents must not open Textual"),
+    )
+
+    assert main(
+        [
+            Command.AGENT.value,
+            "--name",
+            "my-ag",
+            "--harness",
+            HarnessFilter.COPILOT.value,
+            "--state",
+            AgentStateFilter.RUNNING.value,
+            "--verbose",
+        ]
+    ) == 0
+    assert listed == [
+        (
+            ListQuery(
+                name="my-ag",
+                harness=HarnessFilter.COPILOT,
+                state=AgentStateFilter.RUNNING,
+            ),
+            True,
+        )
+    ]
+
+
+def test_agent_reference_and_filters_report_a_clear_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main([Command.AGENT.value, "architect", "--name", "arch"]) == 1
+    assert "Use a reference or list filters, not both." in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_agents_list_renders_compact_state_without_an_action_column(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    supervisor = MagicMock()
+    supervisor.list_workers = AsyncMock(return_value=[])
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_supervisor", AsyncMock(return_value=supervisor)
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_agents",
+        AsyncMock(return_value=[SimpleNamespace(name="Architect", id="agent-1")]),
+    )
+
+    assert await _run_agents(ListQuery()) == 0
+    output = capsys.readouterr().out
+    assert all(
+        value in output
+        for value in (
+            "Agents",
+            "Architect",
+            "stopped",
+        )
+    )
+    assert "Action" not in output
+
+
+@pytest.mark.asyncio
+async def test_agents_list_verbose_renders_full_runtime_details(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    supervisor = MagicMock()
+    supervisor.list_workers = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                agent_id="agent-12345678",
+                state=SimpleNamespace(value="running"),
+                pid=42,
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_supervisor", AsyncMock(return_value=supervisor)
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_agents",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    name="Architect",
+                    id="agent-12345678",
+                    harness=SimpleNamespace(value="codex"),
+                )
+            ]
+        ),
+    )
+
+    assert await _run_agents(ListQuery(), verbose=True) == 0
+    output = capsys.readouterr().out
+    assert all(value in output for value in ("Agent ID:", "codex", "PID: 42"))
+
+
+@pytest.mark.asyncio
+async def test_agents_list_combines_name_harness_and_state_filters(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    supervisor = MagicMock()
+    supervisor.list_workers = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                agent_id="agent-copilot",
+                state=SimpleNamespace(value="running"),
+                pid=42,
+            ),
+            SimpleNamespace(
+                agent_id="agent-copilot-active",
+                state=SimpleNamespace(value="running"),
+                pid=43,
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_supervisor", AsyncMock(return_value=supervisor)
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_agents",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    name="my-agent",
+                    id="agent-copilot",
+                    harness=SimpleNamespace(value="copilot_sdk"),
+                ),
+                SimpleNamespace(
+                    name="my-agent-active",
+                    id="agent-copilot-active",
+                    harness=SimpleNamespace(value="copilot"),
+                ),
+                SimpleNamespace(
+                    name="my-agent-idle",
+                    id="agent-codex",
+                    harness=SimpleNamespace(value="codex"),
+                ),
+            ]
+        ),
+    )
+
+    assert await _run_agents(
+        ListQuery(
+            name="my-ag",
+            harness=HarnessFilter.COPILOT,
+            state=AgentStateFilter.RUNNING,
+            limit=1,
+        )
+    ) == 0
+    output = capsys.readouterr().out
+    assert "my-agent" in output
+    assert "my-agent-active" not in output
+    assert "my-agent-idle" not in output
+    assert (
+        "band agent list --name my-ag --harness cp --state running --limit 1 --offset 1"
+        in output
+    )
+
+
+@pytest.mark.asyncio
+async def test_agent_error_status_points_to_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_agent",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id="agent-1",
+                name="Architect",
+                harness=SimpleNamespace(value="codex"),
+            )
+        ),
+    )
+    lifecycle = MagicMock()
+    lifecycle.workers = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                agent_id="agent-1",
+                name="Architect",
+                state=SimpleNamespace(value="error"),
+                pid=42,
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_lifecycle", AsyncMock(return_value=lifecycle)
+    )
+
+    assert await _run_agent_status("agent-1") == 0
+    output = capsys.readouterr().out
+    assert all(value in output for value in ("codex", "PID: 42", "band logs --tail 100"))
+
+
+@pytest.mark.asyncio
+async def test_agent_start_reports_the_detached_worker(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    operations = MagicMock()
+    operations.start = AsyncMock(
+        return_value=SimpleNamespace(
+            name="Architect",
+            agent_id="agent-1",
+            state=SimpleNamespace(value="starting"),
+            pid=42,
+        )
+    )
+    client = MagicMock()
+    client.aclose = AsyncMock()
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_agent_operations",
+        AsyncMock(return_value=(operations, client)),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_agent",
+        AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+    )
+
+    assert await _run_start_agent("agent-1") == 0
+    operations.start.assert_awaited_once_with("agent-1", cwd=Path.cwd())
+    client.aclose.assert_awaited_once()
+    output = capsys.readouterr().out
+    assert all(value in output for value in ("Agents", "Architect", "starting"))
+    assert "Action" not in output
 
 
 def test_setup_help_mentions_active_config(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    with pytest.raises(SystemExit) as exited:
-        _parse_args([SETUP_COMMAND, "-h"])
-    assert exited.value.code == 0
+    assert main([Command.SETUP.value, "--help"]) == 0
     help_text = capsys.readouterr().out
     assert "active WezTerm config" in help_text
     assert "WEZTERM_CONFIG_FILE" in help_text
@@ -80,7 +657,7 @@ def test_main_setup_success(
         "band_wezterm.__main__.ensure_band_plugin_config",
         lambda: SetupResult(path=tmp_path / ".wezterm.lua", action=SetupAction.CREATED),
     )
-    assert main([SETUP_COMMAND]) == 0
+    assert main([Command.SETUP.value]) == 0
     out = capsys.readouterr().out
     assert "Created" in out
     assert str(tmp_path / ".wezterm.lua") in out
@@ -93,7 +670,7 @@ def test_main_setup_missing_wezterm(
         raise WezTermNotFoundError("wezterm not found on PATH")
 
     monkeypatch.setattr("band_wezterm.__main__.ensure_band_plugin_config", _boom)
-    assert main([SETUP_COMMAND]) == 1
+    assert main([Command.SETUP.value]) == 1
     err = capsys.readouterr().err
     assert "wezterm not found on PATH" in err
     assert "brew install --cask wezterm" in err
@@ -106,7 +683,7 @@ def test_main_setup_config_error(
         raise SetupConfigError("WezTerm config path is not a file: /tmp/.wezterm.lua")
 
     monkeypatch.setattr("band_wezterm.__main__.ensure_band_plugin_config", _boom)
-    assert main([SETUP_COMMAND]) == 1
+    assert main([Command.SETUP.value]) == 1
     err = capsys.readouterr().err
     assert "not a file" in err
     assert "/tmp/.wezterm.lua" in err
@@ -119,47 +696,37 @@ def test_main_setup_oserror(
         raise OSError(13, "Permission denied", "/tmp/.wezterm.lua")
 
     monkeypatch.setattr("band_wezterm.__main__.ensure_band_plugin_config", _boom)
-    assert main([SETUP_COMMAND]) == 1
+    assert main([Command.SETUP.value]) == 1
     err = capsys.readouterr().err
     assert "Permission denied" in err
 
 
-def test_run_control_preserves_user_control_tab_in_band_workspace(
+def test_run_view_uses_the_current_wezterm_pane(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    existing = PaneInfo(
-        window_id=734,
-        pane_id=81,
-        workspace="band",
-        tab_title="Control",
-        title="zsh",
-    )
-    killed: list[WindowId] = []
-    monkeypatch.setattr("band_wezterm.__main__.find_control_pane", lambda: existing)
-    monkeypatch.setattr("band_wezterm.__main__.kill_window", killed.append)
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+    room_ids: list[str | None] = []
     monkeypatch.setattr(
-        "band_wezterm.__main__._spawn_control",
-        lambda _cwd: (WindowId(735), PaneId(82)),
+        "band_wezterm.__main__.run_control_app",
+        lambda *, initial_room_id=None, initial_screen=None: (
+            room_ids.append(initial_room_id) or 0
+        ),
     )
-    monkeypatch.setattr("band_wezterm.__main__.request_workspace_focus", lambda **_: None)
-    assert _run_control(restart=False) == 0
-    assert killed == []
+    assert _run_view(room_id="room-1") == 0
+    assert room_ids == ["room-1"]
 
 
-def test_run_control_starts_a_gui_when_cli_has_no_running_gui(
+def test_run_view_starts_a_gui_outside_wezterm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def no_gui() -> None:
-        raise WezTermCliError("failed to connect")
-
     started: list[tuple[Path, list[str]]] = []
-    monkeypatch.setattr("band_wezterm.__main__.find_control_pane", no_gui)
+    monkeypatch.delenv("WEZTERM_PANE", raising=False)
     monkeypatch.setattr(
         "band_wezterm.__main__.start_first_window",
         lambda cwd, command: started.append((cwd, command)),
     )
 
-    assert _run_control(restart=True) == 0
+    assert _run_view() == 0
     assert started == [
         (
             Path.cwd(),
@@ -174,54 +741,3 @@ def test_run_control_starts_a_gui_when_cli_has_no_running_gui(
             ],
         )
     ]
-
-
-def test_restart_starts_a_gui_when_closing_the_window_drops_cli(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    existing = PaneInfo(
-        window_id=734,
-        pane_id=81,
-        workspace="default",
-        tab_title="Control",
-        title="python",
-    )
-    started: list[tuple[Path, list[str]]] = []
-    monkeypatch.setattr("band_wezterm.__main__.find_control_pane", lambda: existing)
-    monkeypatch.setattr("band_wezterm.__main__.kill_window", lambda _window: None)
-
-    def spawn_without_gui(_cwd: Path) -> tuple[WindowId, PaneId]:
-        raise WezTermCliError("connection closed")
-
-    monkeypatch.setattr("band_wezterm.__main__._spawn_control", spawn_without_gui)
-    monkeypatch.setattr(
-        "band_wezterm.__main__.start_first_window",
-        lambda cwd, command: started.append((cwd, command)),
-    )
-
-    assert _run_control(restart=True) == 0
-    assert started
-
-
-def test_main_reports_a_concurrent_control_launch(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    class BusyLock:
-        def __init__(self, *_: object, **__: object) -> None:
-            pass
-
-        def __enter__(self) -> None:
-            raise Timeout("control launch")
-
-        def __exit__(
-            self,
-            _exception_type: object,
-            _exception: object,
-            _traceback: object,
-        ) -> bool:
-            return False
-
-    monkeypatch.setattr("band_wezterm.__main__.FileLock", BusyLock)
-
-    assert main([]) == 1
-    assert "still in progress" in capsys.readouterr().err

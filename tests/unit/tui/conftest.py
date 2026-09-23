@@ -1,4 +1,4 @@
-"""Shared Control-tab test tooling: autospec'd platform seams and a Pilot helper.
+"""Shared Band-screen test tooling: autospec'd platform seams and a Pilot helper.
 
 Every fixture here mocks exactly one seam — the platform client and the token
 store — so the tests exercise the real screens, stores and widgets.
@@ -23,7 +23,8 @@ from band_wezterm.local_state import StarredRooms
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.preferences import PreferencesStore
 from band_wezterm.room_color import room_accent
-from band_wezterm.tui.control_app import ControlApp
+from band_wezterm.supervisor import SupervisorClient
+from band_wezterm.tui.control_app import AppScreen, ControlApp
 
 HOST_USER_ID = "b1c0f6f4-0f6e-4a2f-9a5e-2f9f0d2b7c11"
 ACCESS_TOKEN = "access-token"
@@ -81,6 +82,8 @@ def control_app(
     host_auth: MagicMock, band_client: MagicMock, tmp_path: Path
 ) -> ControlApp:
     opencode_server = OpenCodeServerManager()
+    supervisor = create_autospec(SupervisorClient, spec_set=True, instance=True)
+    supervisor.list_workers.return_value = ()
 
     async def codex_catalog() -> HarnessCatalog:
         efforts = (
@@ -120,6 +123,8 @@ def control_app(
         preferences=PreferencesStore(tmp_path / "preferences.json"),
         opencode_server=opencode_server,
         model_catalogs=catalogs,
+        supervisor=supervisor,
+        initial_screen=AppScreen.AGENTS,
     )
 
 

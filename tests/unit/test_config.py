@@ -8,6 +8,9 @@ from band_wezterm.config import (
     DEFAULT_BAND_BASE_URL,
     DEFAULT_BAND_WS_URL,
     DEFAULT_OAUTH_CLIENT_ID,
+    DEVELOPMENT_BAND_BASE_URL,
+    DEVELOPMENT_BAND_WS_URL,
+    BandDeployment,
     Settings,
 )
 
@@ -39,3 +42,13 @@ def test_release_defaults_target_the_production_band_origins(
     assert settings.band_ws_url == DEFAULT_BAND_WS_URL
     assert settings.band_base_url == "https://app.band.ai"
     assert settings.band_ws_url == "wss://app.band.ai/api/v1/socket/websocket"
+
+
+def test_development_profile_uses_dev_api_and_separate_local_state() -> None:
+    settings = Settings(band_deployment="dev", _env_file=None)
+
+    assert settings.band_deployment is BandDeployment.DEVELOPMENT
+    assert settings.band_base_url == DEVELOPMENT_BAND_BASE_URL
+    assert settings.band_ws_url == DEVELOPMENT_BAND_WS_URL
+    assert settings.keyring_service == "band-wezterm.development"
+    assert settings.local_state_directory.name == BandDeployment.DEVELOPMENT.value

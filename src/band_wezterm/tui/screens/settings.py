@@ -1,4 +1,4 @@
-"""Host settings — rooms/chat limits and diagnostic toggles (VSC settings parity)."""
+"""Host settings that change an active Band view."""
 
 from __future__ import annotations
 
@@ -8,26 +8,20 @@ from typing import ClassVar, Final
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Footer, Header, Input, Label, Static, Switch
+from textual.widgets import Button, Footer, Header, Input, Label, Static
 
-from band_wezterm.preferences import (
-    MAX_CHAT_MESSAGES_LIMIT,
-    MAX_ROOMS_PAGE_SIZE,
-    MIN_CHAT_MESSAGES_LIMIT,
-    MIN_ROOMS_PAGE_SIZE,
-)
+from band_wezterm.diagnostics import diagnostics_log_path
+from band_wezterm.preferences import MAX_CHAT_MESSAGES_LIMIT, MIN_CHAT_MESSAGES_LIMIT
 from band_wezterm.tui.screens import ControlScreen
 
-SAVE_HINT: Final = "Enter on a field saves it. Esc returns. Ctrl+L signs out."
+SAVE_HINT: Final = "Enter on a field saves it. Esc returns."
 
 
 class Id(StrEnum):
-    ROOMS = "settings-rooms-page"
     CHAT = "settings-chat-limit"
-    DIAG = "settings-diag"
-    VERBOSE = "settings-verbose"
-    INTERACTIVE_CONSOLE = "settings-interactive-console"
+    LOG_FILE = "settings-log-file"
     STATUS = "settings-status"
+    SIGN_OUT = "settings-sign-out"
 
 
 def selector(widget_id: Id) -> str:
@@ -35,22 +29,15 @@ def selector(widget_id: Id) -> str:
 
 
 class SettingsScreen(ControlScreen):
-    """Local Control preferences — persisted under ~/.band-wezterm/."""
+    """Local Band preferences — persisted under ~/.band-wezterm/."""
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "back", "Back", show=False),
-        Binding("ctrl+a", "app.show_agents", "Agents", show=False),
-        Binding("ctrl+o", "app.show_rooms", "Rooms", show=False),
-        Binding("ctrl+l", "sign_out", "Sign out"),
     ]
 
     DEFAULT_CSS = """
     SettingsScreen Input {
         margin: 0 1 1 1;
-    }
-    SettingsScreen .row {
-        height: 3;
-        padding: 0 1;
     }
     SettingsScreen #settings-status {
         height: 1;
@@ -64,11 +51,11 @@ class SettingsScreen(ControlScreen):
         with Vertical():
             yield Label("Settings")
             yield Static(SAVE_HINT)
-            yield Label("Rooms page size")
-            yield Input(
-                value=str(prefs.rooms_page_size),
-                id=Id.ROOMS.value,
-                type="integer",
+            yield Label("Platform")
+            deployment = self.control.settings.band_deployment.value
+            yield Static(
+                f"{deployment.title()} ({self.control.settings.band_base_url})\n"
+                "Set BAND_DEPLOYMENT=development before launching Band to use dev."
             )
             yield Label("Chat messages limit")
             yield Input(
@@ -76,68 +63,47 @@ class SettingsScreen(ControlScreen):
                 id=Id.CHAT.value,
                 type="integer",
             )
-            with Vertical(classes="row"):
-                yield Label("Diagnostic log")
-                yield Switch(value=prefs.diagnostic_log, id=Id.DIAG.value)
-            with Vertical(classes="row"):
-                yield Label("Verbose diagnostic log")
-                yield Switch(value=prefs.diagnostic_log_verbose, id=Id.VERBOSE.value)
-            with Vertical(classes="row"):
-                yield Label("Interactive agent console")
-                yield Switch(
-                    value=prefs.interactive_agent_console,
-                    id=Id.INTERACTIVE_CONSOLE.value,
-                )
+            yield Label("Log file")
+            yield Static(
+                str(diagnostics_log_path(settings=self.control.settings)),
+                id=Id.LOG_FILE.value,
+            )
+            yield Static("Use `band logs --tail 100` for incident triage.")
             yield Static("", id=Id.STATUS.value)
+            yield Button("Sign out", id=Id.SIGN_OUT.value)
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(selector(Id.ROOMS), Input).focus()
+        self.query_one(selector(Id.CHAT), Input).focus()
 
     def action_back(self) -> None:
         self.app.pop_screen()
 
-    def action_sign_out(self) -> None:
+    def _sign_out(self) -> None:
         self.app.pop_screen()
         self.control.action_sign_out()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self._save_numbers()
 
-    def on_switch_changed(self, event: Switch.Changed) -> None:
-        match event.switch.id:
-            case Id.DIAG:
-                self.control.preferences.update(diagnostic_log=event.value)
-            case Id.VERBOSE:
-                self.control.preferences.update(diagnostic_log_verbose=event.value)
-            case Id.INTERACTIVE_CONSOLE:
-                self.control.preferences.update(
-                    interactive_agent_console=event.value
-                )
-        self._set_status("Saved.")
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        match event.button.id:
+            case Id.SIGN_OUT:
+                self._sign_out()
 
     def _save_numbers(self) -> None:
-        rooms_raw = self.query_one(selector(Id.ROOMS), Input).value.strip()
         chat_raw = self.query_one(selector(Id.CHAT), Input).value.strip()
         try:
-            rooms = int(rooms_raw)
             chat = int(chat_raw)
         except ValueError:
-            self._set_status("Rooms page size and chat limit must be integers.")
-            return
-        if not MIN_ROOMS_PAGE_SIZE <= rooms <= MAX_ROOMS_PAGE_SIZE:
-            self._set_status(
-                f"Rooms page size must be {MIN_ROOMS_PAGE_SIZE}-{MAX_ROOMS_PAGE_SIZE}."
-            )
+            self._set_status("Chat limit must be an integer.")
             return
         if not MIN_CHAT_MESSAGES_LIMIT <= chat <= MAX_CHAT_MESSAGES_LIMIT:
             self._set_status(
                 f"Chat limit must be {MIN_CHAT_MESSAGES_LIMIT}-{MAX_CHAT_MESSAGES_LIMIT}."
             )
             return
-        self.control.preferences.update(
-            rooms_page_size=rooms, chat_messages_limit=chat
-        )
+        self.control.preferences.update(chat_messages_limit=chat)
         self._set_status("Saved.")
 
     def _set_status(self, status: str) -> None:

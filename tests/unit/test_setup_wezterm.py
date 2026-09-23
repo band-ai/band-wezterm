@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import stat
 import subprocess
@@ -581,7 +582,7 @@ def test_ensure_escapes_plugin_url_in_lua_config(
     )
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not preserve POSIX modes")
 def test_ensure_preserves_file_mode(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()

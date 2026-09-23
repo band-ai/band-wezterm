@@ -14,7 +14,6 @@ from textual.widgets import Footer, Header, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from band_wezterm.agent.adapters import HarnessUnavailableError
-from band_wezterm.agent.native_console import NativeConsoleUnavailableError
 from band_wezterm.agent.readiness import preflight_managed_agent
 from band_wezterm.agent_draft import (
     AgentDraft,
@@ -636,7 +635,7 @@ class RegisterAgentScreen(ControlScreen):
     async def _preflight_draft(self, harness: HarnessId) -> bool:
         try:
             await asyncio.to_thread(preflight_managed_agent, harness)
-        except (HarnessUnavailableError, NativeConsoleUnavailableError) as error:
+        except HarnessUnavailableError as error:
             self._set_status(str(error))
             return False
         return True

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from band_wezterm.backends import (
+from band_wezterm.harnesses.models import (
     TUNING_DEFAULT_OPTION_ID,
     TuningDimension,
     TuningDimensionId,

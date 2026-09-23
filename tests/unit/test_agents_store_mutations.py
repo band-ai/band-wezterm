@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from band_wezterm.client import AgentRecord
 from band_wezterm.identity import AvatarKind, HarnessId, agent_accent
-from band_wezterm.tui.stores import AgentPanes, AgentsStore
-from band_wezterm.wezterm_cli import PaneId
+from band_wezterm.supervisor import WorkerRecord, WorkerState
+from band_wezterm.tui.stores import AgentsStore
 
 
 def _agent(agent_id: str, name: str, harness: HarnessId = HarnessId.CLAUDE_SDK) -> AgentRecord:
@@ -22,7 +22,7 @@ def test_update_and_remove_agent() -> None:
     store = AgentsStore()
     alpha = _agent("a1", "Alpha")
     store.add_agent(alpha)
-    store.mark_running("a1", PaneId(9))
+    store.mark_worker(_worker("a1", "Alpha"))
     store.update_agent(alpha.model_copy(update={"harness": HarnessId.CODEX}))
     assert store.find("a1") is not None
     assert store.find("a1").harness is HarnessId.CODEX
@@ -31,19 +31,23 @@ def test_update_and_remove_agent() -> None:
     assert store.is_running("a1") is False
 
 
-def test_running_agent_tracks_console_and_bridge_as_one_lifecycle() -> None:
+def test_running_agent_uses_supervisor_state() -> None:
     store = AgentsStore()
-    console = PaneId(9)
-    bridge = PaneId(10)
-
-    store.mark_running("a1", bridge, console=console)
-
-    assert store.running["a1"] == AgentPanes(console=console, bridge=bridge)
-    assert store.agents_with_missing_panes([9, 10]) == ()
-    assert store.agents_with_missing_panes([9]) == (
-        ("a1", AgentPanes(console=console, bridge=bridge)),
-    )
+    store.mark_worker(_worker("a1", "Alpha"))
     assert store.is_running("a1") is True
+
+
+def _worker(agent_id: str, name: str) -> WorkerRecord:
+    return WorkerRecord(
+        agent_id=agent_id,
+        name=name,
+        pid=9,
+        control_socket="/tmp/worker.sock",
+        control_token="token",
+        cwd="/tmp",
+        started_at=0,
+        state=WorkerState.RUNNING,
+    )
 
 
 def test_catalog_changes_keep_selection_on_a_visible_agent() -> None:

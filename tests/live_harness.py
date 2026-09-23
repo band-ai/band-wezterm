@@ -6,6 +6,7 @@ import asyncio
 import time
 from collections.abc import Sequence
 from contextlib import suppress
+from dataclasses import dataclass
 from typing import Any
 
 from band import Agent
@@ -16,6 +17,7 @@ from band_wezterm.agent.adapters import (
     build_adapter,
     preflight_harness,
 )
+from band_wezterm.agent.opencode_server import OpenCodeServerManager
 from band_wezterm.client import BandClient, MessageRecord
 from band_wezterm.identity import HarnessId
 
@@ -29,6 +31,17 @@ _HARNESS_PREFERENCE: tuple[HarnessId, ...] = (
     HarnessId.COPILOT_SDK,
     HarnessId.OPENCODE,
 )
+
+LIVE_HARNESSES = _HARNESS_PREFERENCE
+
+
+@dataclass
+class LiveAgentRuntime:
+    """One live SDK runtime and the local service it may require."""
+
+    runtime: Any
+    task: asyncio.Task[None]
+    opencode_server: OpenCodeServerManager | None = None
 
 
 def pick_harness() -> HarnessId | None:
@@ -77,29 +90,41 @@ async def start_agent_runtime(
     api_key: str,
     rest_url: str,
     ws_url: str,
-) -> tuple[Any, asyncio.Task[None]]:
-    adapter = build_adapter(harness)
-    runtime = Agent.create(
-        adapter=adapter,
-        agent_id=agent_id,
-        api_key=api_key,
-        rest_url=rest_url,
-        ws_url=ws_url,
-        config=AgentConfig(auto_subscribe_existing_rooms=True, single_instance=True),
-    )
-    await runtime.__aenter__()
-    task = asyncio.create_task(runtime.run_forever())
-    await asyncio.sleep(RUNTIME_WARMUP_SECONDS)
-    return runtime, task
+) -> LiveAgentRuntime:
+    opencode_server = OpenCodeServerManager() if harness is HarnessId.OPENCODE else None
+    try:
+        opencode_server_url = None
+        if opencode_server is not None:
+            opencode_server_url = (await opencode_server.ensure()).url
+        runtime = Agent.create(
+            adapter=build_adapter(harness, opencode_server_url=opencode_server_url),
+            agent_id=agent_id,
+            api_key=api_key,
+            rest_url=rest_url,
+            ws_url=ws_url,
+            config=AgentConfig(
+                auto_subscribe_existing_rooms=True,
+                single_instance=True,
+            ),
+        )
+        await runtime.__aenter__()
+        task = asyncio.create_task(runtime.run_forever())
+        await asyncio.sleep(RUNTIME_WARMUP_SECONDS)
+    except Exception:
+        if opencode_server is not None:
+            await opencode_server.close()
+        raise
+    return LiveAgentRuntime(runtime, task, opencode_server)
 
 
-async def stop_agent_runtime(
-    runtime: Any | None, task: asyncio.Task[None] | None
-) -> None:
-    if task is not None:
-        task.cancel()
+async def stop_agent_runtime(session: LiveAgentRuntime | None) -> None:
+    if session is None:
+        return
+    session.task.cancel()
+    with suppress(asyncio.CancelledError, Exception):
+        await session.task
+    with suppress(Exception):
+        await session.runtime.__aexit__(None, None, None)
+    if session.opencode_server is not None:
         with suppress(asyncio.CancelledError, Exception):
-            await task
-    if runtime is not None:
-        with suppress(Exception):
-            await runtime.__aexit__(None, None, None)
+            await session.opencode_server.close()

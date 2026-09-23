@@ -1,4 +1,4 @@
-"""Reusable Control tab widgets: avatars, markdown composer, filter chips."""
+"""Reusable Band widgets: avatars, markdown composer, filter chips."""
 
 from __future__ import annotations
 

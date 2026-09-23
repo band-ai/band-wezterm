@@ -89,7 +89,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          assets=(artifacts/* install.sh install.ps1)
+          assets=(artifacts/* install.sh install.ps1 install.bat)
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$TAG" "${assets[@]}" --clobber --repo "${{ github.repository }}"
           else

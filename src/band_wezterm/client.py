@@ -117,11 +117,15 @@ class BandClient:
         settings: Settings | None,
         agent_keys: ManagedAgentKeyStore | None = None,
     ) -> None:
+        self._settings = settings or load_settings()
         self._host_auth = host_auth
         self._api_key = api_key
-        self._agent_keys = agent_keys or ManagedAgentKeyStore()
-        self._settings = settings or load_settings()
-        self._authentication_rejected_handler: AuthenticationRejectedHandler | None = None
+        self._agent_keys = agent_keys or ManagedAgentKeyStore(
+            service=self._settings.keyring_service
+        )
+        self._authentication_rejected_handler: AuthenticationRejectedHandler | None = (
+            None
+        )
         self._http = httpx.AsyncClient(
             timeout=60.0,
             event_hooks={
@@ -261,10 +265,7 @@ class BandClient:
     async def delete_room(self, room_id: UUID | str) -> None:
         """Permanently delete a chat room (not in the Fern chats client yet)."""
         credential = await self._bearer_token()
-        url = (
-            f"{self._settings.band_base_url.rstrip('/')}"
-            f"/api/v1/me/chats/{room_id}"
-        )
+        url = f"{self._settings.band_base_url.rstrip('/')}/api/v1/me/chats/{room_id}"
         headers = (
             {"X-API-Key": credential}
             if self._api_key is not None
@@ -343,9 +344,7 @@ class BandClient:
         limit: int = CHAT_MESSAGES_LIMIT,
     ) -> list[MessageRecord]:
         """Latest page of room history, oldest-first (plugin fetchLatestMessages)."""
-        response = await self._messages.list_my_chat_messages(
-            str(room_id), limit=limit
-        )
+        response = await self._messages.list_my_chat_messages(str(room_id), limit=limit)
         rows = list(response.data or [])
         rows.reverse()
         return [message_record_from_api(message) for message in rows]
@@ -441,7 +440,9 @@ class BandClient:
         topics = (chat_room_topic(room_id), room_participants_topic(room_id))
         try:
             for topic in topics:
-                await self._phx.subscribe_to_topic(topic, self._realtime_handler(room_id))
+                await self._phx.subscribe_to_topic(
+                    topic, self._realtime_handler(room_id)
+                )
         except Exception:
             for topic in topics:
                 with contextlib.suppress(Exception):

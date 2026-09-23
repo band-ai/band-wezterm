@@ -1,116 +1,84 @@
-"""`band` entrypoint — setup, open, attach, or restart the Control tab."""
+"""`band` entrypoint for Band room and agent surfaces."""
 
 from __future__ import annotations
 
-import argparse
+import asyncio
+import os
 import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Final
 
-from filelock import FileLock, Timeout
-
-from band_wezterm.config import (
-    BAND_WORKSPACE_NAME,
-    CONTROL_TAB_TITLE,
-    LOCAL_STATE_DIRNAME,
-    WINDOW_TITLE,
+from band_wezterm.auth.host_auth import HostAuth
+from band_wezterm.cli import COMMAND_NAME, create_app
+from band_wezterm.cli_output import (
+    AgentOutput,
+    RoomOutput,
+    print_agent,
+    print_agents,
+    print_rooms,
 )
+from band_wezterm.client import AgentRecord, BandClient, RoomRecord
+from band_wezterm.config import load_settings
+from band_wezterm.diagnostics import configure_diagnostics, log_event, read_diagnostics
+from band_wezterm.listing import ListQuery, paginate
+from band_wezterm.managed_profiles import ManagedAgentStore
+from band_wezterm.resource_operations import ManagedAgentOperations, RoomOperations
 from band_wezterm.setup_wezterm import (
     SetupAction,
     SetupConfigError,
     ensure_band_plugin_config,
 )
-from band_wezterm.tui.control_app import is_control_process, run_control_app
+from band_wezterm.supervisor import ManagedAgentLifecycle, SupervisorClient
+from band_wezterm.tui.control_app import (
+    AppScreen,
+    InitialAgentAction,
+    is_control_process,
+    run_control_app,
+)
 from band_wezterm.wezterm_cli import (
-    PaneId,
     WezTermCliError,
     WezTermNotFoundError,
-    WindowId,
-    find_control_pane,
-    kill_window,
-    request_workspace_focus,
-    set_tab_title,
-    set_window_title,
-    spawn_first_tab,
     start_first_window,
 )
 
-CONTROL_MODULE: Final = "band_wezterm.tui"
-COMMAND_NAME: Final = "band"
-SETUP_COMMAND: Final = "setup"
-CONTROL_LOCK_FILENAME: Final = "control-launch.lock"
-CONTROL_LOCK_TIMEOUT_SECONDS: Final = 10
-SETUP_HELP: Final = (
-    "Install/update the Band WezTerm plugin snippet in the active "
-    "WezTerm config (WEZTERM_CONFIG_FILE, ~/.wezterm.lua, or XDG wezterm.lua)"
-)
+TUI_MODULE: Final = "band_wezterm.tui"
 
 
-class ControlLaunchError(RuntimeError):
-    """Another Band Control launch did not complete in time."""
+class RoomSelectionError(ValueError):
+    """A room reference does not select exactly one accessible room."""
 
 
-def _control_lock_path() -> Path:
-    return Path.home() / LOCAL_STATE_DIRNAME / CONTROL_LOCK_FILENAME
+class AgentSelectionError(ValueError):
+    """An agent reference does not select exactly one registered agent."""
 
 
-@contextmanager
-def _control_launch_lock() -> Iterator[None]:
-    lock_path = _control_lock_path()
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with FileLock(lock_path, timeout=CONTROL_LOCK_TIMEOUT_SECONDS):
-            yield
-    except Timeout as error:
-        raise ControlLaunchError(
-            "Another Band Control launch is still in progress; try again shortly."
-        ) from error
-
-
-def _control_command() -> list[str]:
+def _view_command(
+    *,
+    room_id: str | None,
+    screen: AppScreen,
+    agent_action: InitialAgentAction = InitialAgentAction.BROWSE,
+    agent_id: str | None = None,
+) -> list[str]:
     """Spawn via ``env`` so NO_COLOR from the launcher cannot gray out Textual."""
     # macOS ``env`` has no ``--``; name=value then utility.
-    return [
+    command = [
         "env",
         "-u",
         "NO_COLOR",
         "COLORTERM=truecolor",
         sys.executable,
         "-m",
-        CONTROL_MODULE,
+        TUI_MODULE,
     ]
-
-
-def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog=COMMAND_NAME,
-        description=(
-            "Open Band Control in WezTerm. Re-running attaches and raises the "
-            "existing Control window; --restart replaces it. "
-            f"`{SETUP_COMMAND}` wires the Band WezTerm plugin into your config."
-        ),
-    )
-    parser.add_argument(
-        "--restart",
-        action="store_true",
-        help="Kill the existing Control window and open a fresh one",
-    )
-    subparsers = parser.add_subparsers(dest="command")
-    subparsers.add_parser(
-        SETUP_COMMAND,
-        help=SETUP_HELP,
-        description=SETUP_HELP,
-    )
-    return parser.parse_args(argv)
-
-
-def _spawn_control(cwd: Path) -> tuple[WindowId, PaneId]:
-    spawned = spawn_first_tab(cwd, _control_command())
-    set_tab_title(spawned.pane_id, CONTROL_TAB_TITLE)
-    set_window_title(spawned.pane_id, WINDOW_TITLE)
-    return spawned.window_id, spawned.pane_id
+    if room_id is not None:
+        command.extend(["--room-id", room_id])
+    if screen is not AppScreen.ROOMS:
+        command.extend(["--screen", screen.value])
+    if agent_action is not InitialAgentAction.BROWSE:
+        command.extend(["--agent-action", agent_action.value])
+    if agent_id is not None:
+        command.extend(["--agent-id", agent_id])
+    return command
 
 
 def _run_setup() -> int:
@@ -140,64 +108,404 @@ def _run_setup() -> int:
     return 0
 
 
-def _run_control(*, restart: bool) -> int:
-    with _control_launch_lock():
-        return _run_control_locked(restart=restart)
-
-
-def _run_control_locked(*, restart: bool) -> int:
+def _run_view(
+    *,
+    room_id: str | None = None,
+    screen: AppScreen = AppScreen.ROOMS,
+    agent_action: InitialAgentAction = InitialAgentAction.BROWSE,
+    agent_id: str | None = None,
+) -> int:
     cwd = Path.cwd()
+    if os.environ.get("WEZTERM_PANE"):
+        if agent_action is InitialAgentAction.BROWSE and agent_id is None:
+            return run_control_app(initial_room_id=room_id, initial_screen=screen)
+        return run_control_app(
+            initial_room_id=room_id,
+            initial_screen=screen,
+            initial_agent_action=agent_action,
+            initial_agent_id=agent_id,
+        )
+    return _start_view_without_cli(
+        cwd,
+        room_id=room_id,
+        screen=screen,
+        agent_action=agent_action,
+        agent_id=agent_id,
+    )
+
+
+def _run_room(reference: str | None) -> int:
     try:
-        existing = find_control_pane()
-    except WezTermCliError:
-        return _start_control_without_cli(cwd)
+        room_id = None if reference is None else asyncio.run(_resolve_room_id(reference))
+        return _run_view(room_id=room_id)
+    except (RoomSelectionError, ValueError, WezTermCliError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
 
-    if existing is not None and existing.workspace == BAND_WORKSPACE_NAME:
-        # A tab title is not a safe ownership signal for closing a whole user window.
-        # Leave a hidden legacy Control running and open a visible replacement instead.
-        existing = None
 
-    if restart and existing is not None:
-        kill_window(WindowId(existing.window_id))
-        existing = None
+def _start_view_without_cli(
+    cwd: Path,
+    *,
+    room_id: str | None,
+    screen: AppScreen,
+    agent_action: InitialAgentAction,
+    agent_id: str | None,
+) -> int:
+    """Recover when a GUI closes between a CLI lookup and spawn."""
+    start_first_window(
+        cwd,
+        _view_command(
+            room_id=room_id,
+            screen=screen,
+            agent_action=agent_action,
+            agent_id=agent_id,
+        ),
+    )
+    print("Band view opened in a new WezTerm window.")
+    return 0
 
-    if existing is not None:
-        window_id = WindowId(existing.window_id)
-        pane_id = PaneId(existing.pane_id)
-        action = "attached"
-    else:
-        try:
-            window_id, pane_id = _spawn_control(cwd)
-        except WezTermCliError:
-            return _start_control_without_cli(cwd)
-        action = "restarted" if restart else "opened"
 
-    request_workspace_focus(control_pane=pane_id)
-    print(
-        f"Control tab {action} in window {window_id.root} "
-        f"(pane {pane_id.root})."
+def _run_agent_view_for_reference(reference: str | None) -> int:
+    try:
+        agent_id = None if reference is None else asyncio.run(_resolve_agent(reference)).id
+    except (AgentSelectionError, ValueError, WezTermCliError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    return _run_view(screen=AppScreen.AGENTS, agent_id=agent_id)
+
+
+def _run_create_agent() -> int:
+    return _run_view(
+        screen=AppScreen.AGENTS,
+        agent_action=InitialAgentAction.CREATE,
+    )
+
+
+def _run_configure_agent(reference: str) -> int:
+    try:
+        agent = asyncio.run(_resolve_agent(reference))
+    except (AgentSelectionError, ValueError, WezTermCliError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    return _run_view(
+        screen=AppScreen.AGENTS,
+        agent_action=InitialAgentAction.CONFIGURE,
+        agent_id=agent.id,
+    )
+
+
+async def _current_supervisor() -> SupervisorClient:
+    settings = load_settings()
+    auth = HostAuth(settings)
+    client = BandClient(auth, settings)
+    try:
+        user_id = await client.whoami()
+    finally:
+        await client.aclose()
+    supervisor = SupervisorClient(settings=settings)
+    await supervisor.connect(user_id)
+    return supervisor
+
+
+async def _current_lifecycle() -> ManagedAgentLifecycle:
+    return ManagedAgentLifecycle(await _current_supervisor())
+
+
+async def _current_agent_operations() -> tuple[ManagedAgentOperations, BandClient]:
+    settings = load_settings()
+    client = BandClient(HostAuth(settings), settings)
+    try:
+        user_id = await client.whoami()
+        supervisor = SupervisorClient(settings=settings)
+        await supervisor.connect(user_id)
+    except Exception:
+        await client.aclose()
+        raise
+    lifecycle = ManagedAgentLifecycle(supervisor)
+    return ManagedAgentOperations(
+        client, lifecycle, ManagedAgentStore(settings=settings)
+    ), client
+
+
+async def _list_rooms() -> list[RoomRecord]:
+    """Read the current user's accessible room catalog."""
+    auth = HostAuth()
+    client = BandClient(auth)
+    try:
+        return await client.list_my_chats()
+    finally:
+        await client.aclose()
+
+
+async def _list_agents() -> list[AgentRecord]:
+    """Read the current user's registered agents."""
+    auth = HostAuth()
+    client = BandClient(auth)
+    try:
+        return await client.list_my_agents()
+    finally:
+        await client.aclose()
+
+
+async def _resolve_room_id(reference: str) -> str:
+    """Resolve an exact room title or a unique room ID prefix."""
+    rooms = await _list_rooms()
+    normalized_reference = reference.casefold()
+    exact_matches = [
+        room
+        for room in rooms
+        if room.id.casefold() == normalized_reference
+        or room.title.casefold() == normalized_reference
+    ]
+    if len(exact_matches) == 1:
+        return exact_matches[0].id
+    matches = [
+        room for room in rooms if room.id.casefold().startswith(normalized_reference)
+    ]
+    if len(matches) == 1:
+        return matches[0].id
+    if not matches:
+        raise RoomSelectionError(
+            f"No accessible room matches {reference!r}. Run `band room` to choose a room."
+        )
+    choices = ", ".join(f"{room.title} ({room.id})" for room in matches)
+    raise RoomSelectionError(
+        f"{reference!r} matches multiple rooms: {choices}. Enter more of the ID."
+    )
+
+
+async def _resolve_agent(reference: str) -> AgentRecord:
+    """Resolve an exact agent name or a unique agent ID prefix."""
+    agents = await _list_agents()
+    normalized_reference = reference.casefold()
+    exact_matches = [
+        agent
+        for agent in agents
+        if agent.id.casefold() == normalized_reference
+        or agent.name.casefold() == normalized_reference
+    ]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    matches = [
+        agent for agent in agents if agent.id.casefold().startswith(normalized_reference)
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise AgentSelectionError(f"No registered agent matches {reference!r}.")
+    choices = ", ".join(f"{agent.name} ({agent.id})" for agent in matches)
+    raise AgentSelectionError(
+        f"{reference!r} matches multiple agents: {choices}. Enter more of the ID."
+    )
+
+
+async def _run_rooms(query: ListQuery) -> int:
+    page = paginate(await _list_rooms(), query, display_name=lambda room: room.title)
+    print_rooms([_room_output(room) for room in page.items], query=query, page=page.info)
+    return 0
+
+
+async def _run_status(rooms_only: bool, agents_only: bool) -> int:
+    if not agents_only:
+        await _run_rooms(ListQuery())
+    if not rooms_only:
+        await _run_agents(ListQuery())
+    return 0
+
+
+async def _run_agents(query: ListQuery, verbose: bool = False) -> int:
+    agents, lifecycle = await asyncio.gather(_list_agents(), _current_lifecycle())
+    workers = {worker.agent_id: worker for worker in await lifecycle.workers()}
+    profiles = ManagedAgentStore()
+    rows: list[AgentOutput] = []
+    for agent in agents:
+        worker = workers.get(agent.id)
+        state = "stopped" if worker is None else worker.state.value
+        rows.append(
+            AgentOutput(
+                name=agent.name,
+                state=state,
+                agent_id=agent.id,
+                harness=_agent_harness(agent, profiles),
+                pid=None if worker is None else worker.pid,
+            )
+        )
+    page = paginate(
+        rows,
+        query,
+        display_name=lambda agent: agent.name,
+        predicate=lambda agent: query.matches_agent(
+            harness=agent.harness, state=agent.state
+        ),
+    )
+    print_agents(list(page.items), query=query, page=page.info, verbose=verbose)
+    return 0
+
+
+def _room_output(room: RoomRecord) -> RoomOutput:
+    return RoomOutput(
+        title=room.title,
+        room_id=room.id,
+    )
+
+
+async def _run_start_agent(reference: str) -> int:
+    agent = await _resolve_agent(reference)
+    operations, client = await _current_agent_operations()
+    try:
+        worker = await operations.start(agent.id, cwd=Path.cwd())
+    finally:
+        await client.aclose()
+    print_agent(
+        _agent_output(
+            worker.name,
+            worker.agent_id,
+            worker.state.value,
+            harness=_agent_harness(agent, ManagedAgentStore()),
+            pid=worker.pid,
+        )
     )
     return 0
 
 
-def _start_control_without_cli(cwd: Path) -> int:
-    """Recover when a GUI closes between a CLI lookup and spawn."""
-    start_first_window(cwd, _control_command())
-    print("Control tab opened in a new WezTerm window.")
+async def _run_stop_agent(reference: str | None, all_agents: bool) -> int:
+    if all_agents:
+        operations, client = await _current_agent_operations()
+        try:
+            await operations.stop_all()
+        finally:
+            await client.aclose()
+        print("Stopping all detached agents.")
+        return 0
+    assert reference is not None
+    agent = await _resolve_agent(reference)
+    operations, client = await _current_agent_operations()
+    try:
+        worker = await operations.stop(agent.id)
+    finally:
+        await client.aclose()
+    if worker is None:
+        print(f"{agent.name} is already stopped.")
+    else:
+        print_agent(
+            _agent_output(
+                worker.name,
+                worker.agent_id,
+                worker.state.value,
+                harness=_agent_harness(agent, ManagedAgentStore()),
+                pid=worker.pid,
+            )
+        )
+    return 0
+
+
+async def _run_agent_status(reference: str) -> int:
+    agent = await _resolve_agent(reference)
+    lifecycle = await _current_lifecycle()
+    worker = next(
+        (worker for worker in await lifecycle.workers() if worker.agent_id == agent.id),
+        None,
+    )
+    if worker is None:
+        print(f"{agent.name} is stopped.")
+    else:
+        print_agent(
+            _agent_output(
+                worker.name,
+                worker.agent_id,
+                worker.state.value,
+                harness=_agent_harness(agent, ManagedAgentStore()),
+                pid=worker.pid,
+            )
+        )
+    return 0
+
+
+def _agent_output(
+    name: str,
+    agent_id: str,
+    state: str,
+    *,
+    harness: str | None = None,
+    pid: int | None = None,
+) -> AgentOutput:
+    return AgentOutput(
+        name=name,
+        state=state,
+        agent_id=agent_id,
+        harness=harness,
+        pid=pid,
+    )
+
+
+def _agent_harness(agent: AgentRecord, profiles: ManagedAgentStore) -> str | None:
+    harness = getattr(agent, "harness", None) or profiles.harness_for(agent.id)
+    return None if harness is None else harness.value
+
+
+async def _run_create_room(title: str) -> int:
+    client = BandClient(HostAuth())
+    try:
+        room = await RoomOperations(client).create(title)
+    finally:
+        await client.aclose()
+    print_rooms([_room_output(room)])
+    return 0
+
+
+async def _run_delete_room(reference: str) -> int:
+    room_id = await _resolve_room_id(reference)
+    client = BandClient(HostAuth())
+    try:
+        await RoomOperations(client).delete(room_id)
+    finally:
+        await client.aclose()
+    print(f"Deleted room {room_id}.")
+    return 0
+
+
+async def _run_delete_agent(reference: str) -> int:
+    agent = await _resolve_agent(reference)
+    operations, client = await _current_agent_operations()
+    try:
+        await operations.delete(agent.id)
+    finally:
+        await client.aclose()
+    print(f"Deleted agent {agent.name} ({agent.id}).")
+    return 0
+
+
+def _run_logs(tail: int) -> int:
+    print(read_diagnostics(lines=tail))
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_diagnostics()
     if is_control_process():
         return run_control_app()
-
-    args = _parse_args(argv)
-    if args.command == SETUP_COMMAND:
-        return _run_setup()
+    app = create_app(
+        setup=_run_setup,
+        room_view=_run_room,
+        rooms=_run_rooms,
+        agents=_run_agents,
+        create_agent=_run_create_agent,
+        configure_agent=_run_configure_agent,
+        create_room=_run_create_room,
+        delete_room=_run_delete_room,
+        delete_agent=_run_delete_agent,
+        start_agent=_run_start_agent,
+        stop_agent=_run_stop_agent,
+        agent_status=_run_agent_status,
+        status=_run_status,
+        logs=_run_logs,
+        agent_view=_run_agent_view_for_reference,
+    )
     try:
-        return _run_control(restart=args.restart)
-    except (ControlLaunchError, WezTermCliError) as exc:
-        print(exc, file=sys.stderr)
+        return app(argv)
+    except Exception as error:
+        log_event("command failed", error_type=type(error).__name__)
+        print(f"Band command failed: {error}", file=sys.stderr)
         return 1
 
 

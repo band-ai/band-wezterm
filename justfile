@@ -12,17 +12,9 @@ sync:
 sync-agents:
     uv sync --extra agents
 
-# Open Control, or attach + raise if already running
+# Open the Band room picker
 start:
-    uv run band
-
-# Same as start — find Control, activate it, raise WezTerm
-attach:
-    uv run band
-
-# Kill the Control window and open a fresh one
-restart:
-    uv run band --restart
+    uv run band room
 
 # Install/update Band plugin snippet in active WezTerm config (idempotent)
 setup:
@@ -32,14 +24,22 @@ setup:
 test:
     uv run pytest tests/unit -q
 
+# Branch coverage for the shipped package; fails below the configured ratchet.
+coverage:
+    uv run pytest tests/unit -q --cov=band_wezterm --cov-branch --cov-report=term-missing
+
 # WezTerm CLI live checks (needs wezterm on PATH)
 test-wezterm:
     uv run pytest tests/integration/test_wezterm_cli_live.py tests/integration/test_plugin_setup_live.py -q
 
-# Live platform Control PTY (needs BAND_API_KEY_USER in .env.test)
+# Live platform Band-view PTY (needs BAND_API_KEY_USER in .env.test)
 test-live:
     uv run pytest tests/integration/test_control_tab_pty.py -q
 
-# Refresh README Control-tab SVGs (no WezTerm or platform required)
+# Refresh README Band-view SVGs (no WezTerm or platform required)
 screenshots:
     uv run python docs/capture_screenshots.py
+
+# Regenerate the CLI Markdown reference from the real Cyclopts command tree
+cli-docs:
+    uv run python docs/generate_cli_docs.py

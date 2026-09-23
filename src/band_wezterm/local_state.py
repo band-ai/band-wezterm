@@ -7,7 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from band_wezterm.config import LOCAL_STATE_DIRNAME
+from band_wezterm.config import Settings, load_settings
+from band_wezterm.local_storage import atomic_write_text
 
 
 class LocalStateFile(BaseModel):
@@ -16,15 +17,17 @@ class LocalStateFile(BaseModel):
     starred: dict[str, list[str]] = Field(default_factory=dict)
 
 
-def default_state_path() -> Path:
-    return Path.home() / LOCAL_STATE_DIRNAME / "local_state.json"
+def default_state_path(settings: Settings | None = None) -> Path:
+    return (settings or load_settings()).local_state_path("local_state.json")
 
 
 class StarredRooms:
     """Per signed-in user, local-only starred room ids (correction #11)."""
 
-    def __init__(self, path: Path | None = None) -> None:
-        self._path = path or default_state_path()
+    def __init__(
+        self, path: Path | None = None, *, settings: Settings | None = None
+    ) -> None:
+        self._path = path or default_state_path(settings)
         self._by_user: dict[str, set[str]] = {}
         self._load()
 
@@ -44,16 +47,12 @@ class StarredRooms:
         }
 
     def _save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         file = LocalStateFile(
             starred={
-                user_id: sorted(room_ids)
-                for user_id, room_ids in self._by_user.items()
+                user_id: sorted(room_ids) for user_id, room_ids in self._by_user.items()
             }
         )
-        self._path.write_text(
-            file.model_dump_json(indent=2) + "\n", encoding="utf-8"
-        )
+        atomic_write_text(self._path, file.model_dump_json(indent=2) + "\n")
 
     def list(self, user_id: str) -> frozenset[str]:
         return frozenset(self._by_user.get(user_id, set()))

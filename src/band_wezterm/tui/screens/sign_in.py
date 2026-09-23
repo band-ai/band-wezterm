@@ -17,9 +17,7 @@ from band_wezterm.tui.screens import ControlScreen
 SIGN_IN_TITLE: Final = "Band"
 SIGN_IN_PROMPT: Final = "Press Enter to sign in"
 SIGN_IN_PENDING: Final = "Waiting for the browser to complete sign-in…"
-SIGN_IN_HINT: Final = (
-    "Sign-in opens your browser. Press Esc to cancel and try again."
-)
+SIGN_IN_HINT: Final = "Sign-in opens your browser. Press Esc to cancel and try again."
 
 
 class SignInScreen(ControlScreen):
@@ -28,7 +26,6 @@ class SignInScreen(ControlScreen):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("enter", "sign_in", "Sign in"),
         Binding("escape", "cancel_sign_in", "Cancel", show=False),
-        Binding("ctrl+q", "quit_host", "Quit host"),
     ]
 
     status: reactive[str] = reactive(SIGN_IN_PROMPT)
@@ -56,9 +53,6 @@ class SignInScreen(ControlScreen):
         self.status = SIGN_IN_PENDING
         self._sign_in()
 
-    def action_quit_host(self) -> None:
-        self.control.exit()
-
     def action_cancel_sign_in(self) -> None:
         if self.busy:
             self.control.host_auth.cancel_sign_in()
@@ -68,7 +62,7 @@ class SignInScreen(ControlScreen):
         try:
             if not self.control.host_auth.has_stored_tokens():
                 await self.control.host_auth.sign_in()
-            await self.control.enter_workspace()
+            await self.control.enter_surface()
         except Exception as error:  # surfaced in-screen; retry with Enter
             message = format_platform_error(error, operation="sign in")
             self.status = f"{message}\n\n{SIGN_IN_PROMPT}"

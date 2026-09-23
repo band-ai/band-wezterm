@@ -9,13 +9,14 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from contextlib import suppress
 
 import httpx
 import pytest
 
 from band_wezterm.client import BandClient
 from band_wezterm.config import load_settings
-from tests.live_settings import pinned_agent_id, user_api_key
+from tests.live_settings import LIVE_SENDER_NAME, pinned_agent_id, user_api_key
 from tests.paths import REPO_ROOT
 
 pytestmark = pytest.mark.live_platform
@@ -56,6 +57,7 @@ def test_live_room_participant_flow_with_user_api_key() -> None:
 
     async def run() -> None:
         client = BandClient.from_user_api_key(api_key, load_settings())
+        room_id: str | None = None
         try:
             pinned = pinned_agent_id()
             if pinned:
@@ -72,17 +74,22 @@ def test_live_room_participant_flow_with_user_api_key() -> None:
 
             try:
                 room = await client.create_room(title="band-wezterm-live-poc")
+                room_id = room.id
                 await client.add_participant(room.id, agent_id)
                 await client.send_message(
                     room.id,
                     "ping from .env.test harness",
                     mentions=[(agent_id, agent_name)],
+                    sender_name=LIVE_SENDER_NAME,
                 )
                 await client.remove_participant(room.id, agent_id)
             except httpx.HTTPError as exc:
                 pytest.skip(f"live platform unreachable: {exc}")
             assert room.id
         finally:
+            if room_id is not None:
+                with suppress(httpx.HTTPError):
+                    await client.delete_room(room_id)
             await client.aclose()
 
     asyncio.run(run())
