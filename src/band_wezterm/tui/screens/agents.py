@@ -15,6 +15,7 @@ from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, St
 
 from band_wezterm.agent_display import AgentConfiguration, agent_configuration
 from band_wezterm.client import AgentRecord
+from band_wezterm.config import CATALOG_SEARCH_DEBOUNCE_SECONDS
 from band_wezterm.errors import format_platform_error, is_missing_resource
 from band_wezterm.identity import AgentRuntime, HarnessBadge, harness_badge
 from band_wezterm.role_library import open_role_library
@@ -38,8 +39,6 @@ from band_wezterm.tui.stores import (
 from band_wezterm.tui.widgets import AvatarChip, Chip, FilterChips
 
 NO_BADGE: Final = "  "
-
-SEARCH_DEBOUNCE_SECONDS: Final = 0.25
 
 SEARCH_PLACEHOLDER: Final = "Search agents by name"
 SOURCE_LABELS: Final[dict[AgentSource, str]] = {
@@ -319,7 +318,7 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
 
     @work(exclusive=True, group="agents-load")
     async def _load_agents(self, *, announce: bool = False) -> None:
-        await asyncio.sleep(SEARCH_DEBOUNCE_SECONDS)
+        await asyncio.sleep(CATALOG_SEARCH_DEBOUNCE_SECONDS)
         store = self.store
         if store.source is AgentSource.DIRECTORY:
             self.mutate_reactive(AgentsScreen.store)

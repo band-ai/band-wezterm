@@ -39,7 +39,7 @@ from band_wezterm.client import (
     Unsubscribe,
     display_message_content,
 )
-from band_wezterm.config import ROOMS_PAGE_LIMIT
+from band_wezterm.config import CATALOG_SEARCH_DEBOUNCE_SECONDS, ROOMS_PAGE_LIMIT
 from band_wezterm.errors import format_platform_error
 from band_wezterm.identity import AgentRuntime, AvatarKind
 from band_wezterm.platform_models import DEFAULT_MESSAGE_TYPE
@@ -98,6 +98,7 @@ ROSTER_DETAIL_EMPTY: Final = "Select an agent for details."
 ROSTER_MENTION_HINT: Final = "Double-click to insert {mention}"
 EMPTY_ROOMS: Final = "No rooms match the filter."
 LOADING_MORE_ROOMS_MESSAGE: Final = "Loading more rooms…"
+SEARCHING_ALL_ROOMS_MESSAGE: Final = "Searching all rooms…"
 EMPTY_CHAT: Final = "*No messages yet.*"
 NEW_ACTIVITY_MESSAGE: Final = "New activity — End jumps to latest."
 OLDER_MESSAGES_LOADING: Final = "Loading older messages…"
@@ -585,7 +586,7 @@ class RoomsScreen(ControlScreen):
         self._initial_resume = True
         self.query_one(selector(Id.LIST), ListView).focus()
         install_catalog_refresh(self, self._refresh_catalog)
-        self._load_rooms()
+        self._reload_catalog()
 
     def on_screen_resume(self) -> None:
         """Keep a view-local draft while navigating between Band surfaces."""
@@ -595,13 +596,13 @@ class RoomsScreen(ControlScreen):
         if self._initial_resume:
             self._initial_resume = False
             return
-        self._load_rooms()
+        self._reload_catalog()
         self.mutate_reactive(RoomsScreen.store)
 
     def _refresh_catalog(self) -> None:
         """Refresh the room catalog only while this surface is visible."""
         if self.is_current:
-            self._load_rooms()
+            self._reload_catalog()
 
     async def watch_store(self, store: RoomsStore) -> None:
         if not self.is_mounted:
@@ -645,6 +646,7 @@ class RoomsScreen(ControlScreen):
         if event.input.id != Id.SEARCH:
             return
         self.store.set_search(event.value)
+        self._reload_catalog()
         self.mutate_reactive(RoomsScreen.store)
 
     def on_filter_chips_changed(self, event: FilterChips.Changed) -> None:
@@ -681,6 +683,13 @@ class RoomsScreen(ControlScreen):
         self.control.toggle_star(room.id)
         self.mutate_reactive(RoomsScreen.store)
 
+    def _reload_catalog(self) -> None:
+        query = self.store.search.strip()
+        if query:
+            self._search_rooms(query)
+        else:
+            self._load_rooms()
+
     @work(exclusive=True, group="rooms-load")
     async def _load_rooms(self) -> None:
         store = self.store
@@ -703,8 +712,34 @@ class RoomsScreen(ControlScreen):
             store.loading = False
             self.mutate_reactive(RoomsScreen.store)
 
+    @work(exclusive=True, group="rooms-load")
+    async def _search_rooms(self, query: str) -> None:
+        """Load every REST page before applying a room-name search locally."""
+        await asyncio.sleep(CATALOG_SEARCH_DEBOUNCE_SECONDS)
+        if query != self.store.search.strip():
+            return
+        store = self.store
+        store.loading = True
+        self._has_more_rooms = False
+        self._next_rooms_cursor = None
+        store.set_status(RoomStatusSource.LIST, SEARCHING_ALL_ROOMS_MESSAGE)
+        self.mutate_reactive(RoomsScreen.store)
+        try:
+            rooms = await self.control.client.list_my_chats()
+        except Exception as error:
+            store.set_status(
+                RoomStatusSource.LIST,
+                format_platform_error(error, operation="search all rooms"),
+            )
+        else:
+            store.replace_rooms(rooms)
+            store.clear_status(RoomStatusSource.LIST)
+        finally:
+            store.loading = False
+            self.mutate_reactive(RoomsScreen.store)
+
     def action_reload(self) -> None:
-        self._load_rooms()
+        self._reload_catalog()
 
     def on_room_catalog_reached_end(self, _event: RoomCatalog.ReachedEnd) -> None:
         self._load_more_rooms()

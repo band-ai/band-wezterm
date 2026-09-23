@@ -30,6 +30,8 @@ LOCAL_STATE_DIRNAME = ".band-wezterm"
 CHAT_MESSAGES_LIMIT = 20
 # One bounded catalog page; the Rooms surface requests subsequent cursors on demand.
 ROOMS_PAGE_LIMIT = 20
+# Delay catalog-wide REST searches until the user pauses typing.
+CATALOG_SEARCH_DEBOUNCE_SECONDS = 0.25
 # Child-pane env / CLI — never OSC.
 AGENT_API_KEY_ENV = "BAND_AGENT_API_KEY"
 AGENT_ID_ENV = "BAND_AGENT_ID"

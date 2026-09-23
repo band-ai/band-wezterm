@@ -550,6 +550,29 @@ async def test_rooms_load_the_next_cursor_page_at_catalog_end(
     ]
 
 
+async def test_room_search_queries_every_platform_page(
+    control_app: ControlApp, band_client: MagicMock
+) -> None:
+    first = room("room-first", "First")
+    matched = room("room-matched", "Target room")
+    band_client.list_room_page.return_value = RoomPage(
+        rooms=(first,), next_cursor="next-page", has_more=True
+    )
+    band_client.list_my_chats.return_value = [first, matched]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.action_show_rooms()
+        await settle(pilot)
+        search = control_app.screen.query_one(room_selector(RoomId.SEARCH), Input)
+        search.value = "target"
+        await settle(pilot)
+
+        assert [item.id for item in control_app.screen.store.visible] == [matched.id]
+
+    band_client.list_my_chats.assert_awaited_once()
+
+
 async def test_room_loads_history_when_the_chat_reaches_its_top(
     control_app: ControlApp, band_client: MagicMock
 ) -> None:
