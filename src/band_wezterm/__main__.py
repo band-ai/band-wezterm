@@ -166,8 +166,13 @@ def _start_view_without_cli(
     return 0
 
 
-def _run_agent_view() -> int:
-    return _run_view(screen=AppScreen.AGENTS)
+def _run_agent_view_for_reference(reference: str | None) -> int:
+    try:
+        agent_id = None if reference is None else asyncio.run(_resolve_agent(reference)).id
+    except (AgentSelectionError, ValueError, WezTermCliError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    return _run_view(screen=AppScreen.AGENTS, agent_id=agent_id)
 
 
 def _run_create_agent() -> int:
@@ -244,12 +249,19 @@ async def _list_agents() -> list[AgentRecord]:
 
 
 async def _resolve_room_id(reference: str) -> str:
-    """Resolve an exact room title or ID for the direct room command."""
+    """Resolve an exact room title or a unique room ID prefix."""
     rooms = await _list_rooms()
-    matches = [
+    normalized_reference = reference.casefold()
+    exact_matches = [
         room
         for room in rooms
-        if room.id == reference or room.title.casefold() == reference.casefold()
+        if room.id.casefold() == normalized_reference
+        or room.title.casefold() == normalized_reference
+    ]
+    if len(exact_matches) == 1:
+        return exact_matches[0].id
+    matches = [
+        room for room in rooms if room.id.casefold().startswith(normalized_reference)
     ]
     if len(matches) == 1:
         return matches[0].id
@@ -259,16 +271,24 @@ async def _resolve_room_id(reference: str) -> str:
         )
     choices = ", ".join(f"{room.title} ({room.id})" for room in matches)
     raise RoomSelectionError(
-        f"{reference!r} matches multiple rooms: {choices}. Use the room ID instead."
+        f"{reference!r} matches multiple rooms: {choices}. Enter more of the ID."
     )
 
 
 async def _resolve_agent(reference: str) -> AgentRecord:
+    """Resolve an exact agent name or a unique agent ID prefix."""
     agents = await _list_agents()
-    matches = [
+    normalized_reference = reference.casefold()
+    exact_matches = [
         agent
         for agent in agents
-        if agent.id == reference or agent.name.casefold() == reference.casefold()
+        if agent.id.casefold() == normalized_reference
+        or agent.name.casefold() == normalized_reference
+    ]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    matches = [
+        agent for agent in agents if agent.id.casefold().startswith(normalized_reference)
     ]
     if len(matches) == 1:
         return matches[0]
@@ -276,7 +296,7 @@ async def _resolve_agent(reference: str) -> AgentRecord:
         raise AgentSelectionError(f"No registered agent matches {reference!r}.")
     choices = ", ".join(f"{agent.name} ({agent.id})" for agent in matches)
     raise AgentSelectionError(
-        f"{reference!r} matches multiple agents: {choices}. Use the agent ID instead."
+        f"{reference!r} matches multiple agents: {choices}. Enter more of the ID."
     )
 
 
@@ -434,7 +454,7 @@ def main(argv: list[str] | None = None) -> int:
         agent_status=_run_agent_status,
         status=_run_status,
         logs=_run_logs,
-        agent_view=_run_agent_view,
+        agent_view=_run_agent_view_for_reference,
     )
     try:
         return app(argv)

@@ -10,6 +10,7 @@ Manage Band rooms and detached agents in WezTerm.
 
 ## Table of Contents
 
+- [`completion`](#band-completion)
 - [`help`](#band-help)
 - [`setup`](#band-setup)
 - [`status`](#band-status)
@@ -31,11 +32,25 @@ Manage Band rooms and detached agents in WezTerm.
 **Commands**:
 
 * [`agent`](#band-agent): Manage detached Band agents.
+* [`completion`](#band-completion): Install shell completion for Band commands.
 * [`help`](#band-help)
 * [`logs`](#band-logs): Show recent rotating local diagnostics for incident investigation.
 * [`room`](#band-room): Manage Band rooms.
 * [`setup`](#band-setup): Install or update the Band WezTerm plugin in the active WezTerm config (WEZTERM_CONFIG_FILE, ~/.wezterm.lua, or XDG wezterm.lua).
 * [`status`](#band-status): Show Rooms and Agents, or one requested resource table.
+
+## band completion
+
+```console
+band completion [OPTIONS]
+```
+
+Install shell completion for Band commands.
+
+**Parameters**:
+
+* `--shell`: Shell type for completion. If not specified, attempts to auto-detect current shell. *[choices: zsh, bash, fish]*
+* `--output, -o`: Output path for the completion script. If not specified, uses shell-specific default.
 
 ## band help
 
@@ -87,9 +102,9 @@ Manage Band rooms.
 **Commands**:
 
 * [`create`](#band-room-create): Create a room with TITLE.
-* [`delete`](#band-room-delete): Delete one room by exact title or ID.
+* [`delete`](#band-room-delete): Delete one room by exact title or unique ID prefix.
 * [`list`](#band-room-list): List accessible rooms.
-* [`open`](#band-room-open): Open one room by exact title or ID.
+* [`open`](#band-room-open): Open one room by exact title or unique ID prefix.
 
 ### band room open
 
@@ -97,7 +112,7 @@ Manage Band rooms.
 band room open REFERENCE
 ```
 
-Open one room by exact title or ID.
+Open one room by exact title or unique ID prefix.
 
 **Parameters**:
 
@@ -129,7 +144,7 @@ Create a room with TITLE.
 band room delete REFERENCE
 ```
 
-Delete one room by exact title or ID.
+Delete one room by exact title or unique ID prefix.
 
 **Parameters**:
 
@@ -138,7 +153,7 @@ Delete one room by exact title or ID.
 ## band agent
 
 ```console
-band agent COMMAND
+band agent COMMAND [ARGS]
 ```
 
 Manage detached Band agents.
@@ -152,6 +167,10 @@ Manage detached Band agents.
 * [`start`](#band-agent-start): Start one detached managed agent.
 * [`status`](#band-agent-status): Show one managed agent's runtime state.
 * [`stop`](#band-agent-stop): Gracefully stop one agent, or every agent with --all.
+
+**Parameters**:
+
+* `REFERENCE, --reference`: Exact agent name or a unique agent ID prefix.
 
 ### band agent list
 

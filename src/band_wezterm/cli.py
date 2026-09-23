@@ -24,6 +24,7 @@ class Command(StrEnum):
     STATUS = "status"
     LOGS = "logs"
     HELP = "help"
+    COMPLETION = "completion"
     LIST = "list"
     OPEN = "open"
     CREATE = "create"
@@ -35,7 +36,6 @@ class Command(StrEnum):
 
 SetupHandler = Callable[[], int]
 ViewHandler = Callable[[str | None], int]
-AgentViewHandler = Callable[[], int]
 AsyncHandler = Callable[[], Awaitable[int]]
 AgentListHandler = Callable[[bool], Awaitable[int]]
 ReferenceHandler = Callable[[str], Awaitable[int]]
@@ -49,8 +49,8 @@ def create_app(
     *,
     setup: SetupHandler,
     room_view: ViewHandler,
-    agent_view: AgentViewHandler,
-    create_agent: AgentViewHandler,
+    agent_view: ViewHandler,
+    create_agent: Callable[[], int],
     configure_agent: ConfigureAgentHandler,
     rooms: AsyncHandler,
     agents: AgentListHandler,
@@ -71,6 +71,10 @@ def create_app(
     )
     room_app = App(name=Command.ROOM, help="Manage Band rooms.")
     agent_app = App(name=Command.AGENT, help="Manage detached Band agents.")
+    app.register_install_completion_command(
+        name=Command.COMPLETION,
+        help="Install shell completion for Band commands.",
+    )
 
     @app.default
     @app.command(name=Command.HELP)
@@ -101,7 +105,7 @@ def create_app(
 
     @room_app.command(name=Command.OPEN)
     def room_open(reference: str) -> int:
-        """Open one room by exact title or ID."""
+        """Open one room by exact title or unique ID prefix."""
         return room_view(reference)
 
     @room_app.command(name=Command.LIST)
@@ -116,13 +120,18 @@ def create_app(
 
     @room_app.command(name=Command.DELETE)
     async def room_delete(reference: str) -> int:
-        """Delete one room by exact title or ID."""
+        """Delete one room by exact title or unique ID prefix."""
         return await delete_room(reference)
 
     @agent_app.default
-    def agent_interactive() -> int:
-        """Open the interactive Agents surface."""
-        return agent_view()
+    def agent_interactive(
+        reference: Annotated[
+            str | None,
+            Parameter(help="Exact agent name or a unique agent ID prefix."),
+        ] = None,
+    ) -> int:
+        """Open the interactive Agents surface, optionally selecting one agent."""
+        return agent_view(reference)
 
     @agent_app.command(name=Command.LIST)
     async def agent_list(

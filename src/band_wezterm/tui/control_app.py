@@ -221,11 +221,13 @@ class ControlApp(App[None]):
         self.open_room(room)
 
     async def _open_initial_agent_flow(self) -> None:
-        """Enter a direct create or configure flow after authentication."""
+        """Select an agent or enter a direct agent flow after authentication."""
         action = self.initial_agent_action
         self.initial_agent_action = InitialAgentAction.BROWSE
         match action:
             case InitialAgentAction.BROWSE:
+                self.agents_store.selected_id = self.initial_agent_id
+                self.initial_agent_id = None
                 return
             case InitialAgentAction.CREATE:
                 self.push_screen(RegisterAgentScreen())

@@ -11,6 +11,7 @@ import pytest
 
 from band_wezterm.__main__ import (
     RoomSelectionError,
+    _resolve_agent,
     _resolve_room_id,
     _run_agents,
     _run_configure_agent,
@@ -49,6 +50,18 @@ async def test_room_reference_resolves_an_exact_title(
 
     assert await _resolve_room_id("planning") == "room-1"
     client.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_agent_reference_resolves_a_unique_id_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = SimpleNamespace(id="693c9f27-7fcc-462e-ac4f-bb3e5e8a5aa7", name="Product")
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_agents", AsyncMock(return_value=[selected])
+    )
+
+    assert await _resolve_agent("693c9f27") is selected
 
 
 @pytest.mark.asyncio
@@ -251,6 +264,31 @@ def test_agent_command_opens_the_agents_surface(
 
     assert main([Command.AGENT.value]) == 0
     assert opened == [AppScreen.AGENTS]
+
+
+def test_agent_reference_opens_agents_with_the_resolved_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEZTERM_PANE", "81")
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_agent",
+        AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+    )
+    opened: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "band_wezterm.__main__.run_control_app",
+        lambda **kwargs: opened.append(kwargs) or 0,
+    )
+
+    assert main([Command.AGENT.value, "agent-1"]) == 0
+    assert opened == [
+        {
+            "initial_room_id": None,
+            "initial_screen": AppScreen.AGENTS,
+            "initial_agent_action": InitialAgentAction.BROWSE,
+            "initial_agent_id": "agent-1",
+        }
+    ]
 
 
 @pytest.mark.asyncio

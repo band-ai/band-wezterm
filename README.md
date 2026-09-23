@@ -96,6 +96,8 @@ Run the command again anywhere to open another independent Room surface.
 
 `band agent list` is a compact overview. Add `--verbose` (or `-v`) for full agent IDs, selected harnesses, and local worker PIDs.
 
+Use a unique ID prefix anywhere an agent or room reference is accepted: `band agent 693c9f27` opens Agents with that agent selected, and `band agent start 693c9f27` starts it. Run `band completion` once to install zsh, bash, or fish completion for Band commands and options.
+
 Roles are Markdown personas in `~/.band/roles`. Default roles are seeded on first use. A registered agent saves a role snapshot and tuning as its durable local profile; reconfigure it to adopt later role edits.
 
 <p align="center">
