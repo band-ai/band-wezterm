@@ -287,6 +287,21 @@ def message_time_label(message: MessageRecord) -> str:
     )
 
 
+def history_status_text(history: str, hidden: str) -> Text:
+    """A fixed, calm history status line that never reflows chat rows."""
+    status = Text()
+    if history == OLDER_MESSAGES_LOADING:
+        status.append("◌ ", Style(color="#f0a12a", bold=True))
+        status.append(history, Style(color="#f0a12a", bold=True))
+    elif history:
+        status.append(history, Style(color="#9aa4b2"))
+    if history and hidden:
+        status.append("  ·  ", Style(color="#6e7681"))
+    if hidden:
+        status.append(hidden, Style(color="#9aa4b2"))
+    return status
+
+
 class ChatEventRow(ListItem):
     """One timeline event: author, badge, body or collapsed preview."""
 
@@ -884,7 +899,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             if store.messages
             else ""
         )
-        hidden = "  ".join(part for part in (history, hidden_summary(store.messages, allowed)) if part)
+        hidden = hidden_summary(store.messages, allowed)
         chat = self._chat_view()
         following = chat.is_vertical_scroll_end
         timeline = tuple(
@@ -905,7 +920,7 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             self._unseen_activity = 0
         notice = NEW_ACTIVITY_MESSAGE if self._unseen_activity else ""
         self.query_one(selector(Id.CHAT_HIDDEN), Static).update(
-            "  ".join(part for part in (hidden, notice) if part)
+            history_status_text(history, "  ".join(part for part in (hidden, notice) if part))
         )
         if not store.messages:
             rows: list[ListItem] = [ListItem(Static(EMPTY_CHAT))]
@@ -940,7 +955,10 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         self._unseen_activity = 0
         self._chat_view().scroll_end(animate=False)
         self.query_one(selector(Id.CHAT_HIDDEN), Static).update(
-            hidden_summary(self.store.messages, self._allowed_event_types())
+            history_status_text(
+                OLDER_MESSAGES_AVAILABLE if self._has_older_messages else OLDER_MESSAGES_COMPLETE,
+                hidden_summary(self.store.messages, self._allowed_event_types()),
+            )
         )
 
     async def _render_roster(self, store: RoomsStore) -> None:
