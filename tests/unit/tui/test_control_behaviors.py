@@ -12,7 +12,12 @@ from textual.widgets import Input, Static
 
 from band_wezterm.agent_draft import apply_draft_patch
 from band_wezterm.backends import AgentTuning
-from band_wezterm.client import MessageRecord, RealtimeEvent, RealtimeEventKind
+from band_wezterm.client import (
+    MessagePage,
+    MessageRecord,
+    RealtimeEvent,
+    RealtimeEventKind,
+)
 from band_wezterm.diagnostics import diagnostics_log_path
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
@@ -389,7 +394,9 @@ async def test_room_loads_message_history(
         content="Decide the lifecycle.",
         author_name="Architect",
     )
-    band_client.list_messages.return_value = [message]
+    band_client.list_message_page.return_value = MessagePage(
+        messages=(message,), next_cursor=None, has_more=False
+    )
 
     async with control_app.run_test() as pilot:
         await settle(pilot)
@@ -410,7 +417,9 @@ async def test_room_appends_realtime_messages_without_rebuilding_history(
         author_name="Architect",
         inserted_at=datetime(2026, 9, 23, 7, 0, tzinfo=UTC),
     )
-    band_client.list_messages.return_value = [history]
+    band_client.list_message_page.return_value = MessagePage(
+        messages=(history,), next_cursor=None, has_more=False
+    )
 
     async with control_app.run_test() as pilot:
         await settle(pilot)

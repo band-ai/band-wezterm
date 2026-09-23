@@ -369,6 +369,10 @@ class RoomsStore:
         """Insert or replace by id (plugin upsertMessage — covers message_updated)."""
         self._messages[message.id] = message
 
+    def prepend_messages(self, messages: Sequence[MessageRecord]) -> None:
+        """Merge an older history page without replacing newer realtime rows."""
+        self._messages = {message.id: message for message in messages} | self._messages
+
     def find_participant(self, participant_id: str) -> ParticipantRecord | None:
         return next(
             (
