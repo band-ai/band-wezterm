@@ -58,6 +58,7 @@ from band_wezterm.tui.chat_events import (
     visible_messages,
 )
 from band_wezterm.tui.managed_agent_actions import ManagedAgentActions
+from band_wezterm.tui.mentions import mention_keys, participant_mention_text
 from band_wezterm.tui.refresh import install_catalog_refresh
 from band_wezterm.tui.roster_order import order_roster
 from band_wezterm.tui.screens import ControlScreen
@@ -150,12 +151,6 @@ class ChatTimeline(ListView):
             self.post_message(self.ReachedStart())
 
 
-def mention_keys(participant: ParticipantRecord) -> tuple[str, ...]:
-    """Accepted composer keys, preferring the platform's canonical handle."""
-    keys = (participant.handle, participant.name)
-    return tuple(dict.fromkeys(key for key in keys if key))
-
-
 def resolve_mentions(
     body: str, participants: Iterable[ParticipantRecord]
 ) -> tuple[list[ParticipantRecord], str] | None:
@@ -210,28 +205,6 @@ def resolve_mention(
         return None
     mentioned, remainder = resolved
     return mentioned[0], remainder
-
-
-def participant_mention_text(
-    content: str, participants: Iterable[ParticipantRecord]
-) -> Text | None:
-    """Color unambiguous ``@mentions`` with their roster identity color."""
-    matches = sorted(
-        (
-            (key, participant.color)
-            for participant in participants
-            for key in mention_keys(participant)
-        ),
-        key=lambda item: len(item[0]),
-        reverse=True,
-    )
-    rendered = Text(content)
-    styled = False
-    for key, color in matches:
-        for match in re.finditer(rf"(?<!\S)@{re.escape(key)}(?=\s|$)", content, re.I):
-            rendered.stylize(Style(color=color, bold=True), *match.span())
-            styled = True
-    return rendered if styled else None
 
 
 async def refill(list_view: ListView, rows: Sequence[ListItem]) -> None:
@@ -1296,7 +1269,11 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
         if not isinstance(row, ChatEventRow):
             return
         self.app.push_screen(
-            ChatEventDetailScreen(row.message, author_color=row.author_color)
+            ChatEventDetailScreen(
+                row.message,
+                author_color=row.author_color,
+                mention_text=row.mention_text,
+            )
         )
 
     def action_toggle_chat_expand(self) -> None:

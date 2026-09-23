@@ -53,13 +53,15 @@ def detail_header(message: MessageRecord, author_color: str | None) -> Text:
     return header
 
 
-def detail_content(message: MessageRecord, content: str) -> str | Text | Markdown | Syntax:
+def detail_content(
+    message: MessageRecord, content: str, mention_text: Text | None
+) -> str | Text | Markdown | Syntax:
     """Prefer structured rendering, while retaining readable prose and errors."""
     pretty = content_pretty(content)
     if pretty != content:
         return syntax_highlight(pretty)
     if message.message_type == "text":
-        return Markdown(content)
+        return mention_text or Markdown(content)
     if message.message_type == "error":
         return Text(content, DETAIL_ERROR_STYLE)
     return content
@@ -98,10 +100,17 @@ class ChatEventDetailScreen(ModalScreen[None]):
     }
     """
 
-    def __init__(self, message: MessageRecord, *, author_color: str | None) -> None:
+    def __init__(
+        self,
+        message: MessageRecord,
+        *,
+        author_color: str | None,
+        mention_text: Text | None,
+    ) -> None:
         super().__init__()
         self._message = message
         self._author_color = author_color
+        self._mention_text = mention_text
 
     def compose(self) -> ComposeResult:
         message = self._message
@@ -118,7 +127,7 @@ class ChatEventDetailScreen(ModalScreen[None]):
                 markup=False,
             )
             yield Static(
-                detail_content(message, raw_body or "") or "(empty)",
+                detail_content(message, raw_body or "", self._mention_text) or "(empty)",
                 id="detail-body",
                 markup=False,
             )

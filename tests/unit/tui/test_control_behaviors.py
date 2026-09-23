@@ -25,6 +25,7 @@ from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.supervisor import WorkerRecord, WorkerState
 from band_wezterm.supervisor.client import SupervisorError
 from band_wezterm.tui.control_app import AppScreen, ControlApp, InitialAgentAction
+from band_wezterm.tui.mentions import participant_mention_text
 from band_wezterm.tui.screens.agents import AgentsScreen
 from band_wezterm.tui.screens.event_type_filter import EventTypeFilterScreen
 from band_wezterm.tui.screens.register_agent import (
@@ -38,7 +39,6 @@ from band_wezterm.tui.screens.rooms import (
     ChatEventRow,
     ChatTimeline,
     RoomDetailScreen,
-    participant_mention_text,
 )
 from band_wezterm.tui.screens.rooms import Id as RoomId
 from band_wezterm.tui.screens.rooms import selector as room_selector
