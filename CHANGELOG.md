@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.1](https://github.com/band-ai/band-wezterm/compare/v0.8.0...v0.8.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **supervisor:** recover from stale worker probes ([#35](https://github.com/band-ai/band-wezterm/issues/35)) ([e195003](https://github.com/band-ai/band-wezterm/commit/e1950037bf2603bc52d7fed553552d86689bc834))
+* **tui:** preserve composer cursor after mention ([#42](https://github.com/band-ai/band-wezterm/issues/42)) ([6002e05](https://github.com/band-ai/band-wezterm/commit/6002e05785f4532d43d0becd9d0d8a6af7d7147c))
+
+
+### Documentation
+
+* **readme:** refresh hero artwork ([#40](https://github.com/band-ai/band-wezterm/issues/40)) ([3648e05](https://github.com/band-ai/band-wezterm/commit/3648e05dea048307f120952768d3f730b4b22e33))
+
 ## [0.8.0](https://github.com/band-ai/band-wezterm/compare/v0.7.1...v0.8.0) (2026-09-23)
 
 
