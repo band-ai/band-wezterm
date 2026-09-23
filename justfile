@@ -26,15 +26,16 @@ test:
 
 # Branch coverage for the shipped package; fails below the configured ratchet.
 coverage:
-    uv run pytest tests/unit -q --cov=band_wezterm --cov-branch --cov-report=term-missing
+    uv run pytest tests/unit -q --cov=band_wezterm --cov-branch --cov-context=test --cov-report=term-missing --cov-report=json:coverage.json
+    uv run python scripts/check_branch_coverage.py coverage.json
 
 # WezTerm CLI live checks (needs wezterm on PATH)
 test-wezterm:
     uv run pytest tests/integration/test_wezterm_cli_live.py tests/integration/test_plugin_setup_live.py -q
 
-# Live platform Band-view PTY (needs BAND_API_KEY_USER in .env.test)
+# Live Control flows (needs BAND_API_KEY_USER in .env.test)
 test-live:
-    uv run pytest tests/integration/test_control_tab_pty.py -q
+    uv run pytest tests/integration/test_control_tab_pty.py tests/integration/test_live_platform_resource_lifecycle.py tests/integration/test_live_control_agent_flow.py -q
 
 # Refresh README Band-view SVGs (no WezTerm or platform required)
 screenshots:

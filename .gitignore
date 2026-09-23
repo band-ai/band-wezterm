@@ -36,6 +36,7 @@ build/
 *.egg-info/
 target/
 .coverage
+coverage.json
 htmlcov/
 .ruff_cache/
 .mypy_cache/

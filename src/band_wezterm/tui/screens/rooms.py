@@ -1034,8 +1034,14 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             event.item, IdentityRow
         ):
             return
+        # A ListView selection can originate from a mouse-up event.  Do not
+        # refill or hide that ListView until Textual has finished dispatching it.
+        self.call_after_refresh(self._select_candidate, event.item.identity_id)
+
+    def _select_candidate(self, participant_id: str) -> None:
         if self._begin_roster_mutation():
-            self._add_participant(event.item.identity_id)
+            self._set_picker_open(False)
+            self._add_participant(participant_id)
 
     @work(group="room-participants")
     async def _add_participant(self, participant_id: str) -> None:
@@ -1049,7 +1055,6 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             self._roster_mutation_pending = False
             self._load_roster()
             self._load_candidates()
-        self._set_picker_open(False)
 
     def _begin_roster_mutation(self) -> bool:
         if self._roster_mutation_pending:
@@ -1065,14 +1070,13 @@ class RoomDetailScreen(ManagedAgentActions, ControlScreen):
             EventTypeFilterScreen(
                 self._allowed_event_types(),
                 self.store.messages,
+                self._apply_event_filter,
             )
         )
 
-    def on_event_type_filter_screen_changed(
-        self, event: EventTypeFilterScreen.Changed
-    ) -> None:
+    def _apply_event_filter(self, allowed: tuple[str, ...]) -> None:
         self._pre_verbose_types = None
-        self.control.preferences.update(chat_event_types=event.allowed)
+        self.control.preferences.update(chat_event_types=allowed)
         self.mutate_reactive(RoomDetailScreen.store)
 
     def action_toggle_verbose(self) -> None:

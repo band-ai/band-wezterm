@@ -250,10 +250,13 @@ class SupervisorServer:
             return None
         status = await _request_worker_stop(worker)
         if status is None:
-            if _pid_alive(worker.pid):
-                _terminate_worker(worker.pid)
             workers = dict(self._state.workers)
-            workers.pop(agent_id, None)
+            if not _pid_alive(worker.pid) or _terminate_worker(worker):
+                workers.pop(agent_id, None)
+            else:
+                workers[agent_id] = worker.model_copy(
+                    update={"state": WorkerState.ERROR, "stopping_at": None}
+                )
         else:
             workers = dict(self._state.workers)
             workers[agent_id] = worker.model_copy(
@@ -315,8 +318,11 @@ async def _reconcile_worker(
         case WorkerState.STOPPING if _within_stop_grace(worker, now):
             return worker
         case WorkerState.STOPPING:
-            _terminate_worker(worker.pid)
-            return None
+            return (
+                None
+                if _terminate_worker(worker)
+                else worker.model_copy(update={"state": WorkerState.ERROR})
+            )
         case _:
             return worker.model_copy(update={"state": WorkerState.ERROR})
 
@@ -340,13 +346,38 @@ async def _request_worker_stop(worker: WorkerRecord) -> WorkerResponse | None:
     return None
 
 
-def _terminate_worker(pid: int) -> None:
-    """Terminate the detached worker process group after graceful stop fails."""
-    with suppress(ProcessLookupError):
-        os.killpg(pid, signal.SIGTERM)
+def _terminate_worker(worker: WorkerRecord) -> bool:
+    """Terminate a verified worker group without risking an unrelated process."""
+    try:
+        if os.getpgid(worker.pid) != worker.pid:
+            log_event(
+                "worker termination skipped",
+                agent_id=worker.agent_id,
+                reason="process_group_changed",
+            )
+            return False
+        os.killpg(worker.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        log_event(
+            "worker termination skipped",
+            agent_id=worker.agent_id,
+            reason="permission_denied",
+        )
+        return False
+    return True
 
 
 def _pid_alive(pid: int) -> bool:
+    if os.name != "nt":
+        try:
+            reaped, _status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            pass
+        else:
+            if reaped == pid:
+                return False
     try:
         os.kill(pid, 0)
     except OSError:

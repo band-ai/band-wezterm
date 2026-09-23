@@ -10,7 +10,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from textual.pilot import Pilot
 
 from band_wezterm.agent.opencode_server import OpenCodeServerManager
 from band_wezterm.auth.host_auth import HostAuth
@@ -126,10 +125,3 @@ def control_app(
         supervisor=supervisor,
         initial_screen=AppScreen.AGENTS,
     )
-
-
-async def settle(pilot: Pilot[None]) -> None:
-    """Let workers (catalog loads, roster loads) finish and the UI repaint."""
-    await pilot.pause()
-    await pilot.app.workers.wait_for_complete()
-    await pilot.pause()
