@@ -56,7 +56,7 @@ from band_wezterm.tui.chat_events import (
     visible_messages,
 )
 from band_wezterm.tui.managed_agent_actions import ManagedAgentActions
-from band_wezterm.tui.refresh import CATALOG_POLL_SECONDS
+from band_wezterm.tui.refresh import install_catalog_refresh
 from band_wezterm.tui.roster_order import order_roster
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.screens.chat_event_detail import ChatEventDetailScreen
@@ -453,7 +453,7 @@ class RoomsScreen(ControlScreen):
         self.store = self.control.rooms_store
         self._pending_delete_id: str | None = None
         self.query_one(selector(Id.LIST), ListView).focus()
-        self.set_interval(CATALOG_POLL_SECONDS, self._load_rooms)
+        install_catalog_refresh(self, self._refresh_catalog)
         self._load_rooms()
 
     def on_screen_resume(self) -> None:
@@ -463,6 +463,11 @@ class RoomsScreen(ControlScreen):
         self._pending_delete_id = None
         self._load_rooms()
         self.mutate_reactive(RoomsScreen.store)
+
+    def _refresh_catalog(self) -> None:
+        """Refresh the room catalog only while this surface is visible."""
+        if self.is_current:
+            self._load_rooms()
 
     async def watch_store(self, store: RoomsStore) -> None:
         if not self.is_mounted:

@@ -23,7 +23,7 @@ from band_wezterm.tui.managed_agent_actions import (
     AGENT_STARTING_MESSAGE,
     ManagedAgentActions,
 )
-from band_wezterm.tui.refresh import CATALOG_POLL_SECONDS
+from band_wezterm.tui.refresh import install_catalog_refresh
 from band_wezterm.tui.screens import ControlScreen
 from band_wezterm.tui.screens.new_role import NewRoleScreen
 from band_wezterm.tui.screens.register_agent import RegisterAgentScreen
@@ -199,7 +199,7 @@ class AgentsScreen(ManagedAgentActions, ControlScreen):
         self.store = self.control.agents_store
         self._pending_delete_id: str | None = None
         self.query_one(selector(Id.LIST), ListView).focus()
-        self.set_interval(CATALOG_POLL_SECONDS, self._refresh_catalog)
+        install_catalog_refresh(self, self._refresh_catalog)
         self._load_agents()
 
     def on_screen_resume(self) -> None:

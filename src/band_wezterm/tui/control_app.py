@@ -33,7 +33,7 @@ from band_wezterm.tui.host_pane import (
     WEZTERM_PANE_ENV,
     current_pane_id,
 )
-from band_wezterm.tui.refresh import PANE_POLL_SECONDS
+from band_wezterm.tui.refresh import LOCAL_RUNTIME_POLL_SECONDS
 from band_wezterm.tui.screens.agents import AgentsScreen
 from band_wezterm.tui.screens.rooms import RoomDetailScreen, RoomsScreen
 from band_wezterm.tui.screens.settings import SettingsScreen
@@ -153,7 +153,7 @@ class ControlApp(App[None]):
 
     def on_mount(self) -> None:
         name_control_tab()
-        self.set_interval(PANE_POLL_SECONDS, self._reconcile_workers)
+        self.set_interval(LOCAL_RUNTIME_POLL_SECONDS, self._reconcile_workers)
         if self.host_auth.has_stored_tokens():
             self.run_worker(self._restore_surface(), group="surface")
             return
