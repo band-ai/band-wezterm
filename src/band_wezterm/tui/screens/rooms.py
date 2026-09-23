@@ -261,8 +261,11 @@ class ChatEventRow(ListItem):
     DEFAULT_CSS = """
     ChatEventRow {
         height: auto;
-        padding: 0 1 1 1;
+        padding: 0 1;
         border-bottom: solid $panel;
+    }
+    ChatEventRow .event-header {
+        height: 1;
     }
     ChatEventRow .event-author {
         text-style: bold;
