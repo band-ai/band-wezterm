@@ -581,7 +581,6 @@ def test_ensure_escapes_plugin_url_in_lua_config(
     )
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
 def test_ensure_preserves_file_mode(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
