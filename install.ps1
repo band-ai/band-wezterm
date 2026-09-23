@@ -1,9 +1,18 @@
 param(
     [ValidateSet("release", "main", "source")]
-    [string]$Channel = $env:BAND_WEZTERM_CHANNEL
+    [string]$Channel = $env:BAND_WEZTERM_CHANNEL,
+    [Alias("h")]
+    [switch]$Help
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($Help) {
+    Write-Output "Usage: install.ps1 [-Channel release|main|source] [-Help]"
+    Write-Output "Installs Band WezTerm from the latest release, main, or this checkout."
+    Write-Output "Defaults to source in a checkout and release otherwise."
+    exit 0
+}
 
 $repository = "https://github.com/band-ai/band-wezterm"
 $scriptDirectory = $PSScriptRoot

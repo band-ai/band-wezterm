@@ -7,6 +7,8 @@ readonly REPOSITORY="https://github.com/band-ai/band-wezterm"
 
 usage() {
   printf '%s\n' "Usage: install.sh [--release|--main|--source]"
+  printf '%s\n' "Install Band WezTerm from the latest release, main, or this checkout."
+  printf '%s\n' "Defaults to source in a checkout and release otherwise."
 }
 
 is_local_project() {
@@ -29,9 +31,15 @@ latest_release_tag() {
   esac
 }
 
+if [[ "$#" -gt 1 ]]; then
+  usage >&2
+  exit 2
+fi
+
 install_channel="${BAND_WEZTERM_CHANNEL:-}"
 case "${1:-}" in
   "") ;;
+  -h|--help) usage; exit 0 ;;
   --release) install_channel="release" ;;
   --main) install_channel="main" ;;
   --source) install_channel="source" ;;

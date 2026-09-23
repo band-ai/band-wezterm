@@ -48,12 +48,18 @@ gh release download --repo band-ai/band-wezterm --pattern install.ps1 --output $
 Remove-Item $installer
 ```
 
+Run an installer with `-h` / `--help` (PowerShell: `-h`) to see its accepted options.
+
 ### From source
 
 ```bash
 git clone --branch main --single-branch https://github.com/band-ai/band-wezterm.git
 cd band-wezterm
 ./install.sh
+```
+
+```bat
+install.bat
 ```
 
 The installer configures the WezTerm plugin. Reload WezTerm configuration (`Ctrl+Shift+R`) and run `band` for command help.
