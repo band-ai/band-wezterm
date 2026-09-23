@@ -66,7 +66,7 @@ Start with normal WezTerm layout commands, then place Band where you need it:
 wezterm tab / split / window
           │
           ├── band room              # room browser and room management
-          ├── band room NAME_OR_ID   # open one known room
+          ├── band room open NAME_OR_ID
           └── band agent             # agent and role management
 ```
 
@@ -74,14 +74,19 @@ wezterm tab / split / window
 | --- | --- |
 | `band` | Show help. It never opens a view. |
 | `band room` | Open Rooms: browse, create, select, and manage rooms. |
-| `band room NAME_OR_ID` | Open one accessible room directly. |
-| `band rooms` | List rooms with IDs and direct open commands. |
+| `band room open NAME_OR_ID` | Open one accessible room directly. |
+| `band room list` | List rooms with IDs and direct open commands. |
+| `band room create TITLE` | Create a room. |
+| `band room delete NAME_OR_ID` | Delete one room. |
 | `band agent` | Open Agents: register, configure, manage roles, start, stop, or delete agents. |
-| `band agents` | List registered agents, detached runtime state, and next command. |
+| `band agent list` | List registered agents, detached runtime state, and next command. |
 | `band status` | Show Rooms and Agents as separate operational tables. |
 | `band agent start AGENT_ID` | Start one detached managed worker. |
 | `band agent stop AGENT_ID` | Gracefully stop one detached managed worker. |
 | `band agent status AGENT_ID` | Inspect one detached managed worker. |
+| `band agent stop --all` | Gracefully stop every detached managed worker. |
+| `band agent delete AGENT_ID` | Stop and delete one agent. |
+| `band status --room` / `--agent` | Show only the selected status table. |
 | `band setup` | Install or update the Band WezTerm plugin configuration. |
 
 The surface uses local, context-specific keys and does not reserve global Ctrl- or function-key bindings. WezTerm shortcuts remain yours.
@@ -115,7 +120,7 @@ local supervisor ── launches ──► detached worker ──► Band rooms
           └──── any room/agent view ─────┘
 ```
 
-Workers stop only when you explicitly Stop them, delete their agent, sign out, the worker encounters a fatal error, or the machine/process shuts down. A later `band room`, `band agent`, `band agents`, or `band status` reconnects to the same local supervisor and reports the still-running worker.
+Workers stop only when you explicitly Stop them, delete their agent, sign out, the worker encounters a fatal error, or the machine/process shuts down. A later `band room`, `band agent`, `band agent list`, or `band status` reconnects to the same local supervisor and reports the still-running worker.
 
 Each profile selects Claude, Codex, Copilot, or OpenCode. Host-side authentication for the selected runtime must already work. Install all adapters with `uv sync --extra agents`, or install individual extras as needed.
 

@@ -12,14 +12,15 @@ import pytest
 from band_wezterm.__main__ import (
     RoomSelectionError,
     _resolve_room_id,
-    _run_agent_action,
     _run_agents,
     _run_rooms,
+    _run_start_agent,
     _run_status,
+    _run_stop_agent,
     _run_view,
     main,
 )
-from band_wezterm.cli import AgentAction, Command
+from band_wezterm.cli import Command
 from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
 from band_wezterm.wezterm_cli import WezTermNotFoundError
 
@@ -106,18 +107,43 @@ async def test_status_separates_rooms_and_agents(
         AsyncMock(return_value=[SimpleNamespace(name="Architect", id="agent-1")]),
     )
 
-    assert await _run_status() == 0
+    assert await _run_status(False, False) == 0
     output = capsys.readouterr().out
     assert all(
         value in output
-        for value in (
-            "Rooms",
-            "Planning",
-            "Agents",
-            "Architect",
-            "stop",
-        )
+        for value in ("Rooms", "Planning", "Agents", "Architect", "stop")
     )
+
+
+@pytest.mark.asyncio
+async def test_status_can_select_only_rooms(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "band_wezterm.__main__._list_rooms",
+        AsyncMock(return_value=[SimpleNamespace(title="Planning", id="room-1")]),
+    )
+    agents = AsyncMock()
+    monkeypatch.setattr("band_wezterm.__main__._run_agents", agents)
+
+    assert await _run_status(True, False) == 0
+    assert "Rooms" in capsys.readouterr().out
+    agents.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stop_all_delegates_to_the_supervisor(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    supervisor = MagicMock()
+    supervisor.stop_all = AsyncMock()
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_supervisor", AsyncMock(return_value=supervisor)
+    )
+
+    assert await _run_stop_agent(None, True) == 0
+    supervisor.stop_all.assert_awaited_once()
+    assert capsys.readouterr().out == "Stopping all detached agents.\n"
 
 
 def test_bare_band_shows_the_resource_commands(
@@ -189,8 +215,12 @@ async def test_agent_start_reports_the_detached_worker(
     monkeypatch.setattr(
         "band_wezterm.__main__._current_supervisor", AsyncMock(return_value=supervisor)
     )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_agent",
+        AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+    )
 
-    assert await _run_agent_action(AgentAction.START, "agent-1") == 0
+    assert await _run_start_agent("agent-1") == 0
     supervisor.start.assert_awaited_once_with("agent-1", cwd=Path.cwd())
     output = capsys.readouterr().out
     assert all(value in output for value in ("Agents", "Architect", "starting", "stop"))

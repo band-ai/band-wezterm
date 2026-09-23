@@ -39,6 +39,10 @@ class RoomSelectionError(ValueError):
     """A room reference does not select exactly one accessible room."""
 
 
+class AgentSelectionError(ValueError):
+    """An agent reference does not select exactly one registered agent."""
+
+
 def _view_command(*, room_id: str | None, screen: AppScreen) -> list[str]:
     """Spawn via ``env`` so NO_COLOR from the launcher cannot gray out Textual."""
     # macOS ``env`` has no ``--``; name=value then utility.
@@ -119,7 +123,7 @@ def _start_view_without_cli(
     return 0
 
 
-def _run_agent_view() -> int:
+def _run_agent_view(_reference: str | None = None) -> int:
     return _run_view(screen=AppScreen.AGENTS)
 
 
@@ -175,16 +179,35 @@ async def _resolve_room_id(reference: str) -> str:
     )
 
 
+async def _resolve_agent(reference: str) -> AgentRecord:
+    agents = await _list_agents()
+    matches = [
+        agent
+        for agent in agents
+        if agent.id == reference or agent.name.casefold() == reference.casefold()
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise AgentSelectionError(f"No registered agent matches {reference!r}.")
+    choices = ", ".join(f"{agent.name} ({agent.id})" for agent in matches)
+    raise AgentSelectionError(
+        f"{reference!r} matches multiple agents: {choices}. Use the agent ID instead."
+    )
+
+
 async def _run_rooms() -> int:
     rooms = await _list_rooms()
     print_rooms([_room_output(room) for room in rooms])
     return 0
 
 
-async def _run_status() -> int:
-    rooms = await _list_rooms()
-    print_rooms([_room_output(room) for room in rooms])
-    await _run_agents()
+async def _run_status(rooms_only: bool, agents_only: bool) -> int:
+    if not agents_only:
+        rooms = await _list_rooms()
+        print_rooms([_room_output(room) for room in rooms])
+    if not rooms_only:
+        await _run_agents()
     return 0
 
 
@@ -215,53 +238,80 @@ def _room_output(room: RoomRecord) -> RoomOutput:
     )
 
 
-async def _run_agent_action(action: AgentAction, agent_id: str) -> int:
-    """Perform one lifecycle operation on a managed agent."""
+async def _run_start_agent(reference: str) -> int:
+    agent = await _resolve_agent(reference)
     supervisor = await _current_supervisor()
-    match action:
-        case AgentAction.START:
-            worker = await supervisor.start(agent_id, cwd=Path.cwd())
-            print_agent(
-                AgentOutput(
-                    name=worker.name,
-                    state=worker.state.value,
-                    agent_id=worker.agent_id,
-                    action=AgentAction.STOP.value,
-                )
-            )
-        case AgentAction.STOP:
-            worker = await supervisor.stop(agent_id)
-            if worker is None:
-                print(f"{agent_id} is already stopped.")
-            else:
-                print_agent(
-                    AgentOutput(
-                        name=worker.name,
-                        state=worker.state.value,
-                        agent_id=worker.agent_id,
-                        action=AgentAction.START.value,
-                    )
-                )
-        case AgentAction.STATUS:
-            worker = next(
-                (
-                    worker
-                    for worker in await supervisor.list_workers()
-                    if worker.agent_id == agent_id
-                ),
-                None,
-            )
-            if worker is None:
-                print(f"{agent_id} is stopped.")
-            else:
-                print_agent(
-                    AgentOutput(
-                        name=worker.name,
-                        state=worker.state.value,
-                        agent_id=worker.agent_id,
-                        action=AgentAction.STOP.value,
-                    )
-                )
+    worker = await supervisor.start(agent.id, cwd=Path.cwd())
+    print_agent(_agent_output(worker.name, worker.agent_id, worker.state.value))
+    return 0
+
+
+async def _run_stop_agent(reference: str | None, all_agents: bool) -> int:
+    supervisor = await _current_supervisor()
+    if all_agents:
+        await supervisor.stop_all()
+        print("Stopping all detached agents.")
+        return 0
+    assert reference is not None
+    agent = await _resolve_agent(reference)
+    worker = await supervisor.stop(agent.id)
+    if worker is None:
+        print(f"{agent.name} is already stopped.")
+    else:
+        print_agent(_agent_output(worker.name, worker.agent_id, worker.state.value))
+    return 0
+
+
+async def _run_agent_status(reference: str) -> int:
+    agent = await _resolve_agent(reference)
+    supervisor = await _current_supervisor()
+    worker = next(
+        (worker for worker in await supervisor.list_workers() if worker.agent_id == agent.id),
+        None,
+    )
+    if worker is None:
+        print(f"{agent.name} is stopped.")
+    else:
+        print_agent(_agent_output(worker.name, worker.agent_id, worker.state.value))
+    return 0
+
+
+def _agent_output(name: str, agent_id: str, state: str) -> AgentOutput:
+    action = AgentAction.START if state == "stopped" else AgentAction.STOP
+    return AgentOutput(name=name, state=state, agent_id=agent_id, action=action.value)
+
+
+async def _run_create_room(title: str) -> int:
+    client = BandClient(HostAuth())
+    try:
+        room = await client.create_room(title=title)
+    finally:
+        await client.aclose()
+    print_rooms([_room_output(room)])
+    return 0
+
+
+async def _run_delete_room(reference: str) -> int:
+    room_id = await _resolve_room_id(reference)
+    client = BandClient(HostAuth())
+    try:
+        await client.delete_room(room_id)
+    finally:
+        await client.aclose()
+    print(f"Deleted room {room_id}.")
+    return 0
+
+
+async def _run_delete_agent(reference: str) -> int:
+    agent = await _resolve_agent(reference)
+    supervisor = await _current_supervisor()
+    await supervisor.stop(agent.id)
+    client = BandClient(HostAuth())
+    try:
+        await client.delete_agent(agent.id)
+    finally:
+        await client.aclose()
+    print(f"Deleted agent {agent.name} ({agent.id}).")
     return 0
 
 
@@ -270,11 +320,16 @@ def main(argv: list[str] | None = None) -> int:
         return run_control_app()
     app = create_app(
         setup=_run_setup,
-        room=_run_room,
+        room_view=_run_room,
         rooms=_run_rooms,
         agents=_run_agents,
+        create_room=_run_create_room,
+        delete_room=_run_delete_room,
+        delete_agent=_run_delete_agent,
+        start_agent=_run_start_agent,
+        stop_agent=_run_stop_agent,
+        agent_status=_run_agent_status,
         status=_run_status,
-        agent=_run_agent_action,
         agent_view=_run_agent_view,
     )
     try:

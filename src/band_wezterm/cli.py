@@ -1,4 +1,4 @@
-"""Typed Band command routing."""
+"""Typed public command tree for Band resources."""
 
 from __future__ import annotations
 
@@ -18,108 +18,136 @@ SETUP_HELP: Final = (
 class Command(StrEnum):
     SETUP = "setup"
     ROOM = "room"
-    ROOMS = "rooms"
     AGENT = "agent"
-    AGENTS = "agents"
     STATUS = "status"
     HELP = "help"
+    LIST = "list"
+    OPEN = "open"
+    CREATE = "create"
+    DELETE = "delete"
+    CONFIGURE = "configure"
+    START = "start"
+    STOP = "stop"
 
 
 class AgentAction(StrEnum):
-    START = "start"
-    STOP = "stop"
-    STATUS = "status"
-
-
-AGENT_ACTION_HELP: Final[dict[AgentAction, str]] = {
-    AgentAction.START: "Start a detached managed agent.",
-    AgentAction.STOP: "Gracefully stop a detached managed agent.",
-    AgentAction.STATUS: "Show one managed agent's runtime state.",
-}
+    START = Command.START
+    STOP = Command.STOP
+    STATUS = Command.STATUS
 
 
 SetupHandler = Callable[[], int]
-RoomHandler = Callable[[str | None], int]
+ViewHandler = Callable[[str | None], int]
 AsyncHandler = Callable[[], Awaitable[int]]
-AgentHandler = Callable[[AgentAction, str], Awaitable[int]]
-AgentViewHandler = Callable[[], int]
+ReferenceHandler = Callable[[str], Awaitable[int]]
+StopHandler = Callable[[str | None, bool], Awaitable[int]]
+StatusHandler = Callable[[bool, bool], Awaitable[int]]
 
 
 def create_app(
     *,
     setup: SetupHandler,
-    room: RoomHandler,
+    room_view: ViewHandler,
+    agent_view: ViewHandler,
     rooms: AsyncHandler,
     agents: AsyncHandler,
-    status: AsyncHandler,
-    agent: AgentHandler,
-    agent_view: AgentViewHandler,
+    create_room: ReferenceHandler,
+    delete_room: ReferenceHandler,
+    delete_agent: ReferenceHandler,
+    start_agent: ReferenceHandler,
+    stop_agent: StopHandler,
+    agent_status: ReferenceHandler,
+    status: StatusHandler,
 ) -> App:
-    """Create the complete public command tree from typed operation handlers."""
-    app = App(
-        name=COMMAND_NAME,
-        help=(
-            "Open and manage Band rooms and detached agents. "
-            "Use `band room` to open the room view."
-        ),
-        result_action="return_int_as_exit_code_else_zero",
-    )
-    agent_app = App(name=Command.AGENT.value, help="Operate one managed agent.")
-
-    @agent_app.default
-    def agent_view_command() -> int:
-        """Open agent management."""
-        return agent_view()
+    """Build resource-oriented commands; UI is each resource's default."""
+    app = App(name=COMMAND_NAME, help="Manage Band rooms and detached agents in WezTerm.", result_action="return_int_as_exit_code_else_zero")
+    room_app = App(name=Command.ROOM, help="Manage Band rooms.")
+    agent_app = App(name=Command.AGENT, help="Manage detached Band agents.")
 
     @app.default
+    @app.command(name=Command.HELP)
     def help_command() -> int:
         app.help_print()
         return 0
 
-    @app.command(name=Command.HELP.value)
-    def explicit_help_command() -> int:
-        app.help_print()
-        return 0
-
-    @app.command(name=Command.SETUP.value, help=SETUP_HELP)
+    @app.command(name=Command.SETUP, help=SETUP_HELP)
     def setup_command() -> int:
-        """Install or update the Band WezTerm plugin in the active config."""
         return setup()
 
-    @app.command(name=Command.ROOM.value)
-    def room_command(reference: str | None = None) -> int:
-        """Open a room by title or ID, or choose a room."""
-        return room(reference)
+    @app.command(name=Command.STATUS)
+    async def status_command(*, room: bool = False, agent: bool = False) -> int:
+        """Show Rooms and Agents, or one requested resource table."""
+        if room and agent:
+            raise ValueError("Use only one of --room or --agent.")
+        return await status(room, agent)
 
-    @app.command(name=Command.ROOMS.value)
-    async def rooms_command() -> int:
+    @room_app.default
+    def room_interactive() -> int:
+        """Open the interactive Rooms surface."""
+        return room_view(None)
+
+    @room_app.command(name=Command.OPEN)
+    def room_open(reference: str) -> int:
+        """Open one room by exact title or ID."""
+        return room_view(reference)
+
+    @room_app.command(name=Command.LIST)
+    async def room_list() -> int:
         """List accessible rooms."""
         return await rooms()
 
-    @app.command(name=Command.AGENTS.value)
-    async def agents_command() -> int:
-        """List registered agents and their runtime state."""
+    @room_app.command(name=Command.CREATE)
+    async def room_create(title: str) -> int:
+        """Create a room with TITLE."""
+        return await create_room(title)
+
+    @room_app.command(name=Command.DELETE)
+    async def room_delete(reference: str) -> int:
+        """Delete one room by exact title or ID."""
+        return await delete_room(reference)
+
+    @agent_app.default
+    def agent_interactive() -> int:
+        """Open the interactive Agents surface."""
+        return agent_view(None)
+
+    @agent_app.command(name=Command.LIST)
+    async def agent_list() -> int:
+        """List registered agents and detached runtime state."""
         return await agents()
 
-    @app.command(name=Command.STATUS.value)
-    async def status_command() -> int:
-        """List rooms and agents with their direct commands."""
-        return await status()
+    @agent_app.command(name=Command.CREATE)
+    def agent_create() -> int:
+        """Open the agent registration surface."""
+        return agent_view(None)
 
-    for action in AgentAction:
-        agent_app.command(
-            _agent_command(agent, action),
-            name=action.value,
-            help=AGENT_ACTION_HELP[action],
-        )
+    @agent_app.command(name=Command.CONFIGURE)
+    def agent_configure(reference: str) -> int:
+        """Open agent management for an existing agent."""
+        return agent_view(reference)
+
+    @agent_app.command(name=Command.START)
+    async def agent_start(reference: str) -> int:
+        """Start one detached managed agent."""
+        return await start_agent(reference)
+
+    @agent_app.command(name=Command.STOP)
+    async def agent_stop(reference: str | None = None, *, all: bool = False) -> int:
+        """Gracefully stop one agent, or every agent with --all."""
+        if all == (reference is not None):
+            raise ValueError("Provide an agent reference or use --all.")
+        return await stop_agent(reference, all)
+
+    @agent_app.command(name=Command.STATUS)
+    async def agent_status_command(reference: str) -> int:
+        """Show one managed agent's runtime state."""
+        return await agent_status(reference)
+
+    @agent_app.command(name=Command.DELETE)
+    async def agent_delete(reference: str) -> int:
+        """Stop and delete one managed agent."""
+        return await delete_agent(reference)
+
+    app.command(room_app)
     app.command(agent_app)
     return app
-
-
-def _agent_command(
-    agent: AgentHandler, action: AgentAction
-) -> Callable[[str], Awaitable[int]]:
-    async def command(agent_id: str) -> int:
-        return await agent(action, agent_id)
-
-    return command

@@ -29,7 +29,7 @@ class AgentColumn(StrEnum):
 
 
 AGENT_COMMAND_HINT: Final = "Run: band agent ACTION AGENT_ID"
-ROOM_COMMAND_HINT: Final = "Run: band room ROOM_ID"
+ROOM_COMMAND_HINT: Final = "Run: band room open ROOM_ID"
 
 
 @dataclass(frozen=True)
@@ -72,7 +72,7 @@ def print_agents(rows: list[AgentOutput]) -> None:
 
 
 def print_agent(row: AgentOutput) -> None:
-    """Render one lifecycle result with the same contract as ``band agents``."""
+    """Render one lifecycle result with the same contract as ``band agent list``."""
     print_agents([row])
 
 

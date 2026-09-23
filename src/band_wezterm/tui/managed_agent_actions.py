@@ -21,7 +21,7 @@ NO_MANAGED_PROFILE_MESSAGE: Final = (
     "No local profile — register or reconfigure after upgrade."
 )
 NO_MANAGED_KEY_MESSAGE: Final = (
-    "No managed API key for this agent — re-register it from `band agents` "
+    "No managed API key for this agent — re-register it from `band agent` "
     "(keys are one-time at registration)."
 )
 STARTING_AGENT_MESSAGE: Final = "Starting {name}…"
