@@ -27,7 +27,12 @@ from band_wezterm.setup_wezterm import (
     ensure_band_plugin_config,
 )
 from band_wezterm.supervisor import ManagedAgentLifecycle, SupervisorClient
-from band_wezterm.tui.control_app import AppScreen, is_control_process, run_control_app
+from band_wezterm.tui.control_app import (
+    AppScreen,
+    InitialAgentAction,
+    is_control_process,
+    run_control_app,
+)
 from band_wezterm.wezterm_cli import (
     WezTermCliError,
     WezTermNotFoundError,
@@ -45,7 +50,13 @@ class AgentSelectionError(ValueError):
     """An agent reference does not select exactly one registered agent."""
 
 
-def _view_command(*, room_id: str | None, screen: AppScreen) -> list[str]:
+def _view_command(
+    *,
+    room_id: str | None,
+    screen: AppScreen,
+    agent_action: InitialAgentAction = InitialAgentAction.BROWSE,
+    agent_id: str | None = None,
+) -> list[str]:
     """Spawn via ``env`` so NO_COLOR from the launcher cannot gray out Textual."""
     # macOS ``env`` has no ``--``; name=value then utility.
     command = [
@@ -61,6 +72,10 @@ def _view_command(*, room_id: str | None, screen: AppScreen) -> list[str]:
         command.extend(["--room-id", room_id])
     if screen is not AppScreen.ROOMS:
         command.extend(["--screen", screen.value])
+    if agent_action is not InitialAgentAction.BROWSE:
+        command.extend(["--agent-action", agent_action.value])
+    if agent_id is not None:
+        command.extend(["--agent-id", agent_id])
     return command
 
 
@@ -95,11 +110,26 @@ def _run_view(
     *,
     room_id: str | None = None,
     screen: AppScreen = AppScreen.ROOMS,
+    agent_action: InitialAgentAction = InitialAgentAction.BROWSE,
+    agent_id: str | None = None,
 ) -> int:
     cwd = Path.cwd()
     if os.environ.get("WEZTERM_PANE"):
-        return run_control_app(initial_room_id=room_id, initial_screen=screen)
-    return _start_view_without_cli(cwd, room_id=room_id, screen=screen)
+        if agent_action is InitialAgentAction.BROWSE and agent_id is None:
+            return run_control_app(initial_room_id=room_id, initial_screen=screen)
+        return run_control_app(
+            initial_room_id=room_id,
+            initial_screen=screen,
+            initial_agent_action=agent_action,
+            initial_agent_id=agent_id,
+        )
+    return _start_view_without_cli(
+        cwd,
+        room_id=room_id,
+        screen=screen,
+        agent_action=agent_action,
+        agent_id=agent_id,
+    )
 
 
 def _run_room(reference: str | None) -> int:
@@ -118,15 +148,45 @@ def _start_view_without_cli(
     *,
     room_id: str | None,
     screen: AppScreen,
+    agent_action: InitialAgentAction,
+    agent_id: str | None,
 ) -> int:
     """Recover when a GUI closes between a CLI lookup and spawn."""
-    start_first_window(cwd, _view_command(room_id=room_id, screen=screen))
+    start_first_window(
+        cwd,
+        _view_command(
+            room_id=room_id,
+            screen=screen,
+            agent_action=agent_action,
+            agent_id=agent_id,
+        ),
+    )
     print("Band view opened in a new WezTerm window.")
     return 0
 
 
-def _run_agent_view(_reference: str | None = None) -> int:
+def _run_agent_view() -> int:
     return _run_view(screen=AppScreen.AGENTS)
+
+
+def _run_create_agent() -> int:
+    return _run_view(
+        screen=AppScreen.AGENTS,
+        agent_action=InitialAgentAction.CREATE,
+    )
+
+
+def _run_configure_agent(reference: str) -> int:
+    try:
+        agent = asyncio.run(_resolve_agent(reference))
+    except (AgentSelectionError, ValueError, WezTermCliError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    return _run_view(
+        screen=AppScreen.AGENTS,
+        agent_action=InitialAgentAction.CONFIGURE,
+        agent_id=agent.id,
+    )
 
 
 async def _current_supervisor() -> SupervisorClient:
@@ -350,6 +410,8 @@ def main(argv: list[str] | None = None) -> int:
         room_view=_run_room,
         rooms=_run_rooms,
         agents=_run_agents,
+        create_agent=_run_create_agent,
+        configure_agent=_run_configure_agent,
         create_room=_run_create_room,
         delete_room=_run_delete_room,
         delete_agent=_run_delete_agent,

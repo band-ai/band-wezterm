@@ -38,8 +38,10 @@ class AgentAction(StrEnum):
 
 SetupHandler = Callable[[], int]
 ViewHandler = Callable[[str | None], int]
+AgentViewHandler = Callable[[], int]
 AsyncHandler = Callable[[], Awaitable[int]]
 ReferenceHandler = Callable[[str], Awaitable[int]]
+ConfigureAgentHandler = Callable[[str], int]
 StopHandler = Callable[[str | None, bool], Awaitable[int]]
 StatusHandler = Callable[[bool, bool], Awaitable[int]]
 
@@ -48,7 +50,9 @@ def create_app(
     *,
     setup: SetupHandler,
     room_view: ViewHandler,
-    agent_view: ViewHandler,
+    agent_view: AgentViewHandler,
+    create_agent: AgentViewHandler,
+    configure_agent: ConfigureAgentHandler,
     rooms: AsyncHandler,
     agents: AsyncHandler,
     create_room: ReferenceHandler,
@@ -119,12 +123,12 @@ def create_app(
     @agent_app.command(name=Command.CREATE)
     def agent_create() -> int:
         """Open the agent registration surface."""
-        return agent_view(None)
+        return create_agent()
 
     @agent_app.command(name=Command.CONFIGURE)
     def agent_configure(reference: str) -> int:
-        """Open agent management for an existing agent."""
-        return agent_view(reference)
+        """Open the reconfiguration surface for one existing agent."""
+        return configure_agent(reference)
 
     @agent_app.command(name=Command.START)
     async def agent_start(reference: str) -> int:

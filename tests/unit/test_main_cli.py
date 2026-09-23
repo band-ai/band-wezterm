@@ -13,6 +13,8 @@ from band_wezterm.__main__ import (
     RoomSelectionError,
     _resolve_room_id,
     _run_agents,
+    _run_configure_agent,
+    _run_create_agent,
     _run_rooms,
     _run_start_agent,
     _run_status,
@@ -22,6 +24,7 @@ from band_wezterm.__main__ import (
 )
 from band_wezterm.cli import Command
 from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
+from band_wezterm.tui.control_app import AppScreen, InitialAgentAction
 from band_wezterm.wezterm_cli import WezTermNotFoundError
 
 
@@ -157,6 +160,67 @@ def test_bare_band_shows_the_resource_commands(
     help_text = capsys.readouterr().out
     assert "agent" in help_text
     assert "room" in help_text
+
+
+def test_agent_create_opens_the_registration_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    opened: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "band_wezterm.__main__._run_view",
+        lambda **kwargs: opened.append(kwargs) or 0,
+    )
+
+    assert _run_create_agent() == 0
+    assert opened == [
+        {
+            "screen": AppScreen.AGENTS,
+            "agent_action": InitialAgentAction.CREATE,
+        }
+    ]
+
+
+def test_agent_create_command_routes_to_the_registration_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create = MagicMock(return_value=0)
+    monkeypatch.setattr("band_wezterm.__main__._run_create_agent", create)
+
+    assert main([Command.AGENT.value, Command.CREATE.value]) == 0
+    create.assert_called_once_with()
+
+
+def test_agent_configure_resolves_before_opening_its_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    opened: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_agent",
+        AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._run_view",
+        lambda **kwargs: opened.append(kwargs) or 0,
+    )
+
+    assert _run_configure_agent("Architect") == 0
+    assert opened == [
+        {
+            "screen": AppScreen.AGENTS,
+            "agent_action": InitialAgentAction.CONFIGURE,
+            "agent_id": "agent-1",
+        }
+    ]
+
+
+def test_agent_configure_command_routes_the_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure = MagicMock(return_value=0)
+    monkeypatch.setattr("band_wezterm.__main__._run_configure_agent", configure)
+
+    assert main([Command.AGENT.value, Command.CONFIGURE.value, "Architect"]) == 0
+    configure.assert_called_once_with("Architect")
 
 
 def test_room_command_starts_the_textual_view_outside_cyclopts_event_loop(

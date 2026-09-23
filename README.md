@@ -80,8 +80,8 @@ wezterm tab / split / window
 | `band room delete NAME_OR_ID` | Delete one room. |
 | `band agent` | Open Agents: register, configure, manage roles, start, stop, or delete agents. |
 | `band agent list` | List registered agents, detached runtime state, and next command. |
-| `band agent create` | Open the agent registration surface. |
-| `band agent configure AGENT_ID` | Open agent management for an existing agent. |
+| `band agent create` | Open the agent registration wizard directly. |
+| `band agent configure NAME_OR_ID` | Open reconfiguration for one exact agent. |
 | `band status` | Show Rooms and Agents as separate operational tables. |
 | `band agent start AGENT_ID` | Start one detached managed worker. |
 | `band agent stop AGENT_ID` | Gracefully stop one detached managed worker. |
@@ -102,6 +102,8 @@ Run the command again anywhere to open another independent Room surface.
 ### Agents and roles
 
 `band agent` opens the dedicated Agents experience. Press `n` to register an agent through runtime, role, name, description, and model/reasoning choices. Use `c` to reconfigure, `s`/`x` to start/stop the selected agent, and `Delete` to remove it.
+
+`band agent create` opens that registration wizard immediately. `band agent configure NAME_OR_ID` resolves one exact agent first, then opens its reconfiguration wizard; it never silently falls back to an unselected list. The list remains the right surface for browsing, runtime status, role management, and ad-hoc lifecycle actions.
 
 Roles are Markdown personas in `~/.band/roles`. Default roles are seeded on first use. A registered agent saves a role snapshot and tuning as its durable local profile; reconfigure it to adopt later role edits.
 

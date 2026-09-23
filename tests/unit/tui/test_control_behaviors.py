@@ -34,7 +34,11 @@ from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.roles import Role
 from band_wezterm.supervisor import WorkerRecord, WorkerState
-from band_wezterm.tui.control_app import AppScreen, ControlApp
+from band_wezterm.tui.control_app import (
+    AppScreen,
+    ControlApp,
+    InitialAgentAction,
+)
 from band_wezterm.tui.managed_agent_actions import (
     NO_MANAGED_KEY_MESSAGE,
     NO_MANAGED_PROFILE_MESSAGE,
@@ -1111,6 +1115,36 @@ async def test_sign_out_returns_to_sign_in(
         assert isinstance(control_app.screen, SignInScreen)
         assert control_app.user_id is None
     host_auth.sign_out.assert_awaited_once()
+
+
+async def test_initial_agent_create_opens_the_registration_screen(
+    control_app: ControlApp,
+) -> None:
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.initial_agent_action = InitialAgentAction.CREATE
+        await control_app._open_initial_agent_flow()
+        await settle(pilot)
+        assert isinstance(control_app.screen, RegisterAgentScreen)
+
+
+async def test_initial_agent_configure_opens_the_selected_registration_screen(
+    control_app: ControlApp,
+    band_client: MagicMock,
+) -> None:
+    selected = agent(IDLE_AGENT_ID, "Beta", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [selected]
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.initial_agent_action = InitialAgentAction.CONFIGURE
+        control_app.initial_agent_id = selected.id
+        await control_app._open_initial_agent_flow()
+        await settle(pilot)
+        screen = control_app.screen
+        assert isinstance(screen, RegisterAgentScreen)
+        assert screen.reconfigure
+        assert screen.agent == selected
 
 
 async def test_sign_out_stops_detached_workers_before_clearing_access(

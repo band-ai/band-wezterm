@@ -36,6 +36,7 @@ from band_wezterm.tui.host_pane import (
 )
 from band_wezterm.tui.refresh import LOCAL_RUNTIME_POLL_SECONDS
 from band_wezterm.tui.screens.agents import AgentsScreen
+from band_wezterm.tui.screens.register_agent import RegisterAgentScreen
 from band_wezterm.tui.screens.rooms import RoomDetailScreen, RoomsScreen
 from band_wezterm.tui.screens.settings import SettingsScreen
 from band_wezterm.tui.screens.sign_in import SignInScreen
@@ -55,6 +56,14 @@ class AppScreen(StrEnum):
     AGENTS = "agents"
     ROOMS = "rooms"
     SETTINGS = "settings"
+
+
+class InitialAgentAction(StrEnum):
+    """The first agent flow requested by a new disposable Band view."""
+
+    BROWSE = "browse"
+    CREATE = "create"
+    CONFIGURE = "configure"
 
 
 class AuthenticationRejected(Message):
@@ -127,6 +136,8 @@ class ControlApp(App[None]):
         supervisor: SupervisorClient | None = None,
         initial_room_id: str | None = None,
         initial_screen: AppScreen = AppScreen.ROOMS,
+        initial_agent_action: InitialAgentAction = InitialAgentAction.BROWSE,
+        initial_agent_id: str | None = None,
     ) -> None:
         super().__init__()
         self.settings = settings or load_settings()
@@ -157,6 +168,8 @@ class ControlApp(App[None]):
         self._authentication_rejected_pending = False
         self.initial_room_id = initial_room_id
         self.initial_screen = initial_screen
+        self.initial_agent_action = initial_agent_action
+        self.initial_agent_id = initial_agent_id
 
     def on_mount(self) -> None:
         name_control_tab()
@@ -191,6 +204,7 @@ class ControlApp(App[None]):
         log_event("Band surface entered", user_id=self.user_id)
         self._show(self.initial_screen)
         await self._open_initial_room()
+        await self._open_initial_agent_flow()
 
     async def _open_initial_room(self) -> None:
         room_id = self.initial_room_id
@@ -203,6 +217,38 @@ class ControlApp(App[None]):
             self.notify("That Band room is unavailable.", severity="error")
             return
         self.open_room(room)
+
+    async def _open_initial_agent_flow(self) -> None:
+        """Enter a direct create or configure flow after authentication."""
+        action = self.initial_agent_action
+        self.initial_agent_action = InitialAgentAction.BROWSE
+        match action:
+            case InitialAgentAction.BROWSE:
+                return
+            case InitialAgentAction.CREATE:
+                self.push_screen(RegisterAgentScreen())
+            case InitialAgentAction.CONFIGURE:
+                await self._open_initial_agent_configuration()
+
+    async def _open_initial_agent_configuration(self) -> None:
+        agent_id = self.initial_agent_id
+        self.initial_agent_id = None
+        if agent_id is None:
+            self.notify("Choose an agent to reconfigure.", severity="error")
+            return
+        try:
+            agents = await self.client.list_my_agents()
+        except Exception as error:
+            self.notify(
+                format_platform_error(error, operation="load agent for reconfigure"),
+                severity="error",
+            )
+            return
+        agent = next((candidate for candidate in agents if candidate.id == agent_id), None)
+        if agent is None:
+            self.notify("That Band agent is unavailable.", severity="error")
+            return
+        self.push_screen(RegisterAgentScreen(agent=agent, reconfigure=True))
 
     # --- navigation ---------------------------------------------------------
 
@@ -340,10 +386,17 @@ def run_control_app(
     *,
     initial_room_id: str | None = None,
     initial_screen: AppScreen = AppScreen.ROOMS,
+    initial_agent_action: InitialAgentAction = InitialAgentAction.BROWSE,
+    initial_agent_id: str | None = None,
 ) -> int:
     """Run a disposable Band room or agent view in this process."""
     mark_control_process()
     ensure_terminal_color()
     configure_diagnostics()
-    ControlApp(initial_room_id=initial_room_id, initial_screen=initial_screen).run()
+    ControlApp(
+        initial_room_id=initial_room_id,
+        initial_screen=initial_screen,
+        initial_agent_action=initial_agent_action,
+        initial_agent_id=initial_agent_id,
+    ).run()
     return 0
