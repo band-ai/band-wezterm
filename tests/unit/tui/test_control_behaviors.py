@@ -6,10 +6,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 from band_rest.core.api_error import ApiError
-from textual.widgets import Input
+from textual.widgets import Input, Static
 
 from band_wezterm.backends import AgentTuning
 from band_wezterm.client import MessageRecord
+from band_wezterm.diagnostics import diagnostics_log_path
 from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.supervisor import WorkerRecord, WorkerState
@@ -197,3 +198,19 @@ async def test_sign_out_stops_workers_and_returns_to_sign_in(
 
     control_app.supervisor.stop_all.assert_awaited_once()
     host_auth.sign_out.assert_awaited_once()
+
+
+async def test_settings_shows_the_active_diagnostics_file(
+    control_app: ControlApp,
+) -> None:
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        control_app.action_show_settings()
+        await settle(pilot)
+        log_file = control_app.screen.query_one(
+            settings_selector(SettingsId.LOG_FILE), Static
+        )
+
+    assert str(diagnostics_log_path(settings=control_app.settings)) == str(
+        log_file.render()
+    )

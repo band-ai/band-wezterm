@@ -19,6 +19,7 @@ SAVE_HINT: Final = "Enter on a field saves it. Esc returns."
 
 class Id(StrEnum):
     CHAT = "settings-chat-limit"
+    LOG_FILE = "settings-log-file"
     STATUS = "settings-status"
     SIGN_OUT = "settings-sign-out"
 
@@ -62,11 +63,12 @@ class SettingsScreen(ControlScreen):
                 id=Id.CHAT.value,
                 type="integer",
             )
-            yield Label("Diagnostics")
+            yield Label("Log file")
             yield Static(
-                f"Always recorded locally: {diagnostics_log_path()}\n"
-                "Use `band logs --tail 100` for incident triage."
+                str(diagnostics_log_path(settings=self.control.settings)),
+                id=Id.LOG_FILE.value,
             )
+            yield Static("Use `band logs --tail 100` for incident triage.")
             yield Static("", id=Id.STATUS.value)
             yield Button("Sign out", id=Id.SIGN_OUT.value)
         yield Footer()
