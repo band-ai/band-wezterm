@@ -46,6 +46,7 @@ class WorkerRecord(BaseModel):
     cwd: str
     started_at: float
     state: WorkerState = WorkerState.STARTING
+    stopping_at: float | None = None
 
 
 class SupervisorState(BaseModel):

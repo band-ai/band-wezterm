@@ -11,6 +11,8 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Final
 
@@ -68,6 +70,7 @@ class SupervisorClient:
     def __init__(self, user_id: str | None = None) -> None:
         self._user_id = user_id
         self._state_path = supervisor_state_path(user_id) if user_id else None
+        self._connect_lock = asyncio.Lock()
 
     @property
     def user_id(self) -> str | None:
@@ -75,21 +78,18 @@ class SupervisorClient:
 
     async def connect(self, user_id: str) -> None:
         """Adopt a healthy supervisor or atomically start one."""
-        if self._user_id == user_id and await self._is_healthy():
-            return
-        self._user_id = user_id
-        self._state_path = supervisor_state_path(user_id)
-        state_path = self._state_path
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        lock = FileLock(
-            str(state_path.with_suffix(".lock")),
-            timeout=SUPERVISOR_LOCK_TIMEOUT_SECONDS,
-        )
-        with lock:
-            if await self._is_healthy():
+        async with self._connect_lock:
+            if self._user_id == user_id and await self._is_healthy():
                 return
-            self._start_supervisor(user_id, state_path)
-            await self._wait_until_ready()
+            self._user_id = user_id
+            self._state_path = supervisor_state_path(user_id)
+            state_path = self._state_path
+            await asyncio.to_thread(state_path.parent.mkdir, parents=True, exist_ok=True)
+            async with _supervisor_lock(state_path):
+                if await self._is_healthy():
+                    return
+                self._start_supervisor(user_id, state_path)
+                await self._wait_until_ready()
 
     async def list_workers(self) -> tuple[WorkerRecord, ...]:
         payload = await self._request(SupervisorAction.LIST)
@@ -212,3 +212,18 @@ class SupervisorClient:
             )
             raise SupervisorError(f"Band runtime supervisor: {detail}")
         return payload
+
+
+@asynccontextmanager
+async def _supervisor_lock(state_path: Path) -> AsyncIterator[None]:
+    """Acquire the cross-process startup lock without blocking the event loop."""
+    lock = FileLock(
+        str(state_path.with_suffix(".lock")),
+        timeout=SUPERVISOR_LOCK_TIMEOUT_SECONDS,
+        thread_local=False,
+    )
+    await asyncio.to_thread(lock.acquire)
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(lock.release)

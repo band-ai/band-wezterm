@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from band_wezterm.supervisor.client import SupervisorClient
 from band_wezterm.supervisor.ipc import is_tcp, open_connection
 from band_wezterm.supervisor.protocol import (
     SupervisorAction,
@@ -106,6 +107,34 @@ async def test_supervisor_serializes_concurrent_lifecycle_requests(
 
 
 @pytest.mark.asyncio
+async def test_client_starts_one_supervisor_for_concurrent_connects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = SupervisorClient()
+    started: list[str] = []
+    monkeypatch.setattr(
+        "band_wezterm.supervisor.client.supervisor_state_path",
+        lambda _user_id: tmp_path / "supervisor.json",
+    )
+
+    async def healthy() -> bool:
+        return bool(started)
+
+    async def ready() -> None:
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(client, "_is_healthy", healthy)
+    monkeypatch.setattr(client, "_wait_until_ready", ready)
+    monkeypatch.setattr(
+        client, "_start_supervisor", lambda user_id, _path: started.append(user_id)
+    )
+
+    await asyncio.gather(client.connect("user-1"), client.connect("user-1"))
+
+    assert started == ["user-1"]
+
+
+@pytest.mark.asyncio
 async def test_stop_of_unready_worker_terminates_its_process_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -132,6 +161,39 @@ async def test_stop_of_unready_worker_terminates_its_process_group(
     result = await server._stop_worker(worker.agent_id)
 
     assert result is None
+    assert server._state.workers == {}
+    assert terminated == [worker.pid]
+
+
+@pytest.mark.asyncio
+async def test_refresh_force_stops_an_unresponsive_stopping_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worker = WorkerRecord(
+        agent_id="agent-1",
+        name="Agent",
+        pid=1,
+        control_socket=str(tmp_path / "missing.sock"),
+        control_token="token",
+        cwd=str(tmp_path),
+        started_at=0,
+        state=WorkerState.STOPPING,
+        stopping_at=0,
+    )
+    server = SupervisorServer(user_id="user-1", state_path=tmp_path / "state.json")
+    server._state = server._state.model_copy(
+        update={"workers": {worker.agent_id: worker}}
+    )
+    server._save_state = MagicMock()  # type: ignore[method-assign]
+    terminated: list[int] = []
+    monkeypatch.setattr("band_wezterm.supervisor.runtime._pid_alive", lambda _pid: True)
+    monkeypatch.setattr(
+        "band_wezterm.supervisor.runtime._terminate_worker", terminated.append
+    )
+
+    workers = await server._refresh_workers()
+
+    assert workers == ()
     assert server._state.workers == {}
     assert terminated == [worker.pid]
 

@@ -169,21 +169,16 @@ class SupervisorServer:
                 raise ValueError("unsupported supervisor request")
 
     async def _refresh_workers(self) -> tuple[WorkerRecord, ...]:
-        refreshed: dict[str, WorkerRecord] = {}
-        for agent_id, worker in self._state.workers.items():
-            status = await _worker_request(worker, WorkerAction.STATUS)
-            if status is None:
-                if _pid_alive(worker.pid) and (
-                    worker.state is WorkerState.STARTING
-                    and time.time() - worker.started_at < WORKER_START_GRACE_SECONDS
-                ):
-                    refreshed[agent_id] = worker
-                elif worker.state is not WorkerState.STOPPING:
-                    refreshed[agent_id] = worker.model_copy(
-                        update={"state": WorkerState.ERROR}
-                    )
-                continue
-            refreshed[agent_id] = worker.model_copy(update={"state": status.state})
+        now = time.time()
+        reconciled = await asyncio.gather(
+            *(
+                _reconcile_worker(worker, now)
+                for worker in self._state.workers.values()
+            )
+        )
+        refreshed = {
+            worker.agent_id: worker for worker in reconciled if worker is not None
+        }
         if refreshed != self._state.workers:
             self._state = self._state.model_copy(update={"workers": refreshed})
             self._save_state()
@@ -261,7 +256,14 @@ class SupervisorServer:
             workers.pop(agent_id, None)
         else:
             workers = dict(self._state.workers)
-            workers[agent_id] = worker.model_copy(update={"state": status.state})
+            workers[agent_id] = worker.model_copy(
+                update={
+                    "state": status.state,
+                    "stopping_at": time.time()
+                    if status.state is WorkerState.STOPPING
+                    else None,
+                }
+            )
         self._state = self._state.model_copy(update={"workers": workers})
         self._save_state()
         return workers.get(agent_id)
@@ -289,6 +291,39 @@ async def _worker_request(
         return WorkerResponse.model_validate_json(line)
     except (TimeoutError, OSError, ValidationError):
         return None
+
+
+async def _reconcile_worker(
+    worker: WorkerRecord, now: float
+) -> WorkerRecord | None:
+    """Project one worker probe into durable lifecycle state."""
+    status = await _worker_request(worker, WorkerAction.STATUS)
+    if status is not None:
+        return worker.model_copy(
+            update={
+                "state": status.state,
+                "stopping_at": worker.stopping_at
+                if status.state is WorkerState.STOPPING
+                else None,
+            }
+        )
+    if not _pid_alive(worker.pid):
+        return None
+    match worker.state:
+        case WorkerState.STARTING if now - worker.started_at < WORKER_START_GRACE_SECONDS:
+            return worker
+        case WorkerState.STOPPING if _within_stop_grace(worker, now):
+            return worker
+        case WorkerState.STOPPING:
+            _terminate_worker(worker.pid)
+            return None
+        case _:
+            return worker.model_copy(update={"state": WorkerState.ERROR})
+
+
+def _within_stop_grace(worker: WorkerRecord, now: float) -> bool:
+    stopping_at = worker.stopping_at
+    return stopping_at is not None and now - stopping_at < WORKER_START_GRACE_SECONDS
 
 
 async def _request_worker_stop(worker: WorkerRecord) -> WorkerResponse | None:
