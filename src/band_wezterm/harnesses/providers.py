@@ -7,6 +7,7 @@ from typing import Any, Final
 from band_wezterm.agent.opencode_server import OpenCodeServerManager
 from band_wezterm.catalogs.models import HarnessCatalog
 from band_wezterm.catalogs.providers import (
+    CLAUDE_MODEL_OPTIONS,
     load_claude_catalog,
     load_codex_catalog,
     load_copilot_catalog,
@@ -29,18 +30,7 @@ from band_wezterm.identity import HarnessId
 
 _DEFAULT = TuningOption(id=TUNING_DEFAULT_OPTION_ID, label="Adapter default")
 _CATALOG_FALLBACK: Final = (_DEFAULT,)
-_CLAUDE_MODEL_FALLBACKS: Final = (
-    _DEFAULT,
-    TuningOption(id="fable", label="Fable"),
-    TuningOption(id="opus", label="Opus"),
-    TuningOption(id="sonnet", label="Sonnet"),
-    TuningOption(id="haiku", label="Haiku"),
-    TuningOption(
-        id="opusplan",
-        label="Opus, then Sonnet",
-        description="Opus while planning, Sonnet to execute",
-    ),
-)
+_CLAUDE_MODEL_FALLBACKS: Final = (_DEFAULT, *CLAUDE_MODEL_OPTIONS)
 
 _SDK_EXTRAS: Final = {
     HarnessId.CLAUDE_SDK: ("claude_sdk", "claude-sdk"),
@@ -64,10 +54,12 @@ def _apply_persona(kwargs: dict[str, Any], persona: str | None) -> None:
         kwargs["custom_section"] = persona
 
 
-def _apply_reasoning(kwargs: dict[str, Any], tuning: AgentTuning) -> None:
+def _apply_reasoning(
+    kwargs: dict[str, Any], tuning: AgentTuning, *, kwarg: str = "reasoning_effort"
+) -> None:
     effort = tuning.value_for(TuningDimensionId.REASONING)
     if effort is not None:
-        kwargs["reasoning_effort"] = effort
+        kwargs[kwarg] = effort
 
 
 class ClaudeHarness(HarnessProvider):
@@ -100,6 +92,7 @@ class ClaudeHarness(HarnessProvider):
         kwargs: dict[str, Any] = {"cwd": str(request.cwd) if request.cwd else None}
         if model := request.tuning.value_for(TuningDimensionId.MODEL):
             kwargs["model"] = model
+        _apply_reasoning(kwargs, request.tuning, kwarg="effort")
         _apply_persona(kwargs, request.persona)
         return ClaudeSDKAdapter(**kwargs)
 
@@ -134,6 +127,12 @@ class CodexHarness(HarnessProvider):
         except ImportError as error:
             raise _missing(self.id, error) from error
         kwargs: dict[str, Any] = {}
+        if request.cwd is not None:
+            # band-sdk defaults each room to an empty <cwd>/.band-workspaces/<room>;
+            # pin rooms to the launch dir so Codex works on the user's project.
+            # band-sdk rejects a second concurrent room sharing this workspace.
+            workspace = str(request.cwd.resolve())
+            kwargs["workspace_for_room"] = lambda _room_id: workspace
         if model := request.tuning.value_for(TuningDimensionId.MODEL):
             kwargs["model"] = model
         _apply_reasoning(kwargs, request.tuning)

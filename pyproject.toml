@@ -11,8 +11,8 @@ requires-python = ">=3.12"
 authors = [{ name = "band.ai" }]
 license = { text = "MIT" }
 dependencies = [
-    "band-sdk>=3.1.1",
-    "band-client-rest==0.0.27",
+    "band-sdk>=3.2.0",
+    "band-client-rest==0.0.40",
     "filelock>=4.0.1",
     "keyring>=25.0.0",
     "httpx>=0.27.0",
@@ -31,15 +31,15 @@ Repository = "https://github.com/band-ai/band-wezterm"
 Issues = "https://github.com/band-ai/band-wezterm/issues"
 
 [project.optional-dependencies]
-claude_sdk = ["band-sdk[claude-sdk]>=3.1.1"]
-codex = ["band-sdk[codex]>=3.1.1"]
-copilot_sdk = ["band-sdk[copilot-sdk]>=3.1.1"]
-opencode = ["band-sdk[opencode]>=3.1.1"]
+claude_sdk = ["band-sdk[claude-sdk]>=3.2.0"]
+codex = ["band-sdk[codex]>=3.2.0"]
+copilot_sdk = ["band-sdk[copilot-sdk]>=3.2.0"]
+opencode = ["band-sdk[opencode]>=3.2.0"]
 agents = [
-    "band-sdk[claude-sdk]>=3.1.1",
-    "band-sdk[codex]>=3.1.1",
-    "band-sdk[copilot-sdk]>=3.1.1",
-    "band-sdk[opencode]>=3.1.1",
+    "band-sdk[claude-sdk]>=3.2.0",
+    "band-sdk[codex]>=3.2.0",
+    "band-sdk[copilot-sdk]>=3.2.0",
+    "band-sdk[opencode]>=3.2.0",
 ]
 
 [project.scripts]

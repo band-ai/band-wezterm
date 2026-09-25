@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from types import SimpleNamespace
+from typing import Literal
 from unittest.mock import MagicMock
+
+import pytest
 
 from band_wezterm.agent.opencode_server import OpenCodeServerManager
 from band_wezterm.backends import TuningDimension, TuningDimensionId, TuningOption
@@ -73,7 +77,18 @@ def test_copilot_catalog_excludes_auto_and_keeps_model_specific_efforts() -> Non
     assert catalog.models[1].efforts == ()
 
 
-async def test_claude_catalog_exposes_only_bridge_supported_tuning() -> None:
+async def test_claude_catalog_pairs_curated_models_with_installed_sdk_efforts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # claude_agent_sdk has no model-list API, so models stay curated; efforts
+    # come live from the installed SDK's EffortLevel, without requiring the
+    # optional claude_sdk extra in this test's environment.
+    monkeypatch.setitem(
+        sys.modules,
+        "claude_agent_sdk.types",
+        SimpleNamespace(EffortLevel=Literal["low", "medium", "high", "xhigh", "max"]),
+    )
+
     catalog = await load_claude_catalog()
 
     assert [model.id for model in catalog.models] == [
@@ -83,7 +98,11 @@ async def test_claude_catalog_exposes_only_bridge_supported_tuning() -> None:
         "haiku",
         "opusplan",
     ]
-    assert all(not model.efforts for model in catalog.models)
+    expected_efforts = ["low", "medium", "high", "xhigh", "max"]
+    assert all(
+        [effort.id for effort in model.efforts] == expected_efforts
+        for model in catalog.models
+    )
 
 
 def test_opencode_catalog_uses_full_model_ids_and_variants() -> None:
