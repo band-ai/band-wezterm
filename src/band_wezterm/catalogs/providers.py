@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Iterable
-from typing import Any, Final
+from typing import Any, Final, get_args
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,6 +17,21 @@ _CATALOG_CLIENT_NAME: Final = "band-wezterm"
 _CATALOG_CLIENT_TITLE: Final = "Band WezTerm"
 _CATALOG_CLIENT_VERSION: Final = "0"
 _OPENCODE_PROVIDERS_PATH: Final = "/config/providers"
+
+# Single source of truth for the Claude models the Band bridge adapter accepts;
+# `harnesses/providers.py` reuses this for its no-catalog fallback options.
+# claude_agent_sdk has no model-list API, so these IDs are curated, not live.
+CLAUDE_MODEL_OPTIONS: Final[tuple[TuningOption, ...]] = (
+    TuningOption(id="fable", label="Fable"),
+    TuningOption(id="opus", label="Opus"),
+    TuningOption(id="sonnet", label="Sonnet"),
+    TuningOption(id="haiku", label="Haiku"),
+    TuningOption(
+        id="opusplan",
+        label="Opus, then Sonnet",
+        description="Opus while planning, Sonnet to execute",
+    ),
+)
 
 
 class _CodexEffort(BaseModel):
@@ -67,18 +82,20 @@ class _OpenCodeCatalog(BaseModel):
 
 
 async def load_claude_catalog() -> HarnessCatalog:
-    """Return the Claude models supported by the Band bridge adapter."""
+    """Curated Claude models, paired with the live effort levels the installed
+    claude-agent-sdk reports (it has no model-list API, but it does define
+    ``EffortLevel``)."""
+    sdk_types = importlib.import_module("claude_agent_sdk.types")
+    efforts = tuple(_option(value) for value in get_args(sdk_types.EffortLevel))
     return HarnessCatalog(
-        models=(
-            ModelCatalogEntry(id="fable", label="Fable"),
-            ModelCatalogEntry(id="opus", label="Opus"),
-            ModelCatalogEntry(id="sonnet", label="Sonnet"),
-            ModelCatalogEntry(id="haiku", label="Haiku"),
+        models=tuple(
             ModelCatalogEntry(
-                id="opusplan",
-                label="Opus, then Sonnet",
-                description="Opus while planning, Sonnet to execute",
-            ),
+                id=option.id,
+                label=option.label,
+                description=option.description,
+                efforts=efforts,
+            )
+            for option in CLAUDE_MODEL_OPTIONS
         ),
     )
 

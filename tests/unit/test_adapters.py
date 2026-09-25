@@ -72,9 +72,7 @@ def test_copilot_passes_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> Non
     }
 
 
-def test_claude_passes_only_bridge_supported_configuration(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_claude_passes_persona_and_effort(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     class FakeAdapter:
@@ -95,6 +93,7 @@ def test_claude_passes_only_bridge_supported_configuration(
     assert captured == {
         "cwd": str(Path("/tmp/work")),
         "model": "sonnet",
+        "effort": "xhigh",
         "custom_section": "# Developer\nBe terse.\n",
     }
 
@@ -128,6 +127,14 @@ def test_codex_passes_persona_and_effort(monkeypatch: pytest.MonkeyPatch) -> Non
         "reasoning_effort": "medium",
         "custom_section": "# Developer\n",
     }
+
+
+def test_codex_rooms_work_in_the_launch_directory(tmp_path: Path) -> None:
+    """band-sdk would otherwise give each room an empty .band-workspaces/<room>."""
+    adapter = build_adapter(HarnessId.CODEX, cwd=tmp_path)
+
+    resolver = adapter.config.workspace_for_room  # type: ignore[attr-defined]
+    assert resolver("room-a") == str(tmp_path.resolve())
 
 
 def test_persona_omitted_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
