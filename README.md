@@ -129,6 +129,8 @@ states are `starting`, `running`, `stopping`, `stopped`, and `error`.
 
 `band agent` opens the dedicated Agents experience. Press `n` to register an agent through runtime, role, name, description, and model/reasoning choices. Use `c` to reconfigure, `s`/`x` to start/stop the selected agent, and `Delete` to remove it.
 
+Model and reasoning choices come live from each runtime: Codex, Copilot, and OpenCode report their own models and per-model efforts. Claude offers a curated model list (its SDK has no model-list API) with the effort levels the installed Claude Agent SDK accepts. `Custom…` takes any value the runtime understands.
+
 `band agent create` opens that registration wizard immediately. `band agent configure NAME_OR_ID` resolves one exact agent first, then opens its reconfiguration wizard; it never silently falls back to an unselected list. The list remains the right surface for browsing, runtime status, role management, and ad-hoc lifecycle actions.
 
 `band agent list` is a compact overview. Add `--verbose` (or `-v`) for full
@@ -151,6 +153,8 @@ Roles are Markdown personas in `~/.band/roles`. Default roles are seeded on firs
 ## Agent lifecycle
 
 An agent is not a WezTerm pane. Starting an agent asks the local, authenticated supervisor to launch one detached Band SDK worker. That worker subscribes to the agent's rooms and continues after every Band view is closed.
+
+The worker runs in the directory Band was started from, and coding agents work on the files there. A Codex agent can be active in one room at a time: band-sdk won't let two rooms share a Codex workspace, so a second concurrent room gets an error.
 
 ```text
 band agent start AGENT_ID
