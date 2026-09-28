@@ -22,6 +22,9 @@ GIT_INIT_CONSENT_MESSAGE: Final = (
     "{cwd} isn't a git repository. Codex needs one to give each room its own "
     "worktree — initialize one here?"
 )
+GIT_INIT_COMMIT_MESSAGE: Final = "band-wezterm: initial commit"
+GIT_INIT_COMMIT_USER_NAME: Final = "band-wezterm"
+GIT_INIT_COMMIT_USER_EMAIL: Final = "band-wezterm@localhost"
 
 
 def codex_worktrees_directory(agent_id: str, settings: Settings | None = None) -> Path:
@@ -46,6 +49,23 @@ def _branch_exists(root: Path, branch: str) -> bool:
     return result.returncode == 0
 
 
+def _worktree_path(worktrees_root: Path, room_id: str) -> Path:
+    if not room_id or room_id in {".", ".."}:
+        msg = "room_id must be a non-empty path segment"
+        raise ValueError(msg)
+    if Path(room_id).name != room_id:
+        msg = f"room_id must not contain path separators: {room_id!r}"
+        raise ValueError(msg)
+    worktree = (worktrees_root / room_id).resolve()
+    root = worktrees_root.resolve()
+    try:
+        worktree.relative_to(root)
+    except ValueError as error:
+        msg = f"room_id escapes worktrees root: {room_id!r}"
+        raise ValueError(msg) from error
+    return worktree
+
+
 def create_codex_room_workspace_resolver(repo: Path, agent_id: str) -> WorkspaceResolver:
     if not is_git_repo(repo):
         shared = str(repo)
@@ -53,9 +73,10 @@ def create_codex_room_workspace_resolver(repo: Path, agent_id: str) -> Workspace
 
     toplevel = Path(_run_git(repo, "rev-parse", "--show-toplevel").stdout.strip())
     relative_subpath = Path(".") if repo == toplevel else repo.relative_to(toplevel)
+    worktrees_root = codex_worktrees_directory(agent_id)
 
     def resolver(room_id: str) -> str:
-        worktree = codex_worktrees_directory(agent_id) / room_id
+        worktree = _worktree_path(worktrees_root, room_id)
         if not worktree.is_dir():
             worktree.parent.mkdir(parents=True, exist_ok=True)
             _run_git(toplevel, "worktree", "prune", check=False)
@@ -87,6 +108,19 @@ def remove_codex_worktrees(agent_id: str, settings: Settings | None = None) -> N
 
 def init_git_repo(path: Path) -> None:
     _run_git(path, "init", check=True)
+    _run_git(path, "add", "-A", check=True)
+    _run_git(
+        path,
+        "-c",
+        f"user.name={GIT_INIT_COMMIT_USER_NAME}",
+        "-c",
+        f"user.email={GIT_INIT_COMMIT_USER_EMAIL}",
+        "commit",
+        "--allow-empty",
+        "-m",
+        GIT_INIT_COMMIT_MESSAGE,
+        check=True,
+    )
 
 
 def needs_git_init_consent(cwd: Path, declined_for: str | None) -> bool:

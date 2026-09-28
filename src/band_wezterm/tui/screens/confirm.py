@@ -1,4 +1,4 @@
-"""Generic yes/no confirmation modal — this app's first confirmation prompt."""
+"""Generic yes/no confirmation modal."""
 
 from __future__ import annotations
 

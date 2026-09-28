@@ -213,12 +213,12 @@ async def test_start_managed_agent_prompts_git_init_consent_and_inits_on_yes(
     control_app.managed_agents.record(_profile(selected.id, selected.name))
     control_app.supervisor.start.return_value = _worker(selected.id, selected.name)
     monkeypatch.setattr(
-        "band_wezterm.tui.managed_agent_actions.needs_git_init_consent",
+        "band_wezterm.tui.managed_agent_actions.codex_wants_git_init_consent",
         lambda *_: True,
     )
     init_calls: list[Path] = []
     monkeypatch.setattr(
-        "band_wezterm.tui.managed_agent_actions.init_git_repo", init_calls.append
+        "band_wezterm.harnesses.codex_git_consent.init_git_repo", init_calls.append
     )
 
     async with control_app.run_test() as pilot:
@@ -244,12 +244,12 @@ async def test_start_managed_agent_prompts_git_init_consent_and_records_decline(
     control_app.managed_agents.record(_profile(selected.id, selected.name))
     control_app.supervisor.start.return_value = _worker(selected.id, selected.name)
     monkeypatch.setattr(
-        "band_wezterm.tui.managed_agent_actions.needs_git_init_consent",
+        "band_wezterm.tui.managed_agent_actions.codex_wants_git_init_consent",
         lambda *_: True,
     )
     init_calls: list[Path] = []
     monkeypatch.setattr(
-        "band_wezterm.tui.managed_agent_actions.init_git_repo", init_calls.append
+        "band_wezterm.harnesses.codex_git_consent.init_git_repo", init_calls.append
     )
 
     async with control_app.run_test() as pilot:

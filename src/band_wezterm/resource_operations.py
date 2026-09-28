@@ -83,6 +83,10 @@ class ManagedAgentOperations:
         self._lifecycle = lifecycle
         self._profiles = profiles
 
+    @property
+    def profiles(self) -> ManagedAgentStore:
+        return self._profiles
+
     async def start(self, agent_id: str, *, cwd: Path) -> WorkerRecord:
         log_event(ResourceEvent.AGENT_START_REQUESTED, agent_id=agent_id)
         try:

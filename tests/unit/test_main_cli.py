@@ -647,12 +647,8 @@ async def test_start_agent_consent_accepted_inits_git_and_starts(
     profile = SimpleNamespace(harness=HarnessId.CODEX, git_init_declined_for=None)
     store = MagicMock()
     store.get.return_value = profile
-    monkeypatch.setattr("band_wezterm.__main__.ManagedAgentStore", lambda *a, **k: store)
-    monkeypatch.setattr("band_wezterm.__main__.needs_git_init_consent", lambda *_: True)
-    monkeypatch.setattr("band_wezterm.__main__._confirm", lambda _prompt: True)
-    init_calls: list[Path] = []
-    monkeypatch.setattr("band_wezterm.__main__.init_git_repo", init_calls.append)
     operations = MagicMock()
+    operations.profiles = store
     operations.start = AsyncMock(
         return_value=SimpleNamespace(
             name="Architect",
@@ -670,6 +666,14 @@ async def test_start_agent_consent_accepted_inits_git_and_starts(
     monkeypatch.setattr(
         "band_wezterm.__main__._resolve_agent",
         AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__.codex_wants_git_init_consent", lambda *_a, **_k: True
+    )
+    monkeypatch.setattr("band_wezterm.__main__._confirm", lambda _prompt: True)
+    init_calls: list[Path] = []
+    monkeypatch.setattr(
+        "band_wezterm.harnesses.codex_git_consent.init_git_repo", init_calls.append
     )
 
     assert await _run_start_agent("agent-1") == 0
@@ -686,12 +690,8 @@ async def test_start_agent_consent_declined_records_it_and_still_starts(
     profile = SimpleNamespace(harness=HarnessId.CODEX, git_init_declined_for=None)
     store = MagicMock()
     store.get.return_value = profile
-    monkeypatch.setattr("band_wezterm.__main__.ManagedAgentStore", lambda *a, **k: store)
-    monkeypatch.setattr("band_wezterm.__main__.needs_git_init_consent", lambda *_: True)
-    monkeypatch.setattr("band_wezterm.__main__._confirm", lambda _prompt: False)
-    init_calls: list[Path] = []
-    monkeypatch.setattr("band_wezterm.__main__.init_git_repo", init_calls.append)
     operations = MagicMock()
+    operations.profiles = store
     operations.start = AsyncMock(
         return_value=SimpleNamespace(
             name="Architect",
@@ -709,6 +709,14 @@ async def test_start_agent_consent_declined_records_it_and_still_starts(
     monkeypatch.setattr(
         "band_wezterm.__main__._resolve_agent",
         AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__.codex_wants_git_init_consent", lambda *_a, **_k: True
+    )
+    monkeypatch.setattr("band_wezterm.__main__._confirm", lambda _prompt: False)
+    init_calls: list[Path] = []
+    monkeypatch.setattr(
+        "band_wezterm.harnesses.codex_git_consent.init_git_repo", init_calls.append
     )
 
     assert await _run_start_agent("agent-1") == 0

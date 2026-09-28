@@ -165,6 +165,30 @@ def test_init_git_repo_makes_is_git_repo_true(tmp_path: Path) -> None:
     assert is_git_repo(plain)
 
 
+def test_init_git_repo_allows_worktree_creation(tmp_path: Path) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+
+    init_git_repo(plain)
+    resolver = create_codex_room_workspace_resolver(plain, AGENT_ID)
+
+    path = Path(resolver("room-a"))
+
+    assert path.is_dir()
+    assert _branch_of(path) == f"{CODEX_WORKTREE_BRANCH_PREFIX}/room-a"
+
+
+def test_resolver_rejects_path_traversal_room_id(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    resolver = create_codex_room_workspace_resolver(repo, AGENT_ID)
+
+    with pytest.raises(ValueError, match="path separators"):
+        resolver("../evil")
+
+    with pytest.raises(ValueError, match="path separators"):
+        resolver("room/nested")
+
+
 def test_needs_git_init_consent_is_scoped_to_the_declined_directory(
     tmp_path: Path,
 ) -> None:

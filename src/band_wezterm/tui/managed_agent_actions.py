@@ -12,12 +12,11 @@ from band_wezterm.agent.adapters import HarnessUnavailableError
 from band_wezterm.agent.readiness import preflight_managed_agent
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
-from band_wezterm.harnesses.codex_worktrees import (
+from band_wezterm.harnesses.codex_git_consent import (
     GIT_INIT_CONSENT_MESSAGE,
-    init_git_repo,
-    needs_git_init_consent,
+    apply_codex_git_init_consent,
+    codex_wants_git_init_consent,
 )
-from band_wezterm.identity import HarnessId
 from band_wezterm.managed_profiles import ManagedAgentProfile
 from band_wezterm.tui.screens.confirm import ConfirmScreen
 
@@ -159,19 +158,18 @@ class ManagedAgentActions:
     async def _apply_git_init_consent(
         self, agent_id: str, profile: ManagedAgentProfile
     ) -> None:
-        if profile.harness is not HarnessId.CODEX:
-            return
         cwd = Path.cwd()
-        if not needs_git_init_consent(cwd, profile.git_init_declined_for):
+        if not codex_wants_git_init_consent(
+            profile.harness, cwd, profile.git_init_declined_for
+        ):
             return
         control = self._control_screen.control
         granted = await self.app.push_screen_wait(
             ConfirmScreen(GIT_INIT_CONSENT_MESSAGE.format(cwd=cwd))
         )
-        if granted:
-            init_git_repo(cwd)
-        else:
-            control.managed_agents.set_git_init_declined(agent_id, cwd)
+        apply_codex_git_init_consent(
+            control.managed_agents, agent_id, cwd, granted=granted
+        )
 
     @work(group="managed-agent-start")
     async def _start_managed_agent(self, agent: AgentRecord) -> None:
