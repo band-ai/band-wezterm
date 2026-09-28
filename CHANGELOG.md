@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.3](https://github.com/band-ai/band-wezterm/compare/v0.8.2...v0.8.3) (2026-09-28)
+
+
+### Bug Fixes
+
+* **claude:** restore live effort choices on band-sdk 3.2.0 ([#46](https://github.com/band-ai/band-wezterm/issues/46)) ([57e66bb](https://github.com/band-ai/band-wezterm/commit/57e66bb0db7dabcbce34462be0b4979327c6e3ea))
+* **release:** use public app credentials ([#45](https://github.com/band-ai/band-wezterm/issues/45)) ([31e646b](https://github.com/band-ai/band-wezterm/commit/31e646bcccc9614a1791799c5a556ea2e43f3469))
+
+
+### Documentation
+
+* **readme:** explain agent model catalogs and working directory ([#47](https://github.com/band-ai/band-wezterm/issues/47)) ([96f711c](https://github.com/band-ai/band-wezterm/commit/96f711cd16996025e4fe99b5e947718f6e9bdc90))
+
 ## [0.8.2](https://github.com/band-ai/band-wezterm/compare/v0.8.1...v0.8.2) (2026-09-23)
 
 
