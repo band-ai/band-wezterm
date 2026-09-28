@@ -53,6 +53,27 @@ def test_record_get_and_persona_update(tmp_path: Path) -> None:
     assert updated.tuning.model == "sonnet"
 
 
+def test_set_git_init_declined_round_trips(tmp_path: Path) -> None:
+    store = ManagedAgentStore(tmp_path / "profiles.json")
+    profile = profile_from_registration(
+        agent_id="a1",
+        name="Alpha",
+        harness=HarnessId.CODEX,
+        persona=None,
+        tuning=AgentTuning(),
+    )
+    store.record(profile)
+    declined_dir = tmp_path / "project"
+    declined_dir.mkdir()
+
+    store.set_git_init_declined("a1", declined_dir)
+
+    loaded = ManagedAgentStore(tmp_path / "profiles.json")
+    updated = loaded.get("a1")
+    assert updated is not None
+    assert updated.git_init_declined_for == str(declined_dir.resolve())
+
+
 def test_load_migrates_the_rejected_codex_model_alias(tmp_path: Path) -> None:
     path = tmp_path / "profiles.json"
     path.write_text(

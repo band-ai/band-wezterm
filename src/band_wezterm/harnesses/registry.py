@@ -58,6 +58,7 @@ class HarnessRegistry:
                 persona=request.persona,
                 tuning=normalize_tuning(provider.id, request.tuning),
                 opencode_server_url=request.opencode_server_url,
+                agent_id=request.agent_id,
             )
         )
 

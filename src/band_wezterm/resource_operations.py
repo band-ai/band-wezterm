@@ -7,6 +7,7 @@ from pathlib import Path
 
 from band_wezterm.client import BandClient, RoomRecord
 from band_wezterm.diagnostics import log_event
+from band_wezterm.harnesses.codex_worktrees import remove_codex_worktrees
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.supervisor import ManagedAgentLifecycle
 from band_wezterm.supervisor.protocol import WorkerRecord
@@ -133,6 +134,7 @@ class ManagedAgentOperations:
             worker = await self.stop(agent_id)
             await self._client.delete_agent(agent_id)
             self._profiles.remove(agent_id)
+            remove_codex_worktrees(agent_id)
         except Exception as error:
             log_event(
                 ResourceEvent.AGENT_DELETE_FAILED,

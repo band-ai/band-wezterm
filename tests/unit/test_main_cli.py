@@ -26,6 +26,7 @@ from band_wezterm.__main__ import (
     main,
 )
 from band_wezterm.cli import Command
+from band_wezterm.identity import HarnessId
 from band_wezterm.listing import AgentStateFilter, HarnessFilter, ListQuery
 from band_wezterm.setup_wezterm import SetupAction, SetupConfigError, SetupResult
 from band_wezterm.tui.control_app import AppScreen, InitialAgentAction
@@ -637,6 +638,84 @@ async def test_agent_start_reports_the_detached_worker(
     output = capsys.readouterr().out
     assert all(value in output for value in ("Agents", "Architect", "starting"))
     assert "Action" not in output
+
+
+@pytest.mark.asyncio
+async def test_start_agent_consent_accepted_inits_git_and_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = SimpleNamespace(harness=HarnessId.CODEX, git_init_declined_for=None)
+    store = MagicMock()
+    store.get.return_value = profile
+    monkeypatch.setattr("band_wezterm.__main__.ManagedAgentStore", lambda *a, **k: store)
+    monkeypatch.setattr("band_wezterm.__main__.needs_git_init_consent", lambda *_: True)
+    monkeypatch.setattr("band_wezterm.__main__._confirm", lambda _prompt: True)
+    init_calls: list[Path] = []
+    monkeypatch.setattr("band_wezterm.__main__.init_git_repo", init_calls.append)
+    operations = MagicMock()
+    operations.start = AsyncMock(
+        return_value=SimpleNamespace(
+            name="Architect",
+            agent_id="agent-1",
+            state=SimpleNamespace(value="starting"),
+            pid=42,
+        )
+    )
+    client = MagicMock()
+    client.aclose = AsyncMock()
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_agent_operations",
+        AsyncMock(return_value=(operations, client)),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_agent",
+        AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+    )
+
+    assert await _run_start_agent("agent-1") == 0
+
+    assert init_calls == [Path.cwd()]
+    store.set_git_init_declined.assert_not_called()
+    operations.start.assert_awaited_once_with("agent-1", cwd=Path.cwd())
+
+
+@pytest.mark.asyncio
+async def test_start_agent_consent_declined_records_it_and_still_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = SimpleNamespace(harness=HarnessId.CODEX, git_init_declined_for=None)
+    store = MagicMock()
+    store.get.return_value = profile
+    monkeypatch.setattr("band_wezterm.__main__.ManagedAgentStore", lambda *a, **k: store)
+    monkeypatch.setattr("band_wezterm.__main__.needs_git_init_consent", lambda *_: True)
+    monkeypatch.setattr("band_wezterm.__main__._confirm", lambda _prompt: False)
+    init_calls: list[Path] = []
+    monkeypatch.setattr("band_wezterm.__main__.init_git_repo", init_calls.append)
+    operations = MagicMock()
+    operations.start = AsyncMock(
+        return_value=SimpleNamespace(
+            name="Architect",
+            agent_id="agent-1",
+            state=SimpleNamespace(value="starting"),
+            pid=42,
+        )
+    )
+    client = MagicMock()
+    client.aclose = AsyncMock()
+    monkeypatch.setattr(
+        "band_wezterm.__main__._current_agent_operations",
+        AsyncMock(return_value=(operations, client)),
+    )
+    monkeypatch.setattr(
+        "band_wezterm.__main__._resolve_agent",
+        AsyncMock(return_value=SimpleNamespace(id="agent-1", name="Architect")),
+    )
+
+    assert await _run_start_agent("agent-1") == 0
+
+    assert init_calls == []
+    store.set_git_init_declined.assert_called_once_with("agent-1", Path.cwd())
+    operations.start.assert_awaited_once_with("agent-1", cwd=Path.cwd())
 
 
 def test_setup_help_mentions_active_config(
