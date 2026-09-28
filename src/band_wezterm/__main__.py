@@ -20,6 +20,11 @@ from band_wezterm.cli_output import (
 from band_wezterm.client import AgentRecord, BandClient, RoomRecord
 from band_wezterm.config import load_settings
 from band_wezterm.diagnostics import configure_diagnostics, log_event, read_diagnostics
+from band_wezterm.harnesses.codex_git_consent import (
+    GIT_INIT_CONSENT_MESSAGE,
+    apply_codex_git_init_consent,
+    codex_wants_git_init_consent,
+)
 from band_wezterm.listing import ListQuery, paginate
 from band_wezterm.managed_profiles import ManagedAgentStore
 from band_wezterm.resource_operations import ManagedAgentOperations, RoomOperations
@@ -349,11 +354,32 @@ def _room_output(room: RoomRecord) -> RoomOutput:
     )
 
 
+def _confirm(prompt: str) -> bool:
+    try:
+        return input(prompt).strip().lower() == "y"
+    except EOFError:
+        return False
+
+
+def _apply_git_init_consent(
+    agent_id: str, cwd: Path, profiles: ManagedAgentStore
+) -> None:
+    profile = profiles.get(agent_id)
+    if profile is None or not codex_wants_git_init_consent(
+        profile.harness, cwd, profile.git_init_declined_for
+    ):
+        return
+    granted = _confirm(GIT_INIT_CONSENT_MESSAGE.format(cwd=cwd) + " (y/N) ")
+    apply_codex_git_init_consent(profiles, agent_id, cwd, granted=granted)
+
+
 async def _run_start_agent(reference: str) -> int:
     agent = await _resolve_agent(reference)
     operations, client = await _current_agent_operations()
+    cwd = Path.cwd()
     try:
-        worker = await operations.start(agent.id, cwd=Path.cwd())
+        _apply_git_init_consent(agent.id, cwd, operations.profiles)
+        worker = await operations.start(agent.id, cwd=cwd)
     finally:
         await client.aclose()
     print_agent(

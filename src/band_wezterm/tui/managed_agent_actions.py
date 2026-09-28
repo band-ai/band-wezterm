@@ -12,7 +12,13 @@ from band_wezterm.agent.adapters import HarnessUnavailableError
 from band_wezterm.agent.readiness import preflight_managed_agent
 from band_wezterm.client import AgentRecord
 from band_wezterm.errors import format_platform_error
+from band_wezterm.harnesses.codex_git_consent import (
+    GIT_INIT_CONSENT_MESSAGE,
+    apply_codex_git_init_consent,
+    codex_wants_git_init_consent,
+)
 from band_wezterm.managed_profiles import ManagedAgentProfile
+from band_wezterm.tui.screens.confirm import ConfirmScreen
 
 if TYPE_CHECKING:
     from band_wezterm.tui.screens import ControlScreen
@@ -149,6 +155,22 @@ class ManagedAgentActions:
             case fresh:
                 return self._sync_agent_to_profile(agent, fresh), fresh
 
+    async def _apply_git_init_consent(
+        self, agent_id: str, profile: ManagedAgentProfile
+    ) -> None:
+        cwd = Path.cwd()
+        if not codex_wants_git_init_consent(
+            profile.harness, cwd, profile.git_init_declined_for
+        ):
+            return
+        control = self._control_screen.control
+        granted = await self.app.push_screen_wait(
+            ConfirmScreen(GIT_INIT_CONSENT_MESSAGE.format(cwd=cwd))
+        )
+        apply_codex_git_init_consent(
+            control.managed_agents, agent_id, cwd, granted=granted
+        )
+
     @work(group="managed-agent-start")
     async def _start_managed_agent(self, agent: AgentRecord) -> None:
         control = self._control_screen.control
@@ -157,6 +179,7 @@ class ManagedAgentActions:
             if ready is None or control.agents_store.is_running(agent.id):
                 return
             resolved, profile = ready
+            await self._apply_git_init_consent(resolved.id, profile)
             worker = await control.agent_operations.start(resolved.id, cwd=Path.cwd())
             if control.agents_store.should_stop_after_start(agent.id):
                 worker = await control.agent_operations.stop(resolved.id)

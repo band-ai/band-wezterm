@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -135,6 +136,43 @@ def test_codex_rooms_work_in_the_launch_directory(tmp_path: Path) -> None:
 
     resolver = adapter.config.workspace_for_room  # type: ignore[attr-defined]
     assert resolver("room-a") == str(tmp_path.resolve())
+
+
+def test_codex_uses_a_worktree_per_room_in_a_git_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    (repo / "README.md").write_text("hello\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@localhost",
+            "commit",
+            "-m",
+            "initial",
+        ],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+    adapter = build_adapter(HarnessId.CODEX, cwd=repo, agent_id="agent-1")
+
+    resolver = adapter.config.workspace_for_room  # type: ignore[attr-defined]
+    path_a = resolver("room-a")
+    path_b = resolver("room-b")
+    assert path_a != path_b
+    assert Path(path_a).is_dir()
+    assert Path(path_b).is_dir()
 
 
 def test_persona_omitted_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:

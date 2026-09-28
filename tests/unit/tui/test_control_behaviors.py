@@ -31,6 +31,7 @@ from band_wezterm.tui.control_app import AppScreen, ControlApp, InitialAgentActi
 from band_wezterm.tui.managed_agent_actions import ManagedAgentActions
 from band_wezterm.tui.mentions import participant_mention_text
 from band_wezterm.tui.screens.agents import AgentsScreen
+from band_wezterm.tui.screens.confirm import ConfirmScreen
 from band_wezterm.tui.screens.event_type_filter import EventTypeFilterScreen
 from band_wezterm.tui.screens.register_agent import (
     Id as RegisterId,
@@ -202,6 +203,68 @@ async def test_start_and_stop_selected_agent_use_detached_worker(
 
     control_app.supervisor.start.assert_awaited_once()
     control_app.supervisor.stop.assert_awaited_once_with(selected.id)
+
+
+async def test_start_managed_agent_prompts_git_init_consent_and_inits_on_yes(
+    control_app: ControlApp, band_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selected = agent(AGENT_ID, "Architect", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [selected]
+    control_app.managed_agents.record(_profile(selected.id, selected.name))
+    control_app.supervisor.start.return_value = _worker(selected.id, selected.name)
+    monkeypatch.setattr(
+        "band_wezterm.tui.managed_agent_actions.codex_wants_git_init_consent",
+        lambda *_: True,
+    )
+    init_calls: list[Path] = []
+    monkeypatch.setattr(
+        "band_wezterm.harnesses.codex_git_consent.init_git_repo", init_calls.append
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await pilot.pause()
+        assert isinstance(control_app.screen, ConfirmScreen)
+        await pilot.press("y")
+        await settle(pilot)
+
+    assert init_calls == [Path.cwd()]
+    control_app.supervisor.start.assert_awaited_once()
+    profile = control_app.managed_agents.get(selected.id)
+    assert profile is not None
+    assert profile.git_init_declined_for is None
+
+
+async def test_start_managed_agent_prompts_git_init_consent_and_records_decline(
+    control_app: ControlApp, band_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selected = agent(AGENT_ID, "Architect", harness=HarnessId.CODEX)
+    band_client.list_my_agents.return_value = [selected]
+    control_app.managed_agents.record(_profile(selected.id, selected.name))
+    control_app.supervisor.start.return_value = _worker(selected.id, selected.name)
+    monkeypatch.setattr(
+        "band_wezterm.tui.managed_agent_actions.codex_wants_git_init_consent",
+        lambda *_: True,
+    )
+    init_calls: list[Path] = []
+    monkeypatch.setattr(
+        "band_wezterm.harnesses.codex_git_consent.init_git_repo", init_calls.append
+    )
+
+    async with control_app.run_test() as pilot:
+        await settle(pilot)
+        await pilot.press("s")
+        await pilot.pause()
+        assert isinstance(control_app.screen, ConfirmScreen)
+        await pilot.press("n")
+        await settle(pilot)
+
+    assert init_calls == []
+    control_app.supervisor.start.assert_awaited_once()
+    profile = control_app.managed_agents.get(selected.id)
+    assert profile is not None
+    assert profile.git_init_declined_for == str(Path.cwd().resolve())
 
 
 async def test_stop_queued_during_preflight_stops_the_started_agent(

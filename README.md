@@ -154,7 +154,7 @@ Roles are Markdown personas in `~/.band/roles`. Default roles are seeded on firs
 
 An agent is not a WezTerm pane. Starting an agent asks the local, authenticated supervisor to launch one detached Band SDK worker. That worker subscribes to the agent's rooms and continues after every Band view is closed.
 
-The worker runs in the directory Band was started from, and coding agents work on the files there. A Codex agent can be active in one room at a time: band-sdk won't let two rooms share a Codex workspace, so a second concurrent room gets an error.
+The worker runs in the directory Band was started from, and coding agents work on the files there. A Codex agent can be active in multiple rooms at once: each room gets its own `git worktree` of that directory, checked out on its own branch. If the directory isn't a git repository yet, Band asks once whether to initialize one so this per-room isolation is available; declining keeps a single shared workspace for that directory instead.
 
 ```text
 band agent start AGENT_ID

@@ -30,6 +30,7 @@ class ManagedAgentProfile(BaseModel):
     harness: HarnessId
     persona: str | None = None
     tuning: AgentTuning = Field(default_factory=AgentTuning)
+    git_init_declined_for: str | None = None
 
     def runtime_instructions(self) -> str | None:
         """The role snapshot with the managed agent identity bound to it."""
@@ -161,6 +162,15 @@ class ManagedAgentStore:
                     "tuning": normalize_tuning(existing.harness, tuning),
                 }
             ),
+        )
+
+    def set_git_init_declined(self, agent_id: str, cwd: Path) -> None:
+        existing = self._profiles.get(agent_id)
+        if existing is None:
+            return
+        self._commit(
+            agent_id,
+            existing.model_copy(update={"git_init_declined_for": str(cwd.resolve())}),
         )
 
     def harness_for(self, agent_id: str) -> HarnessId | None:
