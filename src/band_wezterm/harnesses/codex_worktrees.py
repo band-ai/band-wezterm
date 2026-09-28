@@ -79,26 +79,23 @@ def _worktree_path(worktrees_root: Path, room_id: str) -> Path:
 
 def create_codex_room_workspace_resolver(repo: Path, agent_id: str) -> WorkspaceResolver:
     repo = repo.resolve()
-    toplevel: Path | None = None
-    relative_subpath: Path | None = None
-    worktrees_root: Path | None = None
+    cached_context: tuple[Path, Path, Path] | None = None
 
     def _worktree_context() -> tuple[Path, Path, Path] | None:
-        nonlocal toplevel, relative_subpath, worktrees_root
+        nonlocal cached_context
         # A repo with no commits yet has no HEAD to branch worktrees from.
         if not is_git_repo(repo) or not _ref_exists(repo, "HEAD"):
             return None
-        if toplevel is None:
+        if cached_context is None:
             toplevel = Path(
                 _run_git(repo, "rev-parse", "--show-toplevel").stdout.strip()
             ).resolve()
-            relative_subpath = (
-                Path(".")
-                if repo == toplevel
-                else repo.relative_to(toplevel)
+            cached_context = (
+                toplevel,
+                repo.relative_to(toplevel),
+                codex_worktrees_directory(agent_id),
             )
-            worktrees_root = codex_worktrees_directory(agent_id)
-        return toplevel, relative_subpath, worktrees_root
+        return cached_context
 
     def resolver(room_id: str) -> str:
         context = _worktree_context()
