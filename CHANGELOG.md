@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.4](https://github.com/band-ai/band-wezterm/compare/v0.8.3...v0.8.4) (2026-09-28)
+
+
+### Bug Fixes
+
+* **codex:** give each room its own git worktree instead of one shared workspace ([#53](https://github.com/band-ai/band-wezterm/issues/53)) ([a3c28b5](https://github.com/band-ai/band-wezterm/commit/a3c28b5557595d1dc5096008fda0b6f5d62b43d0))
+* **codex:** scope worktree branches per agent and handle repos without commits or git ([#55](https://github.com/band-ai/band-wezterm/issues/55)) ([06a8186](https://github.com/band-ai/band-wezterm/commit/06a8186f789a35dab0ecaf2337f97b6d2b0099ff))
+
 ## [0.8.3](https://github.com/band-ai/band-wezterm/compare/v0.8.2...v0.8.3) (2026-09-28)
 
 
