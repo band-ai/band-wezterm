@@ -265,7 +265,7 @@ def test_is_git_repo_false_when_git_is_not_on_path(
 ) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
-    monkeypatch.setattr("band_wezterm.harnesses.codex_worktrees._git_on_path", lambda: False)
+    monkeypatch.setenv("PATH", "")
 
     assert not is_git_repo(plain)
 
@@ -275,6 +275,6 @@ def test_needs_git_init_consent_false_when_git_is_not_on_path(
 ) -> None:
     non_git = tmp_path / "non-git"
     non_git.mkdir()
-    monkeypatch.setattr("band_wezterm.harnesses.codex_worktrees._git_on_path", lambda: False)
+    monkeypatch.setenv("PATH", "")
 
     assert not needs_git_init_consent(non_git, None)
