@@ -31,8 +31,16 @@ def codex_worktrees_directory(agent_id: str, settings: Settings | None = None) -
     return (settings or load_settings()).local_state_directory / CODEX_WORKTREES_DIRNAME / agent_id
 
 
+def codex_worktree_branch(agent_id: str, room_id: str) -> str:
+    # Agent-scoped: git refuses to check out one branch in two worktrees.
+    return f"{CODEX_WORKTREE_BRANCH_PREFIX}/{agent_id}/{room_id}"
+
+
 def is_git_repo(path: Path) -> bool:
-    result = _run_git(path, "rev-parse", "--is-inside-work-tree", check=False)
+    try:
+        result = _run_git(path, "rev-parse", "--is-inside-work-tree", check=False)
+    except FileNotFoundError:  # git isn't installed
+        return False
     return result.returncode == 0 and result.stdout.strip() == "true"
 
 
@@ -44,8 +52,8 @@ def _run_git(
     )
 
 
-def _branch_exists(root: Path, branch: str) -> bool:
-    result = _run_git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", check=False)
+def _ref_exists(root: Path, ref: str) -> bool:
+    result = _run_git(root, "rev-parse", "--verify", "--quiet", ref, check=False)
     return result.returncode == 0
 
 
@@ -67,7 +75,8 @@ def _worktree_path(worktrees_root: Path, room_id: str) -> Path:
 
 
 def create_codex_room_workspace_resolver(repo: Path, agent_id: str) -> WorkspaceResolver:
-    if not is_git_repo(repo):
+    # A repo with no commits yet has no HEAD to branch worktrees from.
+    if not is_git_repo(repo) or not _ref_exists(repo, "HEAD"):
         shared = str(repo)
         return lambda _room_id, _shared=shared: _shared
 
@@ -80,8 +89,8 @@ def create_codex_room_workspace_resolver(repo: Path, agent_id: str) -> Workspace
         if not worktree.is_dir():
             worktree.parent.mkdir(parents=True, exist_ok=True)
             _run_git(toplevel, "worktree", "prune", check=False)
-            branch = f"{CODEX_WORKTREE_BRANCH_PREFIX}/{room_id}"
-            if _branch_exists(toplevel, branch):
+            branch = codex_worktree_branch(agent_id, room_id)
+            if _ref_exists(toplevel, f"refs/heads/{branch}"):
                 result = _run_git(toplevel, "worktree", "add", str(worktree), branch, check=False)
             else:
                 result = _run_git(
@@ -126,4 +135,8 @@ def init_git_repo(path: Path) -> None:
 def needs_git_init_consent(cwd: Path, declined_for: str | None) -> bool:
     """Only a decline needs remembering, scoped to that exact directory —
     an accept needs no persistence since ``is_git_repo`` becomes true."""
-    return not is_git_repo(cwd) and str(cwd.resolve()) != declined_for
+    return (
+        shutil.which("git") is not None
+        and not is_git_repo(cwd)
+        and str(cwd.resolve()) != declined_for
+    )

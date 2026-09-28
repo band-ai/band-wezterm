@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from band_wezterm.harnesses.codex_worktrees import (
-    CODEX_WORKTREE_BRANCH_PREFIX,
+    codex_worktree_branch,
     codex_worktrees_directory,
     create_codex_room_workspace_resolver,
     init_git_repo,
@@ -67,8 +67,8 @@ def test_two_rooms_get_two_isolated_worktrees(tmp_path: Path) -> None:
     assert path_a != path_b
     assert path_a.is_dir()
     assert path_b.is_dir()
-    assert _branch_of(path_a) == f"{CODEX_WORKTREE_BRANCH_PREFIX}/room-a"
-    assert _branch_of(path_b) == f"{CODEX_WORKTREE_BRANCH_PREFIX}/room-b"
+    assert _branch_of(path_a) == codex_worktree_branch(AGENT_ID, "room-a")
+    assert _branch_of(path_b) == codex_worktree_branch(AGENT_ID, "room-b")
 
 
 def test_resolver_is_idempotent_for_the_same_room(tmp_path: Path) -> None:
@@ -95,7 +95,7 @@ def test_resolver_recovers_from_an_externally_deleted_worktree(tmp_path: Path) -
 
     assert second == first
     assert second.is_dir()
-    assert _branch_of(second) == f"{CODEX_WORKTREE_BRANCH_PREFIX}/room-a"
+    assert _branch_of(second) == codex_worktree_branch(AGENT_ID, "room-a")
 
 
 def test_remove_codex_worktrees_clears_everything_but_keeps_branches(
@@ -112,8 +112,8 @@ def test_remove_codex_worktrees_clears_everything_but_keeps_branches(
 
     assert not root.exists()
     branches = _git(repo, "branch", "--list").stdout
-    assert f"{CODEX_WORKTREE_BRANCH_PREFIX}/room-a" in branches
-    assert f"{CODEX_WORKTREE_BRANCH_PREFIX}/room-b" in branches
+    assert codex_worktree_branch(AGENT_ID, "room-a") in branches
+    assert codex_worktree_branch(AGENT_ID, "room-b") in branches
 
 
 def test_remove_codex_worktrees_is_a_noop_when_nothing_was_ever_created() -> None:
@@ -175,7 +175,7 @@ def test_init_git_repo_allows_worktree_creation(tmp_path: Path) -> None:
     path = Path(resolver("room-a"))
 
     assert path.is_dir()
-    assert _branch_of(path) == f"{CODEX_WORKTREE_BRANCH_PREFIX}/room-a"
+    assert _branch_of(path) == codex_worktree_branch(AGENT_ID, "room-a")
 
 
 def test_resolver_rejects_path_traversal_room_id(tmp_path: Path) -> None:
@@ -203,3 +203,23 @@ def test_needs_git_init_consent_is_scoped_to_the_declined_directory(
     assert needs_git_init_consent(other_non_git, str(non_git.resolve()))
     assert not needs_git_init_consent(git_repo, None)
     assert not needs_git_init_consent(git_repo, str(non_git.resolve()))
+
+
+def test_two_agents_in_the_same_room_get_separate_worktrees(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+
+    path_a = Path(create_codex_room_workspace_resolver(repo, "agent-a")("room-a"))
+    path_b = Path(create_codex_room_workspace_resolver(repo, "agent-b")("room-a"))
+
+    assert path_a != path_b
+    assert _branch_of(path_a) != _branch_of(path_b)
+
+
+def test_repo_without_commits_falls_back_to_a_shared_workspace(tmp_path: Path) -> None:
+    repo = tmp_path / "unborn"
+    repo.mkdir()
+    _git(repo, "init")
+
+    resolver = create_codex_room_workspace_resolver(repo, AGENT_ID)
+
+    assert resolver("room-a") == str(repo)
