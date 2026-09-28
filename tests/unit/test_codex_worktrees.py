@@ -212,7 +212,10 @@ def test_two_agents_in_the_same_room_get_separate_worktrees(tmp_path: Path) -> N
     path_b = Path(create_codex_room_workspace_resolver(repo, "agent-b")("room-a"))
 
     assert path_a != path_b
-    assert _branch_of(path_a) != _branch_of(path_b)
+    assert path_a.is_dir()
+    assert path_b.is_dir()
+    assert _branch_of(path_a) == codex_worktree_branch("agent-a", "room-a")
+    assert _branch_of(path_b) == codex_worktree_branch("agent-b", "room-a")
 
 
 def test_repo_without_commits_falls_back_to_a_shared_workspace(tmp_path: Path) -> None:
@@ -222,4 +225,56 @@ def test_repo_without_commits_falls_back_to_a_shared_workspace(tmp_path: Path) -
 
     resolver = create_codex_room_workspace_resolver(repo, AGENT_ID)
 
-    assert resolver("room-a") == str(repo)
+    assert resolver("room-a") == str(repo.resolve())
+    assert resolver("room-b") == str(repo.resolve())
+
+
+def test_resolver_uses_worktrees_after_first_commit_in_same_process(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "unborn"
+    repo.mkdir()
+    _git(repo, "init")
+
+    resolver = create_codex_room_workspace_resolver(repo, AGENT_ID)
+    assert resolver("room-a") == str(repo.resolve())
+
+    (repo / "README.md").write_text("hello\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(
+        repo,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@localhost",
+        "commit",
+        "-m",
+        "initial",
+    )
+
+    path_a = Path(resolver("room-a"))
+    path_b = Path(resolver("room-b"))
+
+    assert path_a != path_b
+    assert path_a.is_dir()
+    assert path_b.is_dir()
+
+
+def test_is_git_repo_false_when_git_is_not_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    monkeypatch.setattr("band_wezterm.harnesses.codex_worktrees._git_on_path", lambda: False)
+
+    assert not is_git_repo(plain)
+
+
+def test_needs_git_init_consent_false_when_git_is_not_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    non_git = tmp_path / "non-git"
+    non_git.mkdir()
+    monkeypatch.setattr("band_wezterm.harnesses.codex_worktrees._git_on_path", lambda: False)
+
+    assert not needs_git_init_consent(non_git, None)

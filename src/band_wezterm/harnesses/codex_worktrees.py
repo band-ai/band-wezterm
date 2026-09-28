@@ -36,11 +36,14 @@ def codex_worktree_branch(agent_id: str, room_id: str) -> str:
     return f"{CODEX_WORKTREE_BRANCH_PREFIX}/{agent_id}/{room_id}"
 
 
+def _git_on_path() -> bool:
+    return shutil.which("git") is not None
+
+
 def is_git_repo(path: Path) -> bool:
-    try:
-        result = _run_git(path, "rev-parse", "--is-inside-work-tree", check=False)
-    except FileNotFoundError:  # git isn't installed
+    if not _git_on_path():
         return False
+    result = _run_git(path, "rev-parse", "--is-inside-work-tree", check=False)
     return result.returncode == 0 and result.stdout.strip() == "true"
 
 
@@ -75,30 +78,56 @@ def _worktree_path(worktrees_root: Path, room_id: str) -> Path:
 
 
 def create_codex_room_workspace_resolver(repo: Path, agent_id: str) -> WorkspaceResolver:
-    # A repo with no commits yet has no HEAD to branch worktrees from.
-    if not is_git_repo(repo) or not _ref_exists(repo, "HEAD"):
-        shared = str(repo)
-        return lambda _room_id, _shared=shared: _shared
+    repo = repo.resolve()
+    toplevel: Path | None = None
+    relative_subpath: Path | None = None
+    worktrees_root: Path | None = None
 
-    toplevel = Path(_run_git(repo, "rev-parse", "--show-toplevel").stdout.strip())
-    relative_subpath = Path(".") if repo == toplevel else repo.relative_to(toplevel)
-    worktrees_root = codex_worktrees_directory(agent_id)
+    def _worktree_context() -> tuple[Path, Path, Path] | None:
+        nonlocal toplevel, relative_subpath, worktrees_root
+        # A repo with no commits yet has no HEAD to branch worktrees from.
+        if not is_git_repo(repo) or not _ref_exists(repo, "HEAD"):
+            return None
+        if toplevel is None:
+            toplevel = Path(
+                _run_git(repo, "rev-parse", "--show-toplevel").stdout.strip()
+            ).resolve()
+            relative_subpath = (
+                Path(".")
+                if repo == toplevel
+                else repo.relative_to(toplevel)
+            )
+            worktrees_root = codex_worktrees_directory(agent_id)
+        return toplevel, relative_subpath, worktrees_root
 
     def resolver(room_id: str) -> str:
-        worktree = _worktree_path(worktrees_root, room_id)
+        context = _worktree_context()
+        if context is None:
+            return str(repo)
+        toplevel_path, subpath, worktrees_root_path = context
+        worktree = _worktree_path(worktrees_root_path, room_id)
         if not worktree.is_dir():
             worktree.parent.mkdir(parents=True, exist_ok=True)
-            _run_git(toplevel, "worktree", "prune", check=False)
+            _run_git(toplevel_path, "worktree", "prune", check=False)
             branch = codex_worktree_branch(agent_id, room_id)
-            if _ref_exists(toplevel, f"refs/heads/{branch}"):
-                result = _run_git(toplevel, "worktree", "add", str(worktree), branch, check=False)
+            if _ref_exists(toplevel_path, f"refs/heads/{branch}"):
+                result = _run_git(
+                    toplevel_path, "worktree", "add", str(worktree), branch, check=False
+                )
             else:
                 result = _run_git(
-                    toplevel, "worktree", "add", "-b", branch, str(worktree), "HEAD", check=False
+                    toplevel_path,
+                    "worktree",
+                    "add",
+                    "-b",
+                    branch,
+                    str(worktree),
+                    "HEAD",
+                    check=False,
                 )
             if result.returncode != 0:
                 raise RuntimeError((result.stderr or result.stdout).strip())
-        target = worktree / relative_subpath
+        target = worktree / subpath
         target.mkdir(parents=True, exist_ok=True)
         return str(target)
 
@@ -134,9 +163,12 @@ def init_git_repo(path: Path) -> None:
 
 def needs_git_init_consent(cwd: Path, declined_for: str | None) -> bool:
     """Only a decline needs remembering, scoped to that exact directory —
-    an accept needs no persistence since ``is_git_repo`` becomes true."""
+    an accept needs no persistence since ``is_git_repo`` becomes true.
+
+    Never prompts when git is not on PATH (worktrees and init both require it).
+    """
     return (
-        shutil.which("git") is not None
+        _git_on_path()
         and not is_git_repo(cwd)
         and str(cwd.resolve()) != declined_for
     )
