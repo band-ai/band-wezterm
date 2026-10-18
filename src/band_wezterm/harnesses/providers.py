@@ -88,6 +88,7 @@ class ClaudeHarness(HarnessProvider):
     def build_adapter(self, request: AdapterRequest) -> object:
         try:
             from band.adapters import ClaudeSDKAdapter  # noqa: PLC0415
+            from band.adapters.claude_sdk import ClaudeSDKAdapterConfig  # noqa: PLC0415
         except ImportError as error:
             raise _missing(self.id, error) from error
         kwargs: dict[str, Any] = {"cwd": str(request.cwd) if request.cwd else None}
@@ -95,7 +96,7 @@ class ClaudeHarness(HarnessProvider):
             kwargs["model"] = model
         _apply_reasoning(kwargs, request.tuning, kwarg="effort")
         _apply_persona(kwargs, request.persona)
-        return ClaudeSDKAdapter(**kwargs)
+        return ClaudeSDKAdapter(ClaudeSDKAdapterConfig(**kwargs))
 
     async def load_catalog(self, server: OpenCodeServerManager) -> HarnessCatalog:
         del server

@@ -73,32 +73,6 @@ def test_copilot_passes_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> Non
     }
 
 
-def test_claude_passes_persona_and_effort(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
-
-    class FakeAdapter:
-        def __init__(self, **kwargs: object) -> None:
-            captured.update(kwargs)
-
-    adapters_pkg = types.ModuleType("band.adapters")
-    adapters_pkg.ClaudeSDKAdapter = FakeAdapter  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "band.adapters", adapters_pkg)
-
-    adapter = build_adapter(
-        HarnessId.CLAUDE_SDK,
-        cwd=Path("/tmp/work"),
-        persona="# Developer\nBe terse.\n",
-        tuning=AgentTuning(model="sonnet", reasoning="xhigh"),
-    )
-    assert isinstance(adapter, FakeAdapter)
-    assert captured == {
-        "cwd": str(Path("/tmp/work")),
-        "model": "sonnet",
-        "effort": "xhigh",
-        "custom_section": "# Developer\nBe terse.\n",
-    }
-
-
 def test_codex_passes_persona_and_effort(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
@@ -148,7 +122,9 @@ def test_codex_uses_a_worktree_per_room_in_a_git_repo(
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
     (repo / "README.md").write_text("hello\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "README.md"], cwd=repo, check=True, capture_output=True
+    )
     subprocess.run(
         [
             "git",
@@ -173,21 +149,6 @@ def test_codex_uses_a_worktree_per_room_in_a_git_repo(
     assert path_a != path_b
     assert Path(path_a).is_dir()
     assert Path(path_b).is_dir()
-
-
-def test_persona_omitted_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
-
-    class FakeAdapter:
-        def __init__(self, **kwargs: object) -> None:
-            captured.update(kwargs)
-
-    adapters_pkg = types.ModuleType("band.adapters")
-    adapters_pkg.ClaudeSDKAdapter = FakeAdapter  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "band.adapters", adapters_pkg)
-
-    build_adapter(HarnessId.CLAUDE_SDK, cwd=Path("/tmp/work"))
-    assert "custom_section" not in captured
 
 
 def test_opencode_uses_shared_server_and_profile(

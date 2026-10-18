@@ -44,3 +44,7 @@ screenshots:
 # Regenerate the CLI Markdown reference from the real Cyclopts command tree
 cli-docs:
     uv run python docs/generate_cli_docs.py
+
+# Construct every managed harness against the installed SDK (no platform or LLM calls).
+test-sdk:
+    uv run --extra agents pytest tests/integration/test_sdk_compatibility.py -q

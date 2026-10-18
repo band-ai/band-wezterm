@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Final
 
 from band import Agent
-from band.runtime.types import AgentConfig
+from band.runtime.agentconfig import AgentConfig
 
 from band_wezterm.agent.adapters import build_adapter
 from band_wezterm.agent.opencode_server import OpenCodeServerManager
@@ -44,7 +44,9 @@ from band_wezterm.supervisor.protocol import (
 
 AGENT_TAB_TITLE = "Band agent"
 AGENT_TAB_ONLINE = "Online — listening to Band rooms"
-AGENT_TAB_HINT = "Read and send messages in a Band room view. Press Ctrl+C to stop this agent."
+AGENT_TAB_HINT = (
+    "Read and send messages in a Band room view. Press Ctrl+C to stop this agent."
+)
 DEFAULT_TUNING_VALUE = "automatic"
 WORKER_SOCKET_MODE: Final = 0o600
 
@@ -71,7 +73,9 @@ class WorkerController:
         if not self.enabled:
             return
         assert self._socket_path is not None
-        self._server, endpoint = await start_server(self._handle_connection, self._socket_path)
+        self._server, endpoint = await start_server(
+            self._handle_connection, self._socket_path
+        )
         self._socket_path = endpoint
         if not endpoint.startswith("tcp://"):
             await asyncio.to_thread(Path(endpoint).chmod, WORKER_SOCKET_MODE)

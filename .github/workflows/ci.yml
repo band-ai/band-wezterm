@@ -49,6 +49,20 @@ jobs:
           path: coverage.json
           if-no-files-found: error
 
+  sdk-compatibility:
+    name: installed managed harnesses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - run: uv sync --locked --extra agents
+      - run: just test-sdk
+
   wezterm-cli:
     name: wezterm mux CLI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
