@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.5](https://github.com/band-ai/band-wezterm/compare/v0.8.4...v0.8.5) (2026-11-15)
+
+
+### Bug Fixes
+
+* **band-wezterm:** adopt phoenix-channels-python-client 0.5 Channel API ([#66](https://github.com/band-ai/band-wezterm/issues/66)) ([c40930d](https://github.com/band-ai/band-wezterm/commit/c40930da321533ecb6c52be10ba8db89138a12d9))
+
 ## [0.8.4](https://github.com/band-ai/band-wezterm/compare/v0.8.3...v0.8.4) (2026-11-15)
 
 
