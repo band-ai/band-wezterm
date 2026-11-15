@@ -75,21 +75,31 @@ async def test_api_key_client_does_not_invalidate_user_session() -> None:
     await client.aclose()
 
 
+def _channel_mock(*, join: AsyncMock | None = None) -> MagicMock:
+    channel = MagicMock()
+    channel.on_any = MagicMock()
+    channel.join = join or AsyncMock()
+    channel.leave = AsyncMock()
+    return channel
+
+
 @pytest.mark.asyncio
 async def test_room_subscription_is_idempotent_and_released() -> None:
     client = BandClient.from_user_api_key("band_test", Settings())
+    channels = [_channel_mock(), _channel_mock()]
     phx = MagicMock()
-    phx.subscribe_to_topic = AsyncMock()
-    phx.unsubscribe_from_topic = AsyncMock()
+    phx.channel = MagicMock(side_effect=channels)
     client._phx = phx
     client._phx_generation = client._token_generation
 
     await client.subscribe_room("room-1")
     await client.subscribe_room("room-1")
 
-    assert phx.subscribe_to_topic.await_count == 2
+    assert phx.channel.call_count == 2
+    assert all(channel.join.await_count == 1 for channel in channels)
     await client.unsubscribe_room("room-1")
-    assert phx.unsubscribe_from_topic.await_count == 2
+    assert all(channel.leave.await_count == 1 for channel in channels)
+    assert client._phx_channels == {}
     await client.aclose()
 
 
@@ -97,7 +107,9 @@ async def test_room_subscription_is_idempotent_and_released() -> None:
 async def test_failed_room_subscription_does_not_leave_a_stale_registration() -> None:
     client = BandClient.from_user_api_key("band_test", Settings())
     phx = MagicMock()
-    phx.subscribe_to_topic = AsyncMock(side_effect=RuntimeError("socket lost"))
+    phx.channel = MagicMock(
+        return_value=_channel_mock(join=AsyncMock(side_effect=RuntimeError("socket lost")))
+    )
     client._phx = phx
     client._phx_generation = client._token_generation
 
@@ -105,4 +117,5 @@ async def test_failed_room_subscription_does_not_leave_a_stale_registration() ->
         await client.subscribe_room("room-1")
 
     assert client._realtime_rooms == set()
+    assert client._phx_channels == {}
     await client.aclose()

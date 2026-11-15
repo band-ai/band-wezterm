@@ -25,10 +25,7 @@ from band_rest.types.chat_message_request_mentions_item import (
 )
 from band_rest.types.participant_request import ParticipantRequest
 from band_sdk_core import chat_room_topic, room_participants_topic
-from phoenix_channels_python_client.client import (
-    PhoenixChannelsProtocolVersion,
-    PHXChannelsClient,
-)
+from phoenix_channels_python_client import Channel, Client, ProtocolVersion
 from pydantic import ValidationError
 
 from band_wezterm.auth.credentials import ManagedAgentKeyStore, NoApiKeyError
@@ -173,8 +170,9 @@ class BandClient:
         )
         self._messages = AsyncHumanApiMessagesClient(client_wrapper=self._wrapper)
         self._profile = AsyncHumanApiProfileClient(client_wrapper=self._wrapper)
-        self._phx: PHXChannelsClient | None = None
+        self._phx: Client | None = None
         self._phx_generation: int | None = None
+        self._phx_channels: dict[str, Channel] = {}
         self._realtime_listeners: list[Callable[[RealtimeEvent], None]] = []
         self._realtime_rooms: set[str] = set()
 
@@ -453,11 +451,8 @@ class BandClient:
         if room_id not in self._realtime_rooms:
             return
         self._realtime_rooms.remove(room_id)
-        if self._phx is None:
-            return
         for topic in (chat_room_topic(room_id), room_participants_topic(room_id)):
-            with contextlib.suppress(Exception):
-                await self._phx.unsubscribe_from_topic(topic)
+            await self._leave_channel(topic)
 
     async def _ensure_realtime(self) -> bool:
         if self._phx is not None and self._phx_generation == self._token_generation:
@@ -471,10 +466,10 @@ class BandClient:
             if self._api_key is not None
             else {"x-auth-token": token}
         )
-        client = PHXChannelsClient(
+        # Header-only auth — do not put credentials on the WebSocket query string.
+        client = Client(
             ws_url,
-            token,
-            protocol_version=PhoenixChannelsProtocolVersion.V2,
+            protocol_version=ProtocolVersion.V2,
             additional_headers=headers,
         )
         await client.__aenter__()
@@ -502,16 +497,25 @@ class BandClient:
         await self._ensure_realtime()
         assert self._phx is not None
         topics = (chat_room_topic(room_id), room_participants_topic(room_id))
+        joined: list[str] = []
         try:
             for topic in topics:
-                await self._phx.subscribe_to_topic(
-                    topic, self._realtime_handler(room_id)
-                )
+                channel = self._phx.channel(topic)
+                channel.on_any(self._realtime_handler(room_id))
+                await channel.join()
+                self._phx_channels[topic] = channel
+                joined.append(topic)
         except Exception:
-            for topic in topics:
-                with contextlib.suppress(Exception):
-                    await self._phx.unsubscribe_from_topic(topic)
+            for topic in joined:
+                await self._leave_channel(topic)
             raise
+
+    async def _leave_channel(self, topic: str) -> None:
+        channel = self._phx_channels.pop(topic, None)
+        if channel is None:
+            return
+        with contextlib.suppress(Exception):
+            await channel.leave()
 
     def _realtime_handler(self, room_id: str) -> Callable[[object], Awaitable[None]]:
         async def handler(message: object) -> None:
@@ -538,6 +542,7 @@ class BandClient:
         client = self._phx
         self._phx = None
         self._phx_generation = None
+        self._phx_channels.clear()
         log_event("realtime disconnected")
         # Teardown is best-effort; socket/supervisor may already be gone.
         with contextlib.suppress(Exception):

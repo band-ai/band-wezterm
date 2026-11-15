@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Final
 
 from band import Agent
-from band.runtime.types import AgentConfig
+from band.runtime import AgentConfig
 
 from band_wezterm.agent.adapters import build_adapter
 from band_wezterm.agent.opencode_server import OpenCodeServerManager
