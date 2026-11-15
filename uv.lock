@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -188,7 +188,7 @@ requires-dist = [
     { name = "filelock", specifier = ">=4.0.1" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "keyring", specifier = ">=25.0.0" },
-    { name = "phoenix-channels-python-client", specifier = ">=0.2.4" },
+    { name = "phoenix-channels-python-client", specifier = ">=0.2.4,<0.5" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
@@ -808,14 +808,15 @@ wheels = [
 
 [[package]]
 name = "phoenix-channels-python-client"
-version = "0.2.4"
+version = "0.4.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "pydantic" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/48/7a/c8545746a7055205a86be4b02aa545e1ed1cfdc57c797226f3cd581f7002/phoenix_channels_python_client-0.2.4.tar.gz", hash = "sha256:7b9c7f27ccbaecdecbf89fd975e9c18ce493df1dfec792d13364d385eed58395", size = 31301, upload-time = "2026-08-30T06:25:46.127Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1d/29/b8eb8c99621ccdd09175153afa71ad3d577db1c9031ef9cced90fff8c78b/phoenix_channels_python_client-0.4.4.tar.gz", hash = "sha256:1fe1699586f72d3ceb3c47bea5ee082e4fdea1ad66a54b0c42b82d1b5611bd1a", size = 91089, upload-time = "2026-11-02T09:18:03.138Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/32/5e1a22892562857d1535a676947df174c32ee39a27c56ae7d8c92908e2a4/phoenix_channels_python_client-0.2.4-py3-none-any.whl", hash = "sha256:9f18a51ce33f3edb25d2896194c415096ef5952b896276931a98096e9ddeb3ce", size = 25372, upload-time = "2026-08-30T06:25:44.58Z" },
+    { url = "https://files.pythonhosted.org/packages/67/fd/104949c26749dd6f5e11dba8bb866efa11709990851d365544f4cf9d7481/phoenix_channels_python_client-0.4.4-py3-none-any.whl", hash = "sha256:b735c0a5acf79e23b5e4068f48103a25b7ab898848717438cf7deb21428516c0", size = 44311, upload-time = "2026-11-02T09:18:01.834Z" },
 ]
 
 [[package]]
