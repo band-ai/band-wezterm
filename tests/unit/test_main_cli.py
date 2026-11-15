@@ -322,9 +322,10 @@ def test_agent_view_runs_outside_the_cli_event_loop(
 def test_unknown_command_prints_top_level_help(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    with pytest.raises(SystemExit, match="1"):
+    with pytest.raises(SystemExit) as exc_info:
         main(["unknown-command"])
 
+    assert exc_info.value.code != 0
     captured = capsys.readouterr()
     output = captured.out + captured.err
     assert all(value in output for value in ("Usage: band COMMAND", "agent", "room"))

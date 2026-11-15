@@ -49,8 +49,8 @@ Install shell completion for Band commands.
 
 **Parameters**:
 
-* `--shell`: Shell type for completion. If not specified, attempts to auto-detect current shell. *[choices: zsh, bash, fish]*
-* `--output, -o`: Output path for the completion script. If not specified, uses shell-specific default.
+* `--shell CHOICE`: Shell type for completion. If not specified, attempts to auto-detect current shell. *[choices: zsh, bash, fish]*
+* `--output, -o PATH`: Output path for the completion script. If not specified, uses shell-specific default.
 
 ## band help
 
@@ -89,7 +89,7 @@ Show recent rotating local diagnostics for incident investigation.
 
 **Parameters**:
 
-* `--tail`: *[default: 100]*
+* `--tail INT`: *[default: 100]*
 
 ## band room
 
@@ -108,9 +108,9 @@ Manage Band rooms.
 
 **Parameters**:
 
-* `--name`:
-* `--limit`: *[default: 20]*
-* `--offset`: *[default: 0]*
+* `--name STR`:
+* `--limit INT`: *[default: 20]*
+* `--offset INT`: *[default: 0]*
 
 ### band room open
 
@@ -134,9 +134,9 @@ List rooms by name prefix in a bounded page.
 
 **Parameters**:
 
-* `--name`:
-* `--limit`: *[default: 20]*
-* `--offset`: *[default: 0]*
+* `--name STR`:
+* `--limit INT`: *[default: 20]*
+* `--offset INT`: *[default: 0]*
 
 ### band room create
 
@@ -183,12 +183,12 @@ Manage detached Band agents.
 **Parameters**:
 
 * `REFERENCE, --reference`: Exact agent name or a unique agent ID prefix.
-* `--name`:
-* `--limit`: *[default: 20]*
-* `--offset`: *[default: 0]*
-* `--harness`: Harness: cl, cx, cp, or om.
-* `--state`: Runtime state: starting, running, stopping, stopped, or error.
-* `--verbose, --no-verbose, -v`: *[default: False]*
+* `--name STR`:
+* `--limit INT`: *[default: 20]*
+* `--offset INT`: *[default: 0]*
+* `--harness STR`: Harness: cl, cx, cp, or om.
+* `--state STR`: Runtime state: starting, running, stopping, stopped, or error.
+* `--verbose, -v, --no-verbose`: *[default: False]*
 
 ### band agent list
 
@@ -200,12 +200,12 @@ List agents by name prefix in a bounded page.
 
 **Parameters**:
 
-* `--name`:
-* `--limit`: *[default: 20]*
-* `--offset`: *[default: 0]*
-* `--harness`: Harness: cl, cx, cp, or om.
-* `--state`: Runtime state: starting, running, stopping, stopped, or error.
-* `--verbose, --no-verbose, -v`: *[default: False]*
+* `--name STR`:
+* `--limit INT`: *[default: 20]*
+* `--offset INT`: *[default: 0]*
+* `--harness STR`: Harness: cl, cx, cp, or om.
+* `--state STR`: Runtime state: starting, running, stopping, stopped, or error.
+* `--verbose, -v, --no-verbose`: *[default: False]*
 
 ### band agent create
 
