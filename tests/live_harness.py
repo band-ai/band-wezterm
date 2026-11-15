@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from band import Agent
-from band.runtime.types import AgentConfig
+from band.runtime import AgentConfig
 
 from band_wezterm.agent.adapters import (
     HarnessUnavailableError,
