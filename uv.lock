@@ -127,7 +127,7 @@ wheels = [
 
 [[package]]
 name = "band-wezterm"
-version = "0.8.3"
+version = "0.8.4"
 source = { editable = "." }
 dependencies = [
     { name = "band-client-rest" },
