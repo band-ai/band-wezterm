@@ -322,7 +322,7 @@ def test_agent_view_runs_outside_the_cli_event_loop(
 def test_unknown_command_prints_top_level_help(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    with pytest.raises(SystemExit, match="1"):
+    with pytest.raises(SystemExit, match="2"):
         main(["unknown-command"])
 
     captured = capsys.readouterr()
