@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "band-wezterm"
-version = "0.8.3"
+version = "0.8.4"
 description = "Band terminal host for WezTerm"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -19,7 +19,7 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0.0",
     "textual>=1.0.0",
-    "phoenix-channels-python-client>=0.2.4",
+    "phoenix-channels-python-client>=0.2.4,<0.5",
     "cyclopts>=4.25.3",
     "rich>=13.0.0",
 ]

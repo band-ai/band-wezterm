@@ -24,6 +24,7 @@ class AdapterRequest:
     persona: str | None = None
     tuning: AgentTuning = field(default_factory=AgentTuning)
     opencode_server_url: str | None = None
+    agent_id: str | None = None
 
 
 class HarnessProvider(ABC):

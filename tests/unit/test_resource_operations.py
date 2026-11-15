@@ -37,12 +37,18 @@ async def test_deleting_a_managed_agent_records_safe_lifecycle_events(
         "band_wezterm.resource_operations.log_event",
         lambda event, **context: events.append((ResourceEvent(event), context)),
     )
+    removed_worktrees: list[str] = []
+    monkeypatch.setattr(
+        "band_wezterm.resource_operations.remove_codex_worktrees",
+        removed_worktrees.append,
+    )
 
     assert await operations.delete("agent-1") is worker
 
     lifecycle.stop.assert_awaited_once_with("agent-1")
     client.delete_agent.assert_awaited_once_with("agent-1")
     profiles.remove.assert_called_once_with("agent-1")
+    assert removed_worktrees == ["agent-1"]
     assert events == [
         (ResourceEvent.AGENT_DELETE_REQUESTED, {"agent_id": "agent-1"}),
         (ResourceEvent.AGENT_STOP_REQUESTED, {"agent_id": "agent-1"}),

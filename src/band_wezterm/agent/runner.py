@@ -241,6 +241,7 @@ async def run(args: argparse.Namespace) -> int:
             persona=persona,
             tuning=tuning,
             opencode_server_url=opencode_server_url,
+            agent_id=agent_id,
         )
         config = AgentConfig(auto_subscribe_existing_rooms=True, single_instance=True)
         agent = Agent.create(

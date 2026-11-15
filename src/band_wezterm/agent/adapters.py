@@ -17,6 +17,7 @@ def build_adapter(
     persona: str | None = None,
     tuning: AgentTuning | None = None,
     opencode_server_url: str | None = None,
+    agent_id: str | None = None,
 ) -> object:
     """Construct the adapter supplied by the selected registered harness."""
     return DEFAULT_REGISTRY.build_adapter(
@@ -26,6 +27,7 @@ def build_adapter(
             persona=persona,
             tuning=tuning or AgentTuning(),
             opencode_server_url=opencode_server_url,
+            agent_id=agent_id,
         ),
     )
 

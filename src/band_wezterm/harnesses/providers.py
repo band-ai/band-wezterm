@@ -18,6 +18,7 @@ from band_wezterm.harnesses.base import (
     HarnessProvider,
     HarnessUnavailableError,
 )
+from band_wezterm.harnesses.codex_worktrees import create_codex_room_workspace_resolver
 from band_wezterm.harnesses.models import (
     TUNING_DEFAULT_OPTION_ID,
     AgentTuning,
@@ -129,10 +130,15 @@ class CodexHarness(HarnessProvider):
         kwargs: dict[str, Any] = {}
         if request.cwd is not None:
             # band-sdk defaults each room to an empty <cwd>/.band-workspaces/<room>;
-            # pin rooms to the launch dir so Codex works on the user's project.
-            # band-sdk rejects a second concurrent room sharing this workspace.
-            workspace = str(request.cwd.resolve())
-            kwargs["workspace_for_room"] = lambda _room_id: workspace
+            # give each room its own worktree of the launch repo instead, so
+            # Codex can be concurrently active in more than one room (INT-1593).
+            repo = request.cwd.resolve()
+            if request.agent_id:
+                kwargs["workspace_for_room"] = create_codex_room_workspace_resolver(
+                    repo, request.agent_id
+                )
+            else:
+                kwargs["workspace_for_room"] = lambda _room_id, _repo=str(repo): _repo
         if model := request.tuning.value_for(TuningDimensionId.MODEL):
             kwargs["model"] = model
         _apply_reasoning(kwargs, request.tuning)
